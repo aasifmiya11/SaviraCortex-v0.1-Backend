@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -10,6 +9,7 @@ from sqlalchemy import (
     Integer,
     Date,
     DateTime,
+    Boolean,
     ForeignKey,
     CheckConstraint,
     UniqueConstraint,
@@ -64,19 +64,20 @@ class DocumentVersion(Base):
             status IN (
                 'pending',
                 'active',
-                'superseded',
-                'archived'
+                'superseded'
             )
             """,
             name="chk_document_version_status",
         ),
 
-        # Only one active version per logical document.
+        # Only one non-archived active version per document.
         Index(
             "idx_one_active_version",
             "document_id",
             unique=True,
-            postgresql_where=text("status = 'active'"),
+            postgresql_where=text(
+                "status = 'active' AND archived = false"
+            ),
         ),
 
         # Hash lookup indexes.
@@ -94,6 +95,12 @@ class DocumentVersion(Base):
         Index(
             "idx_versions_status",
             "status",
+        ),
+
+        # Archive filtering index.
+        Index(
+            "idx_versions_archived",
+            "archived",
         ),
     )
 
@@ -177,14 +184,26 @@ class DocumentVersion(Base):
     )
 
     # =================================================
+    # Archive State
+    # =================================================
+
+    archived: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+
+    # =================================================
     # Storage Key
     # =================================================
 
     storage_key: Mapped[str] = mapped_column(
-    String(1000),
-    nullable=False,
-    unique=True,)
-    
+        String(1000),
+        nullable=False,
+        unique=True,
+    )
+
     # =================================================
     # Effective Dates
     # =================================================
@@ -261,5 +280,6 @@ class DocumentVersion(Base):
             f"id={self.id}, "
             f"document_id={self.document_id}, "
             f"version={self.version_number}, "
-            f"status={self.status!r})>"
+            f"status={self.status!r}, "
+            f"archived={self.archived})>"
         )

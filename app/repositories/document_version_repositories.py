@@ -1,8 +1,7 @@
-
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.orm import Session
 
 from app.models.document_versions import DocumentVersion
@@ -14,7 +13,6 @@ class DocumentVersionRepository:
         "pending",
         "active",
         "superseded",
-        "archived",
     }
 
     def __init__(self, db: Session):
@@ -53,6 +51,7 @@ class DocumentVersionRepository:
             content_hash=content_hash,
             summary=summary,
             status=status,
+            archived=False,
             effective_from=effective_from,
             effective_until=effective_until,
             supersedes_version_id=supersedes_version_id,
@@ -101,6 +100,7 @@ class DocumentVersionRepository:
         statement = select(DocumentVersion).where(
             DocumentVersion.document_id == document_id,
             DocumentVersion.status == "active",
+            DocumentVersion.archived.is_(False),
         )
 
         return self.db.scalar(statement)
@@ -128,14 +128,14 @@ class DocumentVersionRepository:
                 DocumentVersion.content_hash == content_hash
             )
 
-        from sqlalchemy import or_
-
         statement = (
             select(DocumentVersion)
             .where(or_(*conditions))
             .order_by(DocumentVersion.created_at.desc())
         )
 
+        # Intentionally includes archived versions.
+        # Archived documents must still participate in duplicate detection.
         return list(self.db.scalars(statement).all())
 
     def get_retrieval_eligible_versions(
@@ -146,18 +146,18 @@ class DocumentVersionRepository:
 
         statement = select(DocumentVersion).where(
             DocumentVersion.document_id == document_id,
-            DocumentVersion.status != "archived",
+            DocumentVersion.archived.is_(False),
         )
 
-        if not include_historical:
-            statement = statement.where(
-                DocumentVersion.status == "active"
-            )
-        else:
+        if include_historical:
             statement = statement.where(
                 DocumentVersion.status.in_(
                     ["active", "superseded"]
                 )
+            )
+        else:
+            statement = statement.where(
+                DocumentVersion.status == "active"
             )
 
         statement = statement.order_by(
@@ -247,7 +247,12 @@ class DocumentVersionRepository:
                 "A pending version cannot be archived."
             )
 
-        version.status = "archived"
+        if version.archived:
+            raise ValueError(
+                "This version is already archived."
+            )
+
+        version.archived = True
 
         self.db.flush()
         self.db.refresh(version)
@@ -271,12 +276,13 @@ class DocumentVersionRepository:
         if version is None:
             return None
 
-        if version.status != "archived":
+        if not version.archived:
             raise ValueError(
                 "Only archived versions can be unarchived."
             )
 
         version.status = restore_status
+        version.archived = False
 
         self.db.flush()
         self.db.refresh(version)
