@@ -13,4 +13,7 @@ class Settings:
     OCR_ALL_PAGES: bool = os.getenv("OCR_ALL_PAGES")
     OCR_MERGE_WITH_NATIVE: bool = os.getenv("OCR_MERGE_WITH_NATIVE")
     FASTOCR_API_KEY: str = os.getenv("FASTOCR_API_KEY")
+    QDRANT_API_KEY: str = os.getenv("QDRANT_API_KEY")
+    QDRANT_API_ENDPOINT: str = os.getenv("QDRANT_API_ENDPOINT")
+    QDRANT_COLLECTION_NAME: str = os.getenv("QDRANT_COLLECTION_NAME")
 settings = Settings()
