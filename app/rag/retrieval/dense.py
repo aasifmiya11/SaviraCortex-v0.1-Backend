@@ -1,7 +1,7 @@
 from __future__ import annotations
 from langchain_core.documents import Document
 from qdrant_client import models
-from app.rag.vector_stores.qdrant import client as qdrant_client
+from ..vector_stores.qdrant import client as qdrant_client
 
 class DenseRetriever:
     def search(self, query: str, k: int = 20, document_id: str | None = None,

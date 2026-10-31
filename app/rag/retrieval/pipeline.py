@@ -6,9 +6,9 @@ project_root = Path(__file__).resolve().parents[3]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 from langchain_core.documents import Document
-from app.rag.retrieval.bm25 import bm25_retriever
-from app.rag.retrieval.dense import dense_retriever
-from app.rag.retrieval.fusion import reciprocal_rank_fusion
+from .bm25 import bm25_retriever
+from .dense import dense_retriever
+from .fusion import reciprocal_rank_fusion
 from rich import print
 class HybridRetrievalPipeline:
     def __init__(self, bm25_weight: float = 1.0, dense_weight: float = 1.0):

@@ -34,7 +34,7 @@ from pytesseract import Output
 from langchain_core.documents import Document
 from langchain_fastocr import FastOCRLoader
 
-from app.core.config import settings
+from ...core.config import settings
 
 class OCRClient:
     """

@@ -24,11 +24,11 @@ project_root = Path(__file__).resolve().parents[3]
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from app.rag.pdf_reader.loader import pdf_loader
-from app.rag.splitters.recurrsive_text_splitter import text_splitter
+from ..pdf_reader.loader import pdf_loader
+from ..splitters.recurrsive_text_splitter import text_splitter
 
-from app.rag.vector_stores.qdrant import client as qdrant_client
-from app.rag.vector_stores.bm25 import bm25_client
+from ..vector_stores.qdrant import client as qdrant_client
+from ..vector_stores.bm25 import bm25_client
 
 
 class IngestionPipeline:

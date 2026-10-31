@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from langchain_core.documents import Document
 
-from app.rag.vector_stores.bm25 import bm25_client
+from ..vector_stores.bm25 import bm25_client
 
 
 class BM25Retriever:

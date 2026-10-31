@@ -10,8 +10,8 @@ from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient, models
 from langchain_core.documents import Document
 
-from app.rag.embeddings.huggingface_embeddings import embedding_model
-from app.core.config import settings
+from ..embeddings.huggingface_embeddings import embedding_model
+from ...core.config import settings
 
 
 class QdrantVectorStoreClient:
