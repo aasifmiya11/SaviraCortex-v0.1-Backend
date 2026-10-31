@@ -281,6 +281,14 @@ class DocumentVersionRepository:
                 "Only archived versions can be unarchived."
             )
 
+        if (
+            restore_status == "active"
+            and self.get_active_version(version.document_id) is not None
+        ):
+            raise ValueError(
+                "Another active version already exists for this document."
+            )
+
         version.status = restore_status
         version.archived = False
 
