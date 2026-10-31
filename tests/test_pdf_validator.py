@@ -1,60 +1,49 @@
+import pytest
 
-import argparse
-import sys
-from pathlib import Path
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+fitz = pytest.importorskip("fitz")
 
 from app.rag.pdf_reader.validator import PDFValidator
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Test PDF validation."
-    )
-
-    parser.add_argument(
-        "file_path",
-        help="Path to the PDF file to validate.",
-    )
-
-    args = parser.parse_args()
-
-    validator = PDFValidator(
-        max_file_size_mb=100,
-        max_pages=2000,
-    )
-
-    result = validator.validate(args.file_path)
-
-    print("\n========== PDF VALIDATION ==========")
-
-    print("Valid:", result.is_valid)
-    print("File:", result.file_path)
-    print("Size:", f"{result.file_size:,} bytes")
-    print("Pages:", result.page_count)
-
-    if result.warnings:
-        print("\nWarnings:")
-        for warning in result.warnings:
-            print(f"  [WARNING] {warning}")
-
-    if result.errors:
-        print("\nErrors:")
-        for error in result.errors:
-            print(f"  [ERROR] {error}")
-
-    if result.is_valid:
-        print("\nPDF validation successful.")
-    else:
-        print("\nPDF validation failed.")
-
-    print("====================================")
-
-    return 0 if result.is_valid else 1
+@pytest.fixture
+def valid_pdf(tmp_path):
+    pdf_path = tmp_path / "document.pdf"
+    document = fitz.open()
+    document.new_page()
+    document.save(pdf_path)
+    document.close()
+    return pdf_path
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+def test_valid_pdf(valid_pdf):
+    result = PDFValidator().validate(valid_pdf)
+
+    assert result.is_valid
+    assert result.file_size > 0
+    assert result.page_count == 1
+    assert result.errors == []
+
+
+def test_missing_pdf_is_invalid(tmp_path):
+    result = PDFValidator().validate(tmp_path / "missing.pdf")
+
+    assert not result.is_valid
+    assert "File does not exist." in result.errors
+
+
+def test_invalid_pdf_signature(tmp_path):
+    pdf_path = tmp_path / "invalid.pdf"
+    pdf_path.write_bytes(b"not a PDF")
+
+    result = PDFValidator().validate(pdf_path)
+
+    assert not result.is_valid
+    assert any("PDF signature" in error for error in result.errors)
+
+
+def test_validator_rejects_invalid_limits():
+    with pytest.raises(ValueError):
+        PDFValidator(max_file_size_mb=0)
+
+    with pytest.raises(ValueError):
+        PDFValidator(max_pages=0)
