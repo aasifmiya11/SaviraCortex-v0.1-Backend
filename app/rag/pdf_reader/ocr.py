@@ -35,7 +35,6 @@ from langchain_core.documents import Document
 from langchain_fastocr import FastOCRLoader
 
 from app.core.config import settings
-from rich import print
 
 class OCRClient:
     """
@@ -131,8 +130,9 @@ class OCRClient:
         metadata: dict[str, Any] = {"source": source, "engine": engine}
         if page_number is not None:
             metadata["page"] = page_number
-        if detections is not None:
-            metadata["detections"] = detections
+        # if detections is not None:
+        #     # metadata["detections"] = detections
+
         if extra_metadata:
             metadata.update(extra_metadata)
         return Document(page_content=text.strip(), metadata=metadata)
@@ -336,6 +336,7 @@ class OCRClient:
         file_path: str | Path,
         *,
         page_number: Optional[int] = None,
+        languages: str = "en",
     ) -> list[Document]:
         if not self.fastocr_api_key:
             raise ValueError(
@@ -409,36 +410,6 @@ class OCRClient:
             raise ValueError(f"Unsupported image format: {path.suffix}")
         return self._run_fastocr(path, languages=languages)
 
-
-
-ocr_client = OCRClient()
-if __name__ == "__main__":
-    pdf_path= r"C:\Users\miyas\Downloads\Merging pdfs\cr7_merged.pdf"
-    image_path= r"C:\Users\miyas\Downloads\TEmpo\bannar.png"
-    # Entire PDF
-    docs = ocr_client.easyocr_pdf(pdf_path)
-    print("=====[Entire Documents]=====")
-    print(docs)
-    print("=====[End of Entire Documents]=====")
-    # Specific PDF page (1-indexed)
-    doc = ocr_client.easyocr_pdf_page(pdf_path, page_number=1)
-    print("=====[Single Page Document]=====")
-    print(doc)
-    print("=====[End of Single Page Document]=====")
-    
-    # Image
-    doc = ocr_client.easyocr_image(image_path)
-    print("=====[Image Document]=====")
-    print(doc)
-    print("=====[End of Image Document]=====")
-    # 
-    # Same operations for other engines
-    docs = ocr_client.tesseract_pdf(pdf_path)
-    print("=====[Tesseract Entire Documents]=====")
-    print(docs)
-    print("=====[End of Tesseract Entire Documents]=====")
-    
-    doc = ocr_client.fastocr_pdf_page(pdf_path, page_number=1)
-    print("=====[FastOCR Single Page Document]=====")
-    print(doc)
-    print("=====[End of FastOCR Single Page Document]=====")
+# Initialized once at application import. EasyOCR is the default and its Reader
+# is initialized here, so the model is loaded once per server process.
+ocr_client = OCRClient(initialize_easyocr=True)

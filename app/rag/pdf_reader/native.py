@@ -102,17 +102,5 @@ class PyMuPDFClient:
         document.metadata["extraction_method"] = "pymupdf"
         return document
 
+# Initialized once when this module is imported.
 native_client = PyMuPDFClient()
-if __name__ == "__main__":
-    pdf_path = r"C:\Users\miyas\Downloads\Merging pdfs\cr7_merged.pdf"
-    # Entire PDF
-    docs = native_client.load_pdf(pdf_path)
-    print("=====[Entire Documents]=====")
-    print(docs)
-    print("=====[End of Entire Documents]=====")
-    
-    print("=====[Single Page Document]=====")
-    doc = native_client.load_pdf_page(pdf_path, page_number=1)
-    print(doc)
-    print("=====[End of Single Page Document]=====")
-    
