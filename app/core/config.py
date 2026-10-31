@@ -48,4 +48,6 @@ class Settings:
     B2_ENDPOINT_URL = os.getenv("B2_ENDPOINT_URL")
     B2_STORAGE_PREFIX = os.getenv("B2_STORAGE_PREFIX", "voice-ai/")
 
+
+    QDRANT_SUMMARY_COLLECTION_NAME = os.getenv( "QDRANT_SUMMARY_COLLECTION_NAME", f"{QDRANT_COLLECTION_NAME}_summaries" if QDRANT_COLLECTION_NAME else None, )
 settings = Settings()
