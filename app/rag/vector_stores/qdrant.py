@@ -66,6 +66,13 @@ class QdrantVectorStoreClient:
             query=query,
             k=k
         )
+        
+    def similarity_search_with_score(self, query: str, k: int = 4, query_filter: models.Filter | None = None):
+        return self.vector_store.similarity_search_with_score(
+            query=query,
+            k=k,
+            query_filter=query_filter
+        )
 
     def delete_collection(self):
         self.client.delete_collection(self.collection_name)
@@ -95,3 +102,4 @@ if __name__ == "__main__":
 
     for result in results:
         print(result)
+    # client.delete_collection()
