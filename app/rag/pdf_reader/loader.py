@@ -1,3 +1,4 @@
+
 """
 PDF ingestion orchestrator.
 
@@ -6,29 +7,32 @@ Pipeline:
 2. Count non-whitespace characters per page.
 3. If a page is below text_threshold, OCR that page only.
 4. Keep native text for pages that meet the threshold.
-5. Return one ordered LangChain Document per PDF page.
+5. Normalize the final page text.
+6. Return one ordered LangChain Document per PDF page.
 
-The native_client and ocr_client are imported singleton instances. They are
-not recreated for each PDF or each call.
+The native_client and ocr_client are imported singleton instances.
+They are not recreated for each PDF or each call.
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any, Literal
+
 from rich import print
 from langchain_core.documents import Document
 
-# Add the project root so ``app`` can be imported when this file is run
-# directly (for example, ``py app\rag\pdf_reader\loader.py``).
-import sys
-
+# Add project root for direct execution.
 project_root = Path(__file__).resolve().parents[3]
+
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from .native import native_client
 from .ocr import ocr_client
+from ..ingestion.text_normalizer import TextNormalizer
+
 
 OCREngine = Literal["easyocr", "tesseract", "fastocr"]
 
@@ -44,10 +48,13 @@ class PDFLoader:
         ocr_engine: OCREngine = "easyocr",
         ocr_options: dict[str, Any] | None = None,
     ) -> None:
+
         if not isinstance(text_threshold, int) or isinstance(text_threshold, bool):
             raise TypeError("text_threshold must be an integer.")
+
         if text_threshold < 0:
             raise ValueError("text_threshold cannot be negative.")
+
         if ocr_engine not in self.SUPPORTED_OCR_ENGINES:
             raise ValueError(
                 f"Unsupported OCR engine {ocr_engine!r}. "
@@ -60,15 +67,49 @@ class PDFLoader:
 
     @staticmethod
     def _text_length(document: Document) -> int:
+        """Count non-whitespace characters in extracted text."""
         return len("".join((document.page_content or "").split()))
 
-    def _run_page_ocr(self, pdf_path: Path, page_number: int) -> Document:
+    @staticmethod
+    def _normalize_documents(
+        documents: list[Document],
+    ) -> list[Document]:
+        """
+        Normalize each page independently.
+
+        Preserves the original page metadata and document order.
+        """
+        normalized_documents: list[Document] = []
+
+        for document in documents:
+            normalized_text = TextNormalizer.normalize(
+                document.page_content or ""
+            )
+
+            normalized_documents.append(
+                Document(
+                    page_content=normalized_text,
+                    metadata=dict(document.metadata or {}),
+                )
+            )
+
+        return normalized_documents
+
+    def _run_page_ocr(
+        self,
+        pdf_path: Path,
+        page_number: int,
+    ) -> Document:
+
         options = self.ocr_options
 
         if self.ocr_engine == "easyocr":
             result = ocr_client.easyocr_pdf_page(
-                pdf_path, page_number=page_number, dpi=options.get("dpi")
+                pdf_path,
+                page_number=page_number,
+                dpi=options.get("dpi"),
             )
+
         elif self.ocr_engine == "tesseract":
             result = ocr_client.tesseract_pdf_page(
                 pdf_path,
@@ -77,6 +118,7 @@ class PDFLoader:
                 language=options.get("language", "eng"),
                 config=options.get("config", "--psm 3"),
             )
+
         else:
             result = ocr_client.fastocr_pdf_page(
                 pdf_path,
@@ -85,20 +127,27 @@ class PDFLoader:
                 languages=options.get("languages", "en"),
             )
 
-        # EasyOCR/Tesseract page methods return Document; FastOCR currently
-        # returns list[Document], so normalize both forms.
+        # EasyOCR/Tesseract return Document.
+        # FastOCR currently returns list[Document].
         if isinstance(result, Document):
             return result
+
         if isinstance(result, list):
-            text = "\\n".join(
+            text = "\n".join(
                 item.page_content.strip()
                 for item in result
                 if item.page_content and item.page_content.strip()
             )
+
             metadata = dict(result[0].metadata or {}) if result else {}
+
             if len(result) > 1:
                 metadata["ocr_document_count"] = len(result)
-            return Document(page_content=text, metadata=metadata)
+
+            return Document(
+                page_content=text,
+                metadata=metadata,
+            )
 
         raise TypeError(
             f"{self.ocr_engine} returned {type(result).__name__}; "
@@ -106,27 +155,39 @@ class PDFLoader:
         )
 
     def load_pdf(self, pdf_path: str | Path) -> list[Document]:
-        """Load a PDF and return one final Document per page, in page order."""
+        """
+        Load a PDF and return one normalized Document per page.
+        """
         path = Path(pdf_path).expanduser().resolve()
+
         if not path.exists() or not path.is_file():
             raise FileNotFoundError(f"PDF file does not exist: {path}")
+
         if path.suffix.lower() != ".pdf":
             raise ValueError(f"Expected a PDF file: {path}")
 
         # First pass: native extraction of the entire PDF.
         native_documents = native_client.load_pdf(path)
+
         final_documents: list[Document] = []
 
         for page_index, native_document in enumerate(native_documents):
+
             page_number = page_index + 1
             native_text = native_document.page_content or ""
             native_length = self._text_length(native_document)
 
             if native_length < self.text_threshold:
-                # OCR only this page, not the entire PDF.
-                ocr_document = self._run_page_ocr(path, page_number)
+
+                # OCR only the page with insufficient native text.
+                ocr_document = self._run_page_ocr(
+                    path,
+                    page_number,
+                )
+
                 metadata = dict(native_document.metadata or {})
                 metadata.update(dict(ocr_document.metadata or {}))
+
                 metadata.update({
                     "source": str(path),
                     "page": page_number,
@@ -134,14 +195,18 @@ class PDFLoader:
                     "native_text_length": native_length,
                     "ocr_used": True,
                 })
+
                 final_documents.append(
                     Document(
-                        page_content=(ocr_document.page_content or "").strip(),
+                        page_content=ocr_document.page_content or "",
                         metadata=metadata,
                     )
                 )
+
             else:
+
                 metadata = dict(native_document.metadata or {})
+
                 metadata.update({
                     "source": str(path),
                     "page": page_number,
@@ -149,28 +214,44 @@ class PDFLoader:
                     "native_text_length": native_length,
                     "ocr_used": False,
                 })
+
                 final_documents.append(
-                    Document(page_content=native_text.strip(), metadata=metadata)
+                    Document(
+                        page_content=native_text,
+                        metadata=metadata,
+                    )
                 )
 
-        return final_documents
+        # Normalize only after native/OCR extraction is complete.
+        return self._normalize_documents(final_documents)
 
     def load(self, pdf_path: str | Path) -> list[Document]:
         """Loader-style alias for load_pdf()."""
         return self.load_pdf(pdf_path)
 
 
-# Reusable orchestrator instance. Clients are already module-level singletons.
-pdf_loader = PDFLoader(text_threshold=100, ocr_engine="easyocr")
+# Reusable orchestrator instance.
+pdf_loader = PDFLoader(
+    text_threshold=100,
+    ocr_engine="easyocr",
+)
 
 
 if __name__ == "__main__":
-    # Example usage
-    loader = PDFLoader(text_threshold=100, ocr_engine="easyocr")
+
+    loader = PDFLoader(
+        text_threshold=100,
+        ocr_engine="easyocr",
+    )
+
     pdf_path = r"C:\Users\miyas\Downloads\organized.pdf"
+
     documents = loader.load(pdf_path)
+
     for doc in documents:
-        print(f"Page {doc.metadata.get('page')}: {len(doc.page_content)} characters")
+        print(
+            f"Page {doc.metadata.get('page')}: "
+            f"{len(doc.page_content)} characters"
+        )
         print(doc)
-        
-        print("-" * 80,"\n\n\n")
+        print("-" * 80)
