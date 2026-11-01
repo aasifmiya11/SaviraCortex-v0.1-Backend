@@ -142,27 +142,7 @@ class DocumentIndexingService:
         ):
             raise ValueError("source_filename must be non-empty.")
 
-    @staticmethod
-    def _prepare_chunks(
-        page_documents: list[Document],
-        document_id: str,
-        document_version_id: str,
-        version_number: int,
-        source_filename: str,
-    ) -> list[Document]:
-        """
-        Split every extracted page and attach version-specific metadata.
-        """
-
-        chunks: list[Document] = []
-
-        for chunk_index, chunk in enumerate(page_documents):
-            # This method is not used directly; it exists only to make
-            # the metadata preparation contract explicit.
-            raise NotImplementedError
-
-        return chunks
-
+    
     def _attach_metadata(
         self,
         chunks: list[Document],

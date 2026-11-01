@@ -73,12 +73,41 @@ class QdrantVectorStoreClient:
     # ADD DOCUMENTS
     # --------------------------------------------------
 
-    def add_documents(self, documents: list[Document]):
-
+    def add_documents(self,documents: list[Document],ids: list[str] | None = None,) -> list[str]:   
         if not documents:
             return []
 
-        return self.vector_store.add_documents(documents)
+        if ids is not None:
+            if len(ids) != len(documents):
+                raise ValueError(
+                    "The number of IDs must match the number of documents."
+                )
+
+            if len(set(ids)) != len(ids):
+                raise ValueError("Document IDs must be unique.")
+
+        inserted_ids = self.vector_store.add_documents(
+            documents=documents,
+            ids=ids,
+        )
+
+        # LangChain stores document metadata under the ``metadata`` payload
+        # key. Keep that representation for retrieval compatibility while
+        # also exposing indexed-document fields at the payload root for
+        # direct Qdrant inspection and filtering.
+        payload_by_id = {
+            point_id: dict(document.metadata or {})
+            for point_id, document in zip(inserted_ids, documents)
+        }
+        for point_id, payload in payload_by_id.items():
+            self.client.set_payload(
+                collection_name=self.collection_name,
+                payload=payload,
+                points=[point_id],
+                wait=True,
+            )
+
+        return inserted_ids
 
     # --------------------------------------------------
     # SEARCH
@@ -143,25 +172,6 @@ class QdrantVectorStoreClient:
         )
 
 
-
-    def add_documents(self,documents: list[Document],ids: list[str] | None = None,) -> list[str]:
-
-        if not documents:
-            return []
-
-        if ids is not None:
-            if len(ids) != len(documents):
-                raise ValueError(
-                    "The number of IDs must match the number of documents."
-                )
-
-            if len(set(ids)) != len(ids):
-                raise ValueError("Qdrant point IDs must be unique.")
-
-        return self.vector_store.add_documents(
-            documents,
-            ids=ids,
-        )
 
 # Singleton instance
 client = QdrantVectorStoreClient()
