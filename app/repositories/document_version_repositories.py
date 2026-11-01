@@ -4,8 +4,8 @@ from uuid import UUID
 from sqlalchemy import select, or_
 from sqlalchemy.orm import Session
 
+from app.models.documents import Document
 from app.models.document_versions import DocumentVersion
-
 
 class DocumentVersionRepository:
 
@@ -37,11 +37,13 @@ class DocumentVersionRepository:
         effective_until: date | None = None,
         supersedes_version_id: UUID | None = None,
         page_count: int | None = None,
+        version_id: UUID | None = None,
     ) -> DocumentVersion:
 
         self._validate_status(status)
 
         version = DocumentVersion(
+            id=version_id,
             document_id=document_id,
             version_number=version_number,
             version_label=version_label,
@@ -51,7 +53,6 @@ class DocumentVersionRepository:
             content_hash=content_hash,
             summary=summary,
             status=status,
-            archived=False,
             effective_from=effective_from,
             effective_until=effective_until,
             supersedes_version_id=supersedes_version_id,
@@ -296,6 +297,100 @@ class DocumentVersionRepository:
         self.db.refresh(version)
 
         return version
+    
+    
+
+    def activate_pending_version(
+        self,
+        version_id: UUID,
+    ) -> tuple[DocumentVersion, DocumentVersion | None] | None:
+        """
+        Atomically activate a pending document version.
+    
+        Locks the parent document first to serialize concurrent
+        activations for the same document.
+    
+        Supersedes the previous active version before activating
+        the target version to satisfy the partial unique index.
+    
+        Flushes changes but does not commit.
+        The caller owns the outer transaction.
+        """
+    
+        # 1. Read target to identify its parent document.
+        target = self.db.scalar(
+            select(DocumentVersion).where(
+                DocumentVersion.id == version_id
+            )
+        )
+    
+        if target is None:
+            return None
+    
+        document_id = target.document_id
+    
+        # 2. Lock parent document first.
+        document = self.db.scalar(
+            select(Document)
+            .where(Document.id == document_id)
+            .with_for_update()
+        )
+    
+        if document is None:
+            raise ValueError(
+                f"Parent document not found: {document_id}"
+            )
+    
+        # 3. Lock and reload target version.
+        target = self.db.scalar(
+            select(DocumentVersion)
+            .where(
+                DocumentVersion.id == version_id,
+                DocumentVersion.document_id == document_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    
+        if target is None:
+            return None
+    
+        # 4. Validate lifecycle state.
+        if target.archived:
+            raise ValueError(
+                "An archived version cannot be activated."
+            )
+    
+        if target.status != "pending":
+            raise ValueError(
+                f"Only pending versions can be activated. "
+                f"Current status: {target.status}"
+            )
+    
+        # 5. Find and lock previous active version.
+        previous_active = self.db.scalar(
+            select(DocumentVersion)
+            .where(
+                DocumentVersion.document_id == document_id,
+                DocumentVersion.status == "active",
+                DocumentVersion.archived.is_(False),
+                DocumentVersion.id != version_id,
+            )
+            .with_for_update()
+        )
+    
+        # 6. Supersede previous active version and flush first.
+        if previous_active is not None:
+            previous_active.status = "superseded"
+            self.db.flush()
+    
+        # 7. Activate target only after previous status is persisted.
+        target.status = "active"
+        self.db.flush()
+    
+        return target, previous_active
+    
+
 
     # ================================================
     # DELETE

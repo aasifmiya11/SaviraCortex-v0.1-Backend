@@ -1,24 +1,75 @@
 from __future__ import annotations
+
 from langchain_core.documents import Document
 from qdrant_client import models
+
 from ..vector_stores.qdrant import client as qdrant_client
 
+
 class DenseRetriever:
-    def search(self, query: str, k: int = 20, document_id: str | None = None,
-               user_id: str | None = None) -> list[tuple[Document, float]]:
+
+    def __init__(self, vector_store=None):
+        self.vector_store = vector_store or qdrant_client
+
+    def search(
+        self,
+        query: str,
+        k: int = 20,
+        document_id: str | None = None,
+        user_id: str | None = None,
+        status: str | None = "active",
+    ) -> list[tuple[Document, float]]:
+
         if not query or not query.strip():
             raise ValueError("query cannot be empty.")
+
         if k < 1:
             raise ValueError("k must be at least 1.")
+
+        if status is not None and not status.strip():
+            raise ValueError("status cannot be empty.")
+
         conditions = []
+
+        # Filter by logical document ID.
         if document_id is not None:
-            conditions.append(models.FieldCondition(
-                key="metadata.document_id", match=models.MatchValue(value=str(document_id))))
+            conditions.append(
+                models.FieldCondition(
+                    key="metadata.document_id",
+                    match=models.MatchValue(value=str(document_id)),
+                )
+            )
+
+        # Filter by user ID.
         if user_id is not None:
-            conditions.append(models.FieldCondition(
-                key="metadata.user_id", match=models.MatchValue(value=str(user_id))))
-        qdrant_filter = models.Filter(must=conditions) if conditions else None
-        return qdrant_client.similarity_search_with_score(
-            query=query, k=k, query_filter=qdrant_filter)
+            conditions.append(
+                models.FieldCondition(
+                    key="metadata.user_id",
+                    match=models.MatchValue(value=str(user_id)),
+                )
+            )
+
+        # Lifecycle filtering.
+        # Normal retrieval should include active versions only.
+        if status is not None:
+            conditions.append(
+                models.FieldCondition(
+                    key="metadata.status",
+                    match=models.MatchValue(value=status),
+                )
+            )
+
+        qdrant_filter = (
+            models.Filter(must=conditions)
+            if conditions
+            else None
+        )
+
+        return self.vector_store.similarity_search_with_score(
+            query=query,
+            k=k,
+            query_filter=qdrant_filter,
+        )
+
 
 dense_retriever = DenseRetriever()

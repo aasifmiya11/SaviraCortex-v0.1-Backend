@@ -16,25 +16,20 @@ class DocumentRepository:
     # CREATE
     # ================================================
 
-    def create(
-        self,
-        title: str,
-        document_type: str,
-        department: str | None = None,
-        description: str | None = None,
-    ) -> Document:
+    def create(self,title: str,document_type: str,department: str | None = None,description: str | None = None,document_id: UUID | None = None,) -> Document:
 
         document = Document(
+            id=document_id,
             title=title,
             document_type=document_type,
             department=department,
             description=description,
         )
-
+    
         self.db.add(document)
         self.db.flush()
         self.db.refresh(document)
-
+    
         return document
 
     # ================================================

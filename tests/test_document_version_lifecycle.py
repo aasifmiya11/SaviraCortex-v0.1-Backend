@@ -1,3 +1,4 @@
+
 import uuid
 
 import pytest
@@ -338,6 +339,118 @@ def test_cannot_unarchive_non_archived_version():
                     version.id,
                     restore_status="superseded",
                 )
+
+        finally:
+            db.rollback()
+
+
+# ============================================================
+# Pending Version Activation Tests
+# ============================================================
+
+
+def test_activate_pending_version_without_previous_active():
+    with get_db_session() as db:
+        try:
+            document, version = create_document_and_version(
+                db,
+                status="pending",
+            )
+
+            version_repo = DocumentVersionRepository(db)
+
+            activated, previous = version_repo.activate_pending_version(
+                version.id
+            )
+
+            assert activated.id == version.id
+            assert activated.status == "active"
+            assert activated.archived is False
+            assert previous is None
+
+            active = version_repo.get_active_version(document.id)
+
+            assert active is not None
+            assert active.id == version.id
+
+        finally:
+            db.rollback()
+
+
+def test_activate_pending_version_supersedes_previous_active():
+    with get_db_session() as db:
+        try:
+            document, previous_version = create_document_and_version(
+                db,
+                status="active",
+            )
+
+            version_repo = DocumentVersionRepository(db)
+
+            pending_version = version_repo.create(
+                document_id=document.id,
+                version_number=2,
+                original_filename="version_2.pdf",
+                storage_key=(
+                    f"test/documents/{uuid.uuid4().hex}.pdf"
+                ),
+                summary="Second version summary.",
+                status="pending",
+                page_count=8,
+            )
+
+            activated, previous = version_repo.activate_pending_version(
+                pending_version.id
+            )
+
+            assert activated.id == pending_version.id
+            assert activated.status == "active"
+
+            assert previous is not None
+            assert previous.id == previous_version.id
+            assert previous.status == "superseded"
+
+            active = version_repo.get_active_version(document.id)
+
+            assert active is not None
+            assert active.id == pending_version.id
+
+        finally:
+            db.rollback()
+
+
+def test_activate_superseded_version_is_rejected():
+    with get_db_session() as db:
+        try:
+            _, version = create_document_and_version(
+                db,
+                status="superseded",
+            )
+
+            version_repo = DocumentVersionRepository(db)
+
+            with pytest.raises(ValueError):
+                version_repo.activate_pending_version(version.id)
+
+        finally:
+            db.rollback()
+
+
+def test_activate_archived_pending_version_is_rejected():
+    with get_db_session() as db:
+        try:
+            _, version = create_document_and_version(
+                db,
+                status="pending",
+            )
+
+            version.archived = True
+            db.flush()
+
+            version_repo = DocumentVersionRepository(db)
+
+            with pytest.raises(ValueError):
+                version_repo.activate_pending_version(version.id)
 
         finally:
             db.rollback()

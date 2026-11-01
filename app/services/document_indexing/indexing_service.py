@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID, uuid5, NAMESPACE_URL
 
 from langchain_core.documents import Document
 
@@ -244,10 +244,7 @@ class DocumentIndexingService:
 
         # 3. Generate Qdrant IDs before insertion.
         # This makes partial insertion cleanup possible.
-        qdrant_point_ids = [
-            str(uuid4())
-            for _ in chunks
-        ]
+        qdrant_point_ids = [ str( uuid5( NAMESPACE_URL, f"voice-ai:{document_version_id}:{chunk_index}", ) ) for chunk_index in range(len(chunks)) ]
 
         try:
             # 4. Dense indexing.

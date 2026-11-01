@@ -138,6 +138,51 @@ class QdrantVectorStoreClient:
         )
 
     # --------------------------------------------------
+    # UPDATE LIFECYCLE STATUS
+    # --------------------------------------------------
+
+    def update_version_status(
+        self,
+        document_version_id: str,
+        status: str,
+    ) -> None:
+        """Update lifecycle status for every chunk of a version."""
+
+        if not document_version_id or not document_version_id.strip():
+            raise ValueError("document_version_id cannot be empty.")
+
+        if not status or not status.strip():
+            raise ValueError("status cannot be empty.")
+
+        points_filter = models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="metadata.document_version_id",
+                    match=models.MatchValue(
+                        value=document_version_id
+                    ),
+                )
+            ]
+        )
+
+        # Update root-level status.
+        self.client.set_payload(
+            collection_name=self.collection_name,
+            payload={"status": status},
+            points=points_filter,
+            wait=True,
+        )
+
+        # Update only metadata.status, preserving other metadata.
+        self.client.set_payload(
+            collection_name=self.collection_name,
+            payload={"status": status},
+            points=points_filter,
+            key="metadata",
+            wait=True,
+        )
+
+    # --------------------------------------------------
     # DELETE SPECIFIC POINTS
     # --------------------------------------------------
 

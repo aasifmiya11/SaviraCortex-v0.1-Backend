@@ -224,6 +224,7 @@ class BM25VectorStoreClient:
         k: int = 4,
         document_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        status: str | None = "active",
     ) -> list[tuple[Document, float]]:
 
         if k <= 0:
@@ -256,11 +257,16 @@ class BM25VectorStoreClient:
                     if metadata.get("user_id") != user_id:
                         continue
 
+                # Lifecycle filtering.
+                if status is not None:
+                    if metadata.get("status") != status:
+                        continue
+
                 results.append((document, float(score)))
 
             results.sort(
                 key=lambda item: item[1],
-                reverse=True
+                reverse=True,
             )
 
             return results[:k]
@@ -271,17 +277,65 @@ class BM25VectorStoreClient:
         k: int = 4,
         document_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        status: str | None = "active",
     ) -> list[Document]:
 
         results = self.similarity_search_with_score(
             query=query,
             k=k,
             document_id=document_id,
-            user_id=user_id
+            user_id=user_id,
+            status=status,
         )
 
         return [document for document, _ in results]
 
+
+    def update_version_status(
+        self,
+        document_version_id: str,
+        status: str,
+    ) -> int:
+        """Update lifecycle status in SQLite and rebuild the BM25 index."""
+
+        if not document_version_id or not document_version_id.strip():
+            raise ValueError("document_version_id cannot be empty.")
+
+        if not status or not status.strip():
+            raise ValueError("status cannot be empty.")
+
+        with self._lock:
+            with self._get_connection() as conn:
+                rows = conn.execute(
+                    """
+                    SELECT chunk_id, metadata
+                    FROM bm25_documents
+                    WHERE document_version_id = ?
+                    """,
+                    (document_version_id,),
+                ).fetchall()
+
+                for chunk_id, metadata_json in rows:
+                    metadata = json.loads(metadata_json)
+                    metadata["status"] = status
+
+                    conn.execute(
+                        """
+                        UPDATE bm25_documents
+                        SET metadata = ?
+                        WHERE chunk_id = ?
+                        """,
+                        (
+                            json.dumps(metadata),
+                            chunk_id,
+                        ),
+                    )
+
+            self._load_index()
+
+        return len(rows)
+    
+    
     # --------------------------------------------------
     # DELETE DOCUMENT
     # --------------------------------------------------

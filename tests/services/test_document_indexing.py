@@ -188,3 +188,32 @@ def test_invalid_version_number_is_rejected(pages, dependencies):
             version_number=0,
             source_filename="policy.pdf",
         )
+
+def test_qdrant_ids_are_deterministic(pages, dependencies):
+    splitter, qdrant, bm25 = dependencies
+
+    service = DocumentIndexingService(
+        text_splitter=splitter,
+        qdrant_store=qdrant,
+        bm25_store=bm25,
+    )
+
+    first_result = service.index_document_version(
+        page_documents=pages,
+        document_id="document-1",
+        document_version_id="version-1",
+        version_number=1,
+        source_filename="policy.pdf",
+    )
+
+    second_result = service.index_document_version(
+        page_documents=pages,
+        document_id="document-1",
+        document_version_id="version-1",
+        version_number=1,
+        source_filename="policy.pdf",
+    )
+
+    assert first_result.qdrant_point_ids == second_result.qdrant_point_ids
+    assert len(set(first_result.qdrant_point_ids)) == 2
+    assert qdrant.add_documents.call_count == 2

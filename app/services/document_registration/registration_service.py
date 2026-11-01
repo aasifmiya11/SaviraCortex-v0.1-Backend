@@ -110,6 +110,7 @@ class DocumentRegistrationService:
         version_number: int,
         data: VersionRegistrationData,
         supersedes_version_id: UUID | None = None,
+        version_id: UUID | None = None,
     ) -> DocumentVersion:
         return self.version_repository.create(
             document_id=document_id,
@@ -125,6 +126,7 @@ class DocumentRegistrationService:
             effective_until=data.effective_until,
             supersedes_version_id=supersedes_version_id,
             page_count=data.page_count,
+            version_id=version_id,
         )
 
     @staticmethod
@@ -144,6 +146,9 @@ class DocumentRegistrationService:
         self,
         document_data: DocumentRegistrationData,
         version_data: VersionRegistrationData,
+        *,
+        document_id: UUID | None = None,
+        version_id: UUID | None = None,
     ) -> RegistrationResult:
         """
         Create a new logical document and its first pending version.
@@ -160,12 +165,14 @@ class DocumentRegistrationService:
                 document_type=document_data.document_type.strip(),
                 department=document_data.department,
                 description=document_data.description,
+                document_id=document_id,
             )
 
             version = self._create_version(
                 document_id=document.id,
                 version_number=1,
                 data=version_data,
+                version_id=version_id,
             )
 
             result = self._build_result(document, version)
@@ -176,19 +183,18 @@ class DocumentRegistrationService:
         self,
         document_id: UUID,
         version_data: VersionRegistrationData,
+        *,
+        version_id: UUID | None = None,
     ) -> RegistrationResult:
         """
         Create a pending version for an existing logical document.
-
         The document row is locked while calculating the next version
         number, preventing concurrent registrations from choosing the
         same number when the transaction is committed.
         """
         if not isinstance(document_id, UUID):
             raise TypeError("document_id must be a UUID.")
-
         self._validate_version_data(version_data)
-
         with self.db.begin_nested():
             # Lock the parent document to serialize version creation.
             document = self.db.scalar(
@@ -196,16 +202,13 @@ class DocumentRegistrationService:
                 .where(Document.id == document_id)
                 .with_for_update()
             )
-
             if document is None:
                 raise ValueError(
                     f"Document not found: {document_id}"
                 )
-
             existing_versions = (
                 self.version_repository.get_by_document(document_id)
             )
-
             next_version_number = (
                 max(
                     version.version_number
@@ -214,11 +217,9 @@ class DocumentRegistrationService:
                 if existing_versions
                 else 1
             )
-
             active_version = (
                 self.version_repository.get_active_version(document_id)
             )
-
             version = self._create_version(
                 document_id=document_id,
                 version_number=next_version_number,
@@ -226,8 +227,7 @@ class DocumentRegistrationService:
                 supersedes_version_id=(
                     active_version.id if active_version else None
                 ),
+                version_id=version_id,
             )
-
             result = self._build_result(document, version)
-
         return result

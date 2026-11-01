@@ -141,3 +141,31 @@ def test_reject_empty_document_title():
             )
 
         db.rollback()
+
+def test_register_new_document_with_preassigned_ids():
+    document_id = uuid4()
+    version_id = uuid4()
+
+    with get_db_session() as db:
+        service = DocumentRegistrationService(db)
+
+        result = service.register_new_document(
+            DocumentRegistrationData(
+                title=f"Preassigned ID Test {uuid4()}",
+                document_type="Policy",
+            ),
+            make_version_data(),
+            document_id=document_id,
+            version_id=version_id,
+        )
+
+        assert result.document_id == document_id
+        assert result.document_version_id == version_id
+
+        document = db.get(Document, document_id)
+        version = db.get(DocumentVersion, version_id)
+
+        assert document is not None
+        assert version is not None
+
+        db.rollback()
