@@ -1,10 +1,13 @@
+
 import sys
 from pathlib import Path
 
 # Add project root
 project_root = Path(__file__).resolve().parents[3]
+
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
+
 
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient, models
@@ -17,25 +20,31 @@ from ...core.config import settings
 class QdrantVectorStoreClient:
 
     def __init__(self):
+
         self.collection_name = settings.QDRANT_COLLECTION_NAME
 
-        # Connect to Qdrant
+        # Connect to Qdrant.
         self.client = QdrantClient(
             url=settings.QDRANT_API_ENDPOINT,
             api_key=settings.QDRANT_API_KEY
         )
 
-        # Create collection if it does not exist
+        # Create collection if it does not exist.
         self._create_collection_if_not_exists()
 
-        # Initialize LangChain vector store
+        # Initialize LangChain vector store.
         self.vector_store = QdrantVectorStore(
             client=self.client,
             collection_name=self.collection_name,
             embedding=embedding_model
         )
 
+    # --------------------------------------------------
+    # COLLECTION MANAGEMENT
+    # --------------------------------------------------
+
     def _create_collection_if_not_exists(self):
+
         if not self.client.collection_exists(self.collection_name):
 
             embedding_dimension = len(
@@ -53,30 +62,85 @@ class QdrantVectorStoreClient:
             print(
                 f"Created Qdrant collection: {self.collection_name}"
             )
+
         else:
+
             print(
                 f"Using existing Qdrant collection: {self.collection_name}"
             )
 
+    # --------------------------------------------------
+    # ADD DOCUMENTS
+    # --------------------------------------------------
+
     def add_documents(self, documents: list[Document]):
+
+        if not documents:
+            return []
+
         return self.vector_store.add_documents(documents)
 
-    def similarity_search(self, query: str, k: int = 4):
+    # --------------------------------------------------
+    # SEARCH
+    # --------------------------------------------------
+
+    def similarity_search(
+        self,
+        query: str,
+        k: int = 4
+    ):
+
         return self.vector_store.similarity_search(
             query=query,
             k=k
         )
-        
-    def similarity_search_with_score(self, query: str, k: int = 4, query_filter: models.Filter | None = None):
+
+    def similarity_search_with_score(
+        self,
+        query: str,
+        k: int = 4,
+        query_filter: models.Filter | None = None
+    ):
+
         return self.vector_store.similarity_search_with_score(
             query=query,
             k=k,
             query_filter=query_filter
         )
 
+    # --------------------------------------------------
+    # DELETE SPECIFIC POINTS
+    # --------------------------------------------------
+
+    def delete_points(self, point_ids: list[str | int]) -> None:
+        """
+        Delete specific Qdrant points by their IDs.
+
+        Used for compensating cleanup when indexing fails.
+        """
+
+        if not point_ids:
+            return
+
+        self.client.delete(
+            collection_name=self.collection_name,
+            points_selector=models.PointIdsList(
+                points=point_ids
+            ),
+            wait=True,
+        )
+
+    # --------------------------------------------------
+    # DELETE COLLECTION
+    # --------------------------------------------------
+
     def delete_collection(self):
+
         self.client.delete_collection(self.collection_name)
-        print(f"Deleted collection: {self.collection_name}")
+
+        print(
+            f"Deleted collection: {self.collection_name}"
+        )
 
 
 # Singleton instance
@@ -96,10 +160,14 @@ if __name__ == "__main__":
         )
     ]
 
-    client.add_documents(documents)
+    point_ids = client.add_documents(documents)
+
+    print("Inserted point IDs:", point_ids)
 
     results = client.similarity_search("Hello", k=2)
 
     for result in results:
         print(result)
+
+    # client.delete_points(point_ids)
     # client.delete_collection()

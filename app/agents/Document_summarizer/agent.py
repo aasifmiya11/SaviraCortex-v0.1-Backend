@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from typing import Any
 from typing import Sequence
 
 from langchain_core.documents import Document
@@ -37,12 +39,15 @@ class DocumentSummarizerAgent:
     def __init__(
         self,
         config: DocumentSummarizerConfig | None = None,
+        client: Any | None = None,
+        model: str | None = None,
     ) -> None:
 
         self.config = config or DocumentSummarizerConfig()
+        self.client = client
+        self.model = model
 
-        # Shared LLM instance
-        self.llm = llm_client.get_llm()
+        self.llm = None if client is not None else llm_client.get_llm()
 
         # Structured output parser
         self.parser = PydanticOutputParser(
@@ -57,18 +62,14 @@ class DocumentSummarizerAgent:
             format_instructions=self.parser.get_format_instructions(),
         )
 
-        # Apply agent-specific generation settings
-        model = self.llm.bind(
-            temperature=self.config.temperature,
-            max_tokens=self.config.max_output_tokens,
-        )
-
-        # Construct the LangChain pipeline
-        self.chain = (
-            self.prompt
-            | model
-            | self.parser
-        )
+        if self.client is not None:
+            self.chain = None
+        else:
+            model = self.llm.bind(
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_output_tokens,
+            )
+            self.chain = self.prompt | model | self.parser
 
     # =====================================================
     # Input Preparation
@@ -136,12 +137,46 @@ class DocumentSummarizerAgent:
         # Prepare sampled page contents
         document_text = self._prepare_pages(pages)
 
-        # Execute LangChain pipeline:
-        # PromptTemplate -> ChatOpenAI -> PydanticOutputParser
-        result = self.chain.invoke(
-            {
-                "document_text": document_text,
-            }
+        if self.client is None:
+            return self.chain.invoke({"document_text": document_text})
+
+        rendered_prompt = self.prompt.invoke(
+            {"document_text": document_text}
+        ).to_string()
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Return only the JSON object requested by the user."
+                    ),
+                },
+                {"role": "user", "content": rendered_prompt},
+            ],
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_output_tokens,
         )
 
-        return result
+        try:
+            message = response.choices[0].message
+            if getattr(message, "refusal", None):
+                raise DocumentSummarizerError(
+                    f"LLM refused the request: {message.refusal}"
+                )
+
+            content = getattr(message, "content", None)
+            if not isinstance(content, str) or not content.strip():
+                raise DocumentSummarizerError(
+                    "LLM returned an empty response."
+                )
+
+            return DocumentSummarizerOutput.model_validate(
+                json.loads(content)
+            )
+        except DocumentSummarizerError:
+            raise
+        except (IndexError, AttributeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise DocumentSummarizerError(
+                "LLM response could not be parsed or validated."
+            ) from exc
