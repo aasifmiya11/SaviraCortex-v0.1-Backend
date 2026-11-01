@@ -143,6 +143,26 @@ class QdrantVectorStoreClient:
         )
 
 
+
+    def add_documents(self,documents: list[Document],ids: list[str] | None = None,) -> list[str]:
+
+        if not documents:
+            return []
+
+        if ids is not None:
+            if len(ids) != len(documents):
+                raise ValueError(
+                    "The number of IDs must match the number of documents."
+                )
+
+            if len(set(ids)) != len(ids):
+                raise ValueError("Qdrant point IDs must be unique.")
+
+        return self.vector_store.add_documents(
+            documents,
+            ids=ids,
+        )
+
 # Singleton instance
 client = QdrantVectorStoreClient()
 
