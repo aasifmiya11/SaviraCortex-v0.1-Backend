@@ -80,7 +80,12 @@ class QdrantVectorStoreClient:
     # ADD DOCUMENTS
     # --------------------------------------------------
 
-    def add_documents(self,documents: list[Document],ids: list[str] | None = None,) -> list[str]:   
+    def add_documents(
+        self,
+        documents: list[Document],
+        ids: list[str] | None = None,
+    ) -> list[str]:
+
         if not documents:
             return []
 
@@ -98,14 +103,12 @@ class QdrantVectorStoreClient:
             ids=ids,
         )
 
-        # LangChain stores document metadata under the ``metadata`` payload
-        # key. Keep that representation for retrieval compatibility while
-        # also exposing indexed-document fields at the payload root for
-        # direct Qdrant inspection and filtering.
+        # Preserve the existing root-level metadata representation.
         payload_by_id = {
             point_id: dict(document.metadata or {})
             for point_id, document in zip(inserted_ids, documents)
         }
+
         for point_id, payload in payload_by_id.items():
             self.client.set_payload(
                 collection_name=self.collection_name,
@@ -117,13 +120,13 @@ class QdrantVectorStoreClient:
         return inserted_ids
 
     # --------------------------------------------------
-    # SEARCH
+    # DENSE SEARCH
     # --------------------------------------------------
 
     def similarity_search(
         self,
         query: str,
-        k: int = 4
+        k: int = 4,
     ):
 
         return self.vector_store.similarity_search(
@@ -143,6 +146,77 @@ class QdrantVectorStoreClient:
             k=k,
             query_filter=query_filter
         )
+
+    # --------------------------------------------------
+    # NATIVE QDRANT BM25 SEARCH
+    # --------------------------------------------------
+
+    def bm25_search_with_score(
+        self,
+        query: str,
+        k: int = 20,
+        query_filter: models.Filter | None = None,
+    ) -> list[tuple[Document, float]]:
+        """
+        Perform native BM25 full-text search using Qdrant.
+
+        Searches the indexed page_content field and returns
+        LangChain Documents with their Qdrant BM25 scores.
+
+        Metadata filtering is applied inside Qdrant.
+        """
+
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("query cannot be empty.")
+
+        if isinstance(k, bool) or not isinstance(k, int) or k < 1:
+            raise ValueError("k must be a positive integer.")
+
+        response = self.client.query_points(
+            collection_name=self.collection_name,
+            query=models.TextQuery(
+                text=query.strip()
+            ),
+            using="page_content",
+            query_filter=query_filter,
+            limit=k,
+            with_payload=[
+                "page_content",
+                "metadata",
+            ],
+            with_vectors=False,
+        )
+
+        results = []
+
+        for point in response.points:
+            payload = point.payload or {}
+
+            page_content = payload.get("page_content")
+            metadata = payload.get("metadata")
+
+            if not isinstance(page_content, str):
+                raise RuntimeError(
+                    f"Qdrant point {point.id} is missing "
+                    "a valid page_content payload."
+                )
+
+            if not isinstance(metadata, dict):
+                raise RuntimeError(
+                    f"Qdrant point {point.id} is missing "
+                    "valid LangChain metadata."
+                )
+
+            document = Document(
+                page_content=page_content,
+                metadata=metadata,
+            )
+
+            score = float(point.score)
+
+            results.append((document, score))
+
+        return results
 
     # --------------------------------------------------
     # UPDATE LIFECYCLE STATUS
@@ -193,7 +267,10 @@ class QdrantVectorStoreClient:
     # DELETE SPECIFIC POINTS
     # --------------------------------------------------
 
-    def delete_points(self, point_ids: list[str | int]) -> None:
+    def delete_points(
+        self,
+        point_ids: list[str | int],
+    ) -> None:
         """
         Delete specific Qdrant points by their IDs.
 
@@ -222,7 +299,6 @@ class QdrantVectorStoreClient:
         print(
             f"Deleted collection: {self.collection_name}"
         )
-
 
 
 # Singleton instance
