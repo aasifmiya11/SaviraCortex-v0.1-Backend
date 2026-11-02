@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -80,6 +81,22 @@ class DocumentACL(Base):
             "idx_document_acl_role",
             "organization_id",
             "role_id",
+        ),
+        Index(
+            "uq_document_acl_user",
+            "organization_id",
+            "document_id",
+            "user_id",
+            unique=True,
+            postgresql_where=text("principal_type = 'user'"),
+        ),
+        Index(
+            "uq_document_acl_role",
+            "organization_id",
+            "document_id",
+            "role_id",
+            unique=True,
+            postgresql_where=text("principal_type = 'role'"),
         ),
     )
 
