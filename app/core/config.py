@@ -40,6 +40,7 @@ class Settings:
             "postgres://", "postgresql+psycopg2://", 1
         )
 
+    AIVEN_REDIS_URI = os.getenv("AIVEN_REDIS_URI")
 
     B2_KEY_ID = os.getenv("B2_KEY_ID")
     B2_APPLICATION_KEY = os.getenv("B2_APPLICATION_KEY")

@@ -26,6 +26,7 @@ dependencies = [
     "pytesseract>=0.3.13",
     "pytest>=9.2.0",
     "python-dotenv>=1.2.4",
+    "redis>=8.1.0",
     "sentence-transformers>=6.2.0",
     "sqlalchemy>=2.1.6",
     "unstructured[pdf]>=0.27.36",
