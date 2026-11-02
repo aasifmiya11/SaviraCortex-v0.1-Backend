@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
-from uuid import UUID, uuid5, NAMESPACE_URL
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from langchain_core.documents import Document
 
@@ -17,7 +17,6 @@ class IndexingResult:
     ocr_page_count: int
     chunk_count: int
     qdrant_point_ids: list[str]
-    bm25_chunk_ids: list[str]
     status: str = "completed"
 
     def to_dict(self) -> dict[str, Any]:
@@ -31,10 +30,6 @@ class IndexingResult:
             "qdrant": {
                 "indexed_chunks": len(self.qdrant_point_ids),
                 "point_ids": self.qdrant_point_ids,
-            },
-            "bm25": {
-                "indexed_chunks": len(self.bm25_chunk_ids),
-                "chunk_ids": self.bm25_chunk_ids,
             },
             "status": self.status,
         }
@@ -63,9 +58,7 @@ class DocumentIndexingService:
     """
     Index all extracted pages belonging to one document version.
 
-    Indexes the same chunks into:
-      1. Qdrant (dense retrieval)
-      2. BM25 (sparse retrieval)
+    Indexes chunks into Qdrant for dense and payload full-text retrieval.
 
     This service does not:
       - Register documents or versions in PostgreSQL.
@@ -80,7 +73,6 @@ class DocumentIndexingService:
         self,
         text_splitter=None,
         qdrant_store=None,
-        bm25_store=None,
     ) -> None:
 
         if text_splitter is None:
@@ -93,13 +85,8 @@ class DocumentIndexingService:
             from ...rag.vector_stores.qdrant import client
             qdrant_store = client
 
-        if bm25_store is None:
-            from ...rag.vector_stores.bm25 import bm25_client
-            bm25_store = bm25_client
-
         self.text_splitter = text_splitter
         self.qdrant_store = qdrant_store
-        self.bm25_store = bm25_store
 
     @staticmethod
     def _normalize_id(value: UUID | str, field_name: str) -> str:
@@ -170,11 +157,10 @@ class DocumentIndexingService:
 
     def _cleanup(
         self,
-        document_version_id: str,
         qdrant_point_ids: list[str],
     ) -> list[str]:
         """
-        Attempt cleanup in both stores.
+        Attempt cleanup in Qdrant.
 
         Qdrant IDs are generated before insertion, so this also handles
         partial Qdrant insertion where add_documents() raises an exception
@@ -188,13 +174,6 @@ class DocumentIndexingService:
         except Exception as exc:
             cleanup_errors.append(
                 f"Qdrant cleanup failed: {type(exc).__name__}: {exc}"
-            )
-
-        try:
-            self.bm25_store.delete_version(document_version_id)
-        except Exception as exc:
-            cleanup_errors.append(
-                f"BM25 cleanup failed: {type(exc).__name__}: {exc}"
             )
 
         return cleanup_errors
@@ -240,7 +219,7 @@ class DocumentIndexingService:
                 "No non-empty chunks were produced from the extracted pages."
             )
 
-        # 2. Attach metadata shared by both retrieval systems.
+        # 2. Attach metadata used by Qdrant retrieval.
         self._attach_metadata(
             chunks=chunks,
             document_id=document_id,
@@ -268,18 +247,8 @@ class DocumentIndexingService:
                         "than the number of submitted chunks."
                     )
 
-            # 5. Sparse indexing.
-            bm25_chunk_ids = self.bm25_store.add_documents(chunks)
-
-            if len(bm25_chunk_ids) != len(chunks):
-                raise RuntimeError(
-                    "BM25 returned a different number of chunk IDs "
-                    "than the number of submitted chunks."
-                )
-
         except Exception as exc:
             cleanup_errors = self._cleanup(
-                document_version_id=document_version_id,
                 qdrant_point_ids=qdrant_point_ids,
             )
 
@@ -291,14 +260,14 @@ class DocumentIndexingService:
                 cleanup_errors=cleanup_errors,
             ) from exc
 
-        # 6. Calculate extraction statistics.
+        # 5. Calculate extraction statistics.
         ocr_page_count = sum(
             1
             for page in page_documents
             if page.metadata.get("ocr_used") is True
         )
 
-        # 7. Return indexing result.
+        # 6. Return indexing result.
         return IndexingResult(
             document_id=document_id,
             document_version_id=document_version_id,
@@ -307,5 +276,4 @@ class DocumentIndexingService:
             ocr_page_count=ocr_page_count,
             chunk_count=len(chunks),
             qdrant_point_ids=qdrant_point_ids,
-            bm25_chunk_ids=bm25_chunk_ids,
         )

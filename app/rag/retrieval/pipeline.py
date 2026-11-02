@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 from typing import Any
+from uuid import UUID
 
 from langchain_core.documents import Document
 
-from .bm25 import bm25_retriever
+from .qdrant_bm25 import bm25_retriever
 from .dense import dense_retriever
 from .fusion import reciprocal_rank_fusion
 
@@ -31,6 +32,7 @@ class HybridRetrievalPipeline:
     def search(
         self,
         query: str,
+        organization_id: UUID | str,
         top_k: int = 5,
         candidate_k: int = 20,
         mode: str = "hybrid",
@@ -42,6 +44,9 @@ class HybridRetrievalPipeline:
 
         if not query or not query.strip():
             raise ValueError("query cannot be empty.")
+
+        if organization_id is None or not str(organization_id).strip():
+            raise ValueError("organization_id cannot be empty.")
 
         if top_k < 1 or candidate_k < 1:
             raise ValueError(
@@ -62,6 +67,7 @@ class HybridRetrievalPipeline:
         if mode in {"hybrid", "bm25"}:
             bm25 = bm25_retriever.search(
                 query=query,
+                organization_id=organization_id,
                 k=candidate_k,
                 document_id=document_id,
                 user_id=user_id,
@@ -71,6 +77,7 @@ class HybridRetrievalPipeline:
         if mode in {"hybrid", "dense"}:
             dense = dense_retriever.search(
                 query=query,
+                organization_id=organization_id,
                 k=candidate_k,
                 document_id=document_id,
                 user_id=user_id,

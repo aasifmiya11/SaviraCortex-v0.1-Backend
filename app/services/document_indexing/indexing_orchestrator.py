@@ -31,7 +31,6 @@ class IndexingOrchestrationResult:
     ocr_page_count: int
     chunk_count: int
     qdrant_point_ids: list[str]
-    bm25_chunk_ids: list[str]
     summary_point_id: str
     status: str
     summary_sync_pending: bool = False
@@ -47,7 +46,6 @@ class IndexingOrchestrationResult:
             "ocr_page_count": self.ocr_page_count,
             "chunk_count": self.chunk_count,
             "qdrant_point_ids": self.qdrant_point_ids,
-            "bm25_chunk_ids": self.bm25_chunk_ids,
             "summary_point_id": self.summary_point_id,
             "status": self.status,
             "summary_sync_pending": self.summary_sync_pending,
@@ -204,17 +202,6 @@ class DocumentIndexingOrchestrator:
                 f"{document_version_id}: {type(exc).__name__}: {exc}"
             )
 
-        try:
-            self.indexing_service.bm25_store.update_version_status(
-                document_version_id=document_version_id,
-                status=status,
-            )
-        except Exception as exc:
-            errors.append(
-                f"BM25 status update failed for version "
-                f"{document_version_id}: {type(exc).__name__}: {exc}"
-            )
-
         return errors
     
     def _cleanup(
@@ -240,16 +227,6 @@ class DocumentIndexingOrchestrator:
             except Exception as exc:
                 errors.append(
                     f"Qdrant cleanup failed: "
-                    f"{type(exc).__name__}: {exc}"
-                )
-
-            try:
-                self.indexing_service.bm25_store.delete_version(
-                    str(version_id)
-                )
-            except Exception as exc:
-                errors.append(
-                    f"BM25 cleanup failed: "
                     f"{type(exc).__name__}: {exc}"
                 )
 
@@ -334,7 +311,7 @@ class DocumentIndexingOrchestrator:
                         )
 
                     # --------------------------------------
-                    # 4. Index all pages in Qdrant + BM25.
+                    # 4. Index all pages in Qdrant.
                     # --------------------------------------
 
                     indexing_result = (
@@ -510,7 +487,7 @@ class DocumentIndexingOrchestrator:
             )
 
         lifecycle_sync_pending = any(
-            error.startswith(("Qdrant status update", "BM25 status update"))
+            error.startswith("Qdrant status update")
             for error in sync_errors
         )
 
@@ -522,7 +499,6 @@ class DocumentIndexingOrchestrator:
             ocr_page_count=indexing_result.ocr_page_count,
             chunk_count=indexing_result.chunk_count,
             qdrant_point_ids=indexing_result.qdrant_point_ids,
-            bm25_chunk_ids=indexing_result.bm25_chunk_ids,
             summary_point_id=str(summary_point_id),
             status="active",
             summary_sync_pending=summary_sync_pending,

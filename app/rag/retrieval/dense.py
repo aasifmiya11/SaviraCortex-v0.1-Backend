@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from langchain_core.documents import Document
 from qdrant_client import models
 
@@ -14,6 +16,7 @@ class DenseRetriever:
     def search(
         self,
         query: str,
+        organization_id: UUID | str,
         k: int = 20,
         document_id: str | None = None,
         user_id: str | None = None,
@@ -23,6 +26,9 @@ class DenseRetriever:
         if not query or not query.strip():
             raise ValueError("query cannot be empty.")
 
+        if organization_id is None or not str(organization_id).strip():
+            raise ValueError("organization_id cannot be empty.")
+
         if k < 1:
             raise ValueError("k must be at least 1.")
 
@@ -30,6 +36,13 @@ class DenseRetriever:
             raise ValueError("status cannot be empty.")
 
         conditions = []
+
+        conditions.append(
+            models.FieldCondition(
+                key="metadata.organization_id",
+                match=models.MatchValue(value=str(organization_id)),
+            )
+        )
 
         # Filter by logical document ID.
         if document_id is not None:
