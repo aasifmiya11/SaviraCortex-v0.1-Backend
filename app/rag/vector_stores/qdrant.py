@@ -15,6 +15,7 @@ from langchain_core.documents import Document
 
 from ..embeddings.huggingface_embeddings import embedding_model
 from ...core.config import settings
+from .qdrant_payload_indexes import ensure_payload_indexes
 
 
 class QdrantVectorStoreClient:
@@ -31,6 +32,12 @@ class QdrantVectorStoreClient:
 
         # Create collection if it does not exist.
         self._create_collection_if_not_exists()
+
+        # Ensure payload indexes exist before retrieval or indexing.
+        ensure_payload_indexes(
+            self.client,
+            self.collection_name,
+        )
 
         # Initialize LangChain vector store.
         self.vector_store = QdrantVectorStore(

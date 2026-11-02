@@ -205,7 +205,12 @@ class DocumentIngestionService:
     def ingest_pdf(
         self,
         file_path: str | Path,
+        *,
+        organization_id: UUID,
     ) -> IngestionResult:
+
+        if not isinstance(organization_id, UUID):
+            raise TypeError("organization_id must be a UUID.")
 
         path = Path(file_path).expanduser().resolve()
 
@@ -246,20 +251,30 @@ class DocumentIngestionService:
         # --------------------------------------------------
         # 4. Normalize page content
         # --------------------------------------------------
-
-        normalized_pages = extracted_pages
         
-        normalized_text = TextNormalizer.combine_pages(
-            [
-                page.page_content
-                for page in normalized_pages
-            ]
+        normalized_texts = self.normalizer.normalize_pages(
+            [page.page_content or "" for page in extracted_pages]
         )
+        
+        normalized_pages = [
+            Document(
+                page_content=normalized_text,
+                metadata=dict(page.metadata or {}),
+            )
+            for page, normalized_text in zip(extracted_pages, normalized_texts)
+        ]
 
-        if not normalized_text.strip():
+        if not any(
+            page.page_content.strip()
+            for page in normalized_pages
+        ):
             raise DocumentIngestionError(
                 "PDF extraction produced no usable text."
             )
+        
+        normalized_text = self.normalizer.combine_pages(
+            [page.page_content for page in normalized_pages]
+        )
 
         content_hash = (
             self.hash_service.calculate_content_hash(
@@ -310,6 +325,7 @@ class DocumentIngestionService:
                 file_hash=file_hash,
                 content_hash=content_hash,
                 summary=summary_output.summary,
+                organization_id=organization_id,
             )
 
             # Exact duplicate: do not upload or register.
@@ -362,6 +378,7 @@ class DocumentIngestionService:
 
             storage_key = (
                 self.file_storage.build_document_version_key(
+                    organization_id=organization_id,
                     document_id=document_id,
                     version_id=version_id,
                 )
@@ -406,6 +423,7 @@ class DocumentIngestionService:
                             summary=summary_output.summary,
                             page_count=len(normalized_pages),
                         ),
+                        organization_id=organization_id,
                         document_id=document_id,
                         version_id=version_id,
                     )

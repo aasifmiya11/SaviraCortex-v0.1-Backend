@@ -88,26 +88,20 @@ class PDFSampler:
         """
         Return sampled documents together with their page numbers.
 
-        Uses the existing 'page' metadata when available.
-        Otherwise, uses the original 1-indexed list position.
+        Converts zero-based 'page' metadata to one-based page numbers.
+        Otherwise, uses the original one-based list position.
         """
-        sampled_documents = self.sample(documents)
+        self._validate_documents(documents)
+
+        indices = self._get_sample_indices(
+            len(documents),
+            self.max_pages,
+        )
 
         return [
             (
-                int(document.metadata.get("page", index + 1)),
-                document,
-            )
-            for index, document in enumerate(
-                sampled_documents
-            )
-        ] if len(documents) <= self.max_pages else [
-            (
-                int(documents[index].metadata.get("page", index + 1)),
+                int(documents[index].metadata.get("page", index)) + 1,
                 documents[index],
             )
-            for index in self._get_sample_indices(
-                len(documents),
-                self.max_pages,
-            )
+            for index in indices
         ]

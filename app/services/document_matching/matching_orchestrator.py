@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
+from uuid import UUID
 
 from .hash_matcher import (
     DocumentHashMatcher,
@@ -94,6 +95,8 @@ class DocumentMatchingOrchestrator:
         file_hash: str | None,
         content_hash: str | None,
         summary: str,
+        *,
+        organization_id: UUID,
     ) -> DocumentMatchingResult:
 
         if not file_hash and not content_hash:
@@ -113,6 +116,7 @@ class DocumentMatchingOrchestrator:
         hash_result: HashMatchResult = self.hash_matcher.match(
             file_hash=file_hash,
             content_hash=content_hash,
+            organization_id=organization_id,
         )
 
         exact_file_matches = tuple(
@@ -132,7 +136,10 @@ class DocumentMatchingOrchestrator:
         # --------------------------------------------
 
         summary_result: SummaryMatchResult = (
-            self.summary_matcher.match(summary.strip())
+            self.summary_matcher.match(
+                summary.strip(),
+                organization_id=organization_id,
+            )
         )
 
         semantic_candidates = summary_result.candidates

@@ -14,7 +14,7 @@ def create_documents(page_count: int) -> list[Document]:
                 "source": "test.pdf",
             },
         )
-        for page_number in range(1, page_count + 1)
+        for page_number in range(page_count)
     ]
 
 
@@ -31,7 +31,7 @@ def test_sample_large_document():
         for document in sampled
     ]
 
-    assert sampled_pages == [1, 4, 7, 10, 13]
+    assert sampled_pages == [0, 3, 6, 9, 12]
 
 
 def test_sample_small_document():
@@ -51,7 +51,7 @@ def test_sample_one_page():
     sampled = sampler.sample(documents)
 
     assert len(sampled) == 1
-    assert sampled[0].metadata["page"] == 1
+    assert sampled[0].metadata["page"] == 0
 
 
 def test_sample_two_pages():
@@ -65,7 +65,7 @@ def test_sample_two_pages():
         for document in sampled
     ]
 
-    assert sampled_pages == [1, 10]
+    assert sampled_pages == [0, 9]
 
 
 def test_empty_document_list():
@@ -97,6 +97,16 @@ def test_sample_with_page_numbers():
     page_numbers = [page for page, _ in sampled]
 
     assert page_numbers == [1, 4, 7, 10, 13]
+
+
+def test_sample_with_page_numbers_uses_original_index_for_missing_metadata():
+    documents = create_documents(3)
+    documents[1].metadata.pop("page")
+
+    sampler = PDFSampler(max_pages=5)
+    sampled = sampler.sample_with_page_numbers(documents)
+
+    assert [page for page, _ in sampled] == [1, 2, 3]
 
 
 def test_invalid_max_pages():

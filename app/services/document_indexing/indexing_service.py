@@ -148,6 +148,7 @@ class DocumentIndexingService:
         chunks: list[Document],
         document_id: str,
         document_version_id: str,
+        organization_id: str,
         version_number: int,
         source_filename: str,
     ) -> None:
@@ -156,6 +157,7 @@ class DocumentIndexingService:
             metadata = dict(chunk.metadata or {})
 
             metadata.update({
+                "organization_id": organization_id,
                 "document_id": document_id,
                 "document_version_id": document_version_id,
                 "version_number": version_number,
@@ -203,6 +205,7 @@ class DocumentIndexingService:
         page_documents: list[Document],
         document_id: UUID | str,
         document_version_id: UUID | str,
+        organization_id: UUID | str,
         version_number: int,
         source_filename: str,
     ) -> IndexingResult:
@@ -211,6 +214,10 @@ class DocumentIndexingService:
         document_version_id = self._normalize_id(
             document_version_id,
             "document_version_id",
+        )
+        organization_id = self._normalize_id(
+            organization_id,
+            "organization_id",
         )
 
         self._validate_inputs(
@@ -238,6 +245,7 @@ class DocumentIndexingService:
             chunks=chunks,
             document_id=document_id,
             document_version_id=document_version_id,
+            organization_id=organization_id,
             version_number=version_number,
             source_filename=source_filename,
         )

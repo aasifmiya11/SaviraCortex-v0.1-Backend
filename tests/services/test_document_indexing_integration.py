@@ -16,6 +16,7 @@ def test_document_indexing_live_stores():
 
     document_id = str(uuid4())
     document_version_id = str(uuid4())
+    organization_id = str(uuid4())
 
     # Synthetic page-level content; deliberately long enough
     # to produce multiple chunks with the real splitter.
@@ -63,6 +64,7 @@ def test_document_indexing_live_stores():
             page_documents=page_documents,
             document_id=document_id,
             document_version_id=document_version_id,
+            organization_id=organization_id,
             version_number=1,
             source_filename="integration_test.pdf",
         )
@@ -98,6 +100,8 @@ def test_document_indexing_live_stores():
             payload = point.payload
 
             assert payload["document_id"] == document_id
+            assert payload["metadata"]["organization_id"] == organization_id
+            assert payload["organization_id"] == organization_id
             assert payload["document_version_id"] == document_version_id
             assert payload["version_number"] == 1
             assert payload["status"] == "pending"

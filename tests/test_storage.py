@@ -33,11 +33,16 @@ def test_file_storage_round_trip(local_pdf, tmp_path):
         )
 
     storage = FileStorage()
+    organization_id = uuid4()
     document_id = uuid4()
     version_id = uuid4()
     storage_key = storage.build_document_version_key(
+        organization_id=organization_id,
         document_id=document_id,
         version_id=version_id,
+    )
+    assert storage_key.startswith(
+        f"{storage.prefix}organizations/{organization_id}/"
     )
     downloaded_path = tmp_path / local_pdf.name
 

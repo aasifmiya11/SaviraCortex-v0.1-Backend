@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +50,12 @@ class DocumentSummaryMatcher:
         self.threshold = threshold
         self.candidate_limit = candidate_limit
 
-    def match(self, incoming_summary: str) -> SummaryMatchResult:
+    def match(
+        self,
+        incoming_summary: str,
+        *,
+        organization_id: UUID,
+    ) -> SummaryMatchResult:
         """Return all retrieved candidates meeting the similarity threshold."""
 
         if not isinstance(incoming_summary, str) or not incoming_summary.strip():
@@ -58,6 +64,7 @@ class DocumentSummaryMatcher:
         search_results = self.summary_store.search_similar_summaries(
             summary=incoming_summary.strip(),
             limit=self.candidate_limit,
+            organization_id=organization_id,
         )
 
         candidates_by_version: dict[str, SummaryMatchCandidate] = {}

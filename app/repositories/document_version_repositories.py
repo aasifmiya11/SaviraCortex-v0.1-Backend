@@ -38,9 +38,35 @@ class DocumentVersionRepository:
         supersedes_version_id: UUID | None = None,
         page_count: int | None = None,
         version_id: UUID | None = None,
+        *,
+        organization_id: UUID,
     ) -> DocumentVersion:
 
         self._validate_status(status)
+
+        document = self.db.scalar(
+            select(Document).where(
+                Document.id == document_id,
+                Document.organization_id == organization_id,
+            )
+        )
+        if document is None:
+            raise ValueError(
+                f"Document not found: {document_id}"
+            )
+
+        if supersedes_version_id is not None:
+            superseded_version = self.db.scalar(
+                select(DocumentVersion).where(
+                    DocumentVersion.id == supersedes_version_id,
+                    DocumentVersion.document_id == document_id,
+                )
+            )
+            if superseded_version is None:
+                raise ValueError(
+                    "supersedes_version_id must belong to the same "
+                    "document."
+                )
 
         version = DocumentVersion(
             id=version_id,
@@ -72,10 +98,17 @@ class DocumentVersionRepository:
     def get_by_id(
         self,
         version_id: UUID,
+        *,
+        organization_id: UUID,
     ) -> DocumentVersion | None:
 
-        statement = select(DocumentVersion).where(
-            DocumentVersion.id == version_id
+        statement = (
+            select(DocumentVersion)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(
+                DocumentVersion.id == version_id,
+                Document.organization_id == organization_id,
+            )
         )
 
         return self.db.scalar(statement)
@@ -83,11 +116,17 @@ class DocumentVersionRepository:
     def get_by_document(
         self,
         document_id: UUID,
+        *,
+        organization_id: UUID,
     ) -> list[DocumentVersion]:
 
         statement = (
             select(DocumentVersion)
-            .where(DocumentVersion.document_id == document_id)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(
+                DocumentVersion.document_id == document_id,
+                Document.organization_id == organization_id,
+            )
             .order_by(DocumentVersion.version_number.desc())
         )
 
@@ -96,12 +135,19 @@ class DocumentVersionRepository:
     def get_active_version(
         self,
         document_id: UUID,
+        *,
+        organization_id: UUID,
     ) -> DocumentVersion | None:
 
-        statement = select(DocumentVersion).where(
-            DocumentVersion.document_id == document_id,
-            DocumentVersion.status == "active",
-            DocumentVersion.archived.is_(False),
+        statement = (
+            select(DocumentVersion)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(
+                DocumentVersion.document_id == document_id,
+                Document.organization_id == organization_id,
+                DocumentVersion.status == "active",
+                DocumentVersion.archived.is_(False),
+            )
         )
 
         return self.db.scalar(statement)
@@ -110,7 +156,12 @@ class DocumentVersionRepository:
         self,
         file_hash: str | None = None,
         content_hash: str | None = None,
+        *,
+        organization_id: UUID,
     ) -> list[DocumentVersion]:
+
+        if not isinstance(organization_id, UUID):
+            raise ValueError("organization_id must be a UUID.")
 
         if not file_hash and not content_hash:
             raise ValueError(
@@ -131,7 +182,12 @@ class DocumentVersionRepository:
 
         statement = (
             select(DocumentVersion)
+            .join(
+                Document,
+                Document.id == DocumentVersion.document_id,
+            )
             .where(or_(*conditions))
+            .where(Document.organization_id == organization_id)
             .order_by(DocumentVersion.created_at.desc())
         )
 
@@ -143,11 +199,18 @@ class DocumentVersionRepository:
         self,
         document_id: UUID,
         include_historical: bool = True,
+        *,
+        organization_id: UUID,
     ) -> list[DocumentVersion]:
 
-        statement = select(DocumentVersion).where(
-            DocumentVersion.document_id == document_id,
-            DocumentVersion.archived.is_(False),
+        statement = (
+            select(DocumentVersion)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(
+                DocumentVersion.document_id == document_id,
+                Document.organization_id == organization_id,
+                DocumentVersion.archived.is_(False),
+            )
         )
 
         if include_historical:
@@ -174,10 +237,15 @@ class DocumentVersionRepository:
     def update(
         self,
         version_id: UUID,
+        *,
+        organization_id: UUID,
         **kwargs,
     ) -> DocumentVersion | None:
 
-        version = self.get_by_id(version_id)
+        version = self.get_by_id(
+            version_id,
+            organization_id=organization_id,
+        )
 
         if version is None:
             return None
@@ -201,6 +269,21 @@ class DocumentVersionRepository:
                 f"Invalid version fields: {invalid_fields}"
             )
 
+        if "supersedes_version_id" in kwargs:
+            supersedes_version_id = kwargs["supersedes_version_id"]
+            if supersedes_version_id is not None:
+                superseded_version = self.db.scalar(
+                    select(DocumentVersion).where(
+                        DocumentVersion.id == supersedes_version_id,
+                        DocumentVersion.document_id == version.document_id,
+                    )
+                )
+                if superseded_version is None:
+                    raise ValueError(
+                        "supersedes_version_id must belong to the same "
+                        "document."
+                    )
+
         for field, value in kwargs.items():
             setattr(version, field, value)
 
@@ -217,11 +300,16 @@ class DocumentVersionRepository:
         self,
         version_id: UUID,
         status: str,
+        *,
+        organization_id: UUID,
     ) -> DocumentVersion | None:
 
         self._validate_status(status)
 
-        version = self.get_by_id(version_id)
+        version = self.get_by_id(
+            version_id,
+            organization_id=organization_id,
+        )
 
         if version is None:
             return None
@@ -236,9 +324,14 @@ class DocumentVersionRepository:
     def archive(
         self,
         version_id: UUID,
+        *,
+        organization_id: UUID,
     ) -> DocumentVersion | None:
 
-        version = self.get_by_id(version_id)
+        version = self.get_by_id(
+            version_id,
+            organization_id=organization_id,
+        )
 
         if version is None:
             return None
@@ -264,6 +357,8 @@ class DocumentVersionRepository:
         self,
         version_id: UUID,
         restore_status: str,
+        *,
+        organization_id: UUID,
     ) -> DocumentVersion | None:
 
         if restore_status not in {"active", "superseded"}:
@@ -272,7 +367,10 @@ class DocumentVersionRepository:
                 "as active or superseded."
             )
 
-        version = self.get_by_id(version_id)
+        version = self.get_by_id(
+            version_id,
+            organization_id=organization_id,
+        )
 
         if version is None:
             return None
@@ -284,7 +382,10 @@ class DocumentVersionRepository:
 
         if (
             restore_status == "active"
-            and self.get_active_version(version.document_id) is not None
+            and self.get_active_version(
+                version.document_id,
+                organization_id=organization_id,
+            ) is not None
         ):
             raise ValueError(
                 "Another active version already exists for this document."
@@ -303,6 +404,8 @@ class DocumentVersionRepository:
     def activate_pending_version(
         self,
         version_id: UUID,
+        *,
+        organization_id: UUID,
     ) -> tuple[DocumentVersion, DocumentVersion | None] | None:
         """
         Atomically activate a pending document version.
@@ -319,8 +422,11 @@ class DocumentVersionRepository:
     
         # 1. Read target to identify its parent document.
         target = self.db.scalar(
-            select(DocumentVersion).where(
-                DocumentVersion.id == version_id
+            select(DocumentVersion)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(
+                DocumentVersion.id == version_id,
+                Document.organization_id == organization_id,
             )
         )
     
@@ -332,7 +438,10 @@ class DocumentVersionRepository:
         # 2. Lock parent document first.
         document = self.db.scalar(
             select(Document)
-            .where(Document.id == document_id)
+            .where(
+                Document.id == document_id,
+                Document.organization_id == organization_id,
+            )
             .with_for_update()
         )
     
@@ -344,9 +453,11 @@ class DocumentVersionRepository:
         # 3. Lock and reload target version.
         target = self.db.scalar(
             select(DocumentVersion)
+            .join(Document, Document.id == DocumentVersion.document_id)
             .where(
                 DocumentVersion.id == version_id,
                 DocumentVersion.document_id == document_id,
+                Document.organization_id == organization_id,
             )
             .with_for_update()
             .execution_options(populate_existing=True)
@@ -370,8 +481,10 @@ class DocumentVersionRepository:
         # 5. Find and lock previous active version.
         previous_active = self.db.scalar(
             select(DocumentVersion)
+            .join(Document, Document.id == DocumentVersion.document_id)
             .where(
                 DocumentVersion.document_id == document_id,
+                Document.organization_id == organization_id,
                 DocumentVersion.status == "active",
                 DocumentVersion.archived.is_(False),
                 DocumentVersion.id != version_id,
@@ -396,9 +509,17 @@ class DocumentVersionRepository:
     # DELETE
     # ================================================
 
-    def delete(self, version_id: UUID) -> bool:
+    def delete(
+        self,
+        version_id: UUID,
+        *,
+        organization_id: UUID,
+    ) -> bool:
 
-        version = self.get_by_id(version_id)
+        version = self.get_by_id(
+            version_id,
+            organization_id=organization_id,
+        )
 
         if version is None:
             return False

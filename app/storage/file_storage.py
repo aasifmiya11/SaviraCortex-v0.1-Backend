@@ -28,18 +28,24 @@ class FileStorage:
 
     def build_document_version_key(
         self,
+        organization_id: UUID,
         document_id: UUID,
         version_id: UUID,
     ) -> str:
         """
-        Generate a unique object key for a document version.
-
-        Example:
-        voice-ai/documents/<document_id>/versions/<version_id>.pdf
+        Generate an organization-scoped object key for a document version.
         """
+
+        if not isinstance(organization_id, UUID):
+            raise TypeError("organization_id must be a UUID.")
+        if not isinstance(document_id, UUID):
+            raise TypeError("document_id must be a UUID.")
+        if not isinstance(version_id, UUID):
+            raise TypeError("version_id must be a UUID.")
 
         return (
             f"{self.prefix}"
+            f"organizations/{organization_id}/"
             f"documents/{document_id}/"
             f"versions/{version_id}.pdf"
         )

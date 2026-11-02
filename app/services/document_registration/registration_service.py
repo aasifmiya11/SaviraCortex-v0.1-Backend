@@ -109,6 +109,7 @@ class DocumentRegistrationService:
         document_id: UUID,
         version_number: int,
         data: VersionRegistrationData,
+        organization_id: UUID,
         supersedes_version_id: UUID | None = None,
         version_id: UUID | None = None,
     ) -> DocumentVersion:
@@ -127,6 +128,7 @@ class DocumentRegistrationService:
             supersedes_version_id=supersedes_version_id,
             page_count=data.page_count,
             version_id=version_id,
+            organization_id=organization_id,
         )
 
     @staticmethod
@@ -141,21 +143,31 @@ class DocumentRegistrationService:
             status=version.status,
             archived=version.archived,
         )
-
     def register_new_document(
         self,
         document_data: DocumentRegistrationData,
         version_data: VersionRegistrationData,
         *,
+        organization_id: UUID,
+        uploaded_by_user_id: UUID | None = None,
         document_id: UUID | None = None,
         version_id: UUID | None = None,
     ) -> RegistrationResult:
         """
-        Create a new logical document and its first pending version.
+        Create a new organization-owned logical document and its
+        first pending version.
 
         Both records are created within a database savepoint.
         The caller must commit the outer transaction.
         """
+        if not isinstance(organization_id, UUID):
+            raise TypeError("organization_id must be a UUID.")
+
+        if uploaded_by_user_id is not None and not isinstance(
+            uploaded_by_user_id, UUID
+        ):
+            raise TypeError("uploaded_by_user_id must be a UUID or None.")
+
         self._validate_document_data(document_data)
         self._validate_version_data(version_data)
 
@@ -163,6 +175,8 @@ class DocumentRegistrationService:
             document = self.document_repository.create(
                 title=document_data.title.strip(),
                 document_type=document_data.document_type.strip(),
+                organization_id=organization_id,
+                uploaded_by_user_id=uploaded_by_user_id,
                 department=document_data.department,
                 description=document_data.description,
                 document_id=document_id,
@@ -172,6 +186,7 @@ class DocumentRegistrationService:
                 document_id=document.id,
                 version_number=1,
                 data=version_data,
+                organization_id=organization_id,
                 version_id=version_id,
             )
 
@@ -179,36 +194,52 @@ class DocumentRegistrationService:
 
         return result
 
+
     def register_new_version(
         self,
         document_id: UUID,
         version_data: VersionRegistrationData,
         *,
+        organization_id: UUID,
         version_id: UUID | None = None,
     ) -> RegistrationResult:
         """
-        Create a pending version for an existing logical document.
-        The document row is locked while calculating the next version
-        number, preventing concurrent registrations from choosing the
-        same number when the transaction is committed.
+        Create a pending version for an existing document belonging
+        to the specified organization.
+    
+        The parent document row is locked while calculating the
+        next version number.
         """
         if not isinstance(document_id, UUID):
             raise TypeError("document_id must be a UUID.")
+    
+        if not isinstance(organization_id, UUID):
+            raise TypeError("organization_id must be a UUID.")
+    
         self._validate_version_data(version_data)
+    
         with self.db.begin_nested():
-            # Lock the parent document to serialize version creation.
             document = self.db.scalar(
                 select(Document)
-                .where(Document.id == document_id)
+                .where(
+                    Document.id == document_id,
+                    Document.organization_id == organization_id,
+                )
                 .with_for_update()
             )
+    
             if document is None:
                 raise ValueError(
                     f"Document not found: {document_id}"
                 )
+    
             existing_versions = (
-                self.version_repository.get_by_document(document_id)
+                self.version_repository.get_by_document(
+                    document_id,
+                    organization_id=organization_id,
+                )
             )
+    
             next_version_number = (
                 max(
                     version.version_number
@@ -217,17 +248,25 @@ class DocumentRegistrationService:
                 if existing_versions
                 else 1
             )
+    
             active_version = (
-                self.version_repository.get_active_version(document_id)
+                self.version_repository.get_active_version(
+                    document_id,
+                    organization_id=organization_id,
+                )
             )
+    
             version = self._create_version(
                 document_id=document_id,
                 version_number=next_version_number,
                 data=version_data,
+                organization_id=organization_id,
                 supersedes_version_id=(
                     active_version.id if active_version else None
                 ),
                 version_id=version_id,
             )
+    
             result = self._build_result(document, version)
+    
         return result

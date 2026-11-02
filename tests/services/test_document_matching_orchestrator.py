@@ -16,9 +16,11 @@ class FakeHashMatcher:
     def __init__(self, result):
         self.result = result
         self.called = False
+        self.received_organization_id = None
 
-    def match(self, file_hash, content_hash):
+    def match(self, file_hash, content_hash, *, organization_id):
         self.called = True
+        self.received_organization_id = organization_id
         return self.result
 
 
@@ -28,10 +30,12 @@ class FakeSummaryMatcher:
         self.result = result
         self.called = False
         self.received_summary = None
+        self.received_organization_id = None
 
-    def match(self, incoming_summary):
+    def match(self, incoming_summary, *, organization_id):
         self.called = True
         self.received_summary = incoming_summary
+        self.received_organization_id = organization_id
         return self.result
 
 
@@ -100,6 +104,7 @@ def test_exact_file_match_has_highest_priority():
         file_hash="file123",
         content_hash="content123",
         summary="Employee leave policy.",
+        organization_id=uuid4(),
     )
 
     assert result.classification == "exact_file_match"
@@ -124,6 +129,7 @@ def test_exact_content_match_when_file_hash_does_not_match():
         file_hash="different_file_hash",
         content_hash="matching_content_hash",
         summary="Employee leave policy.",
+        organization_id=uuid4(),
     )
 
     assert result.classification == "exact_content_match"
@@ -142,6 +148,7 @@ def test_potential_match_when_no_exact_hash_match_exists():
         file_hash="new_file_hash",
         content_hash="new_content_hash",
         summary="Employee leave and absence policy.",
+        organization_id=uuid4(),
     )
 
     assert result.classification == "potential_match"
@@ -157,6 +164,7 @@ def test_no_match_when_no_candidates_exist():
         file_hash="new_file_hash",
         content_hash="new_content_hash",
         summary="Completely unrelated document.",
+        organization_id=uuid4(),
     )
 
     assert result.classification == "no_match"
@@ -179,6 +187,7 @@ def test_exact_match_takes_precedence_over_semantic_match():
         file_hash="matching_file_hash",
         content_hash="matching_content_hash",
         summary="Employee leave policy.",
+        organization_id=uuid4(),
     )
 
     assert result.classification == "exact_file_match"
@@ -192,6 +201,7 @@ def test_matchers_receive_correct_inputs():
         file_hash="file_hash_value",
         content_hash="content_hash_value",
         summary="  Employee leave policy.  ",
+        organization_id=uuid4(),
     )
 
     assert hash_matcher.called is True
@@ -209,6 +219,7 @@ def test_matching_requires_at_least_one_hash():
             file_hash=None,
             content_hash=None,
             summary="Employee leave policy.",
+            organization_id=uuid4(),
         )
 
     assert hash_matcher.called is False
@@ -223,6 +234,7 @@ def test_matching_rejects_empty_summary():
             file_hash="file_hash",
             content_hash="content_hash",
             summary="   ",
+            organization_id=uuid4(),
         )
 
     assert hash_matcher.called is False
@@ -241,6 +253,7 @@ def test_multiple_exact_file_matches_are_preserved():
         file_hash="matching_hash",
         content_hash="different_content",
         summary="Employee leave policy.",
+        organization_id=uuid4(),
     )
 
     assert result.classification == "exact_file_match"
@@ -262,6 +275,7 @@ def test_result_properties():
         file_hash="file_hash",
         content_hash="content_hash",
         summary="Employee leave policy.",
+        organization_id=uuid4(),
     )
 
     assert result.has_exact_match is True
@@ -269,3 +283,18 @@ def test_result_properties():
     assert result.is_new_document is False
     assert result.exact_match_count == 2
     assert result.semantic_match_count == 1
+
+
+def test_organization_id_is_forwarded_to_both_matchers():
+    organization_id = uuid4()
+    orchestrator, hash_matcher, summary_matcher = create_orchestrator()
+
+    orchestrator.match(
+        file_hash="file_hash",
+        content_hash="content_hash",
+        summary="Employee leave policy.",
+        organization_id=organization_id,
+    )
+
+    assert hash_matcher.received_organization_id == organization_id
+    assert summary_matcher.received_organization_id == organization_id

@@ -33,6 +33,7 @@ def setup_orchestrator(tmp_path):
     document = SimpleNamespace(
         id=document_id,
         title="Test Document",
+        organization_id=uuid4(),
     )
 
     activated_version = SimpleNamespace(
@@ -135,7 +136,8 @@ def test_successful_indexing_and_activation(setup_orchestrator):
         ),
     ):
         result = setup.orchestrator.index_pending_version(
-            setup.version_id
+            setup.version_id,
+            organization_id=setup.document.organization_id,
         )
 
     assert result.status == "active"
@@ -160,9 +162,14 @@ def test_successful_indexing_and_activation(setup_orchestrator):
     setup.file_storage.download_file.assert_called_once()
     setup.loader.load_pdf.assert_called_once()
     setup.indexing_service.index_document_version.assert_called_once()
+    indexing_kwargs = (
+        setup.indexing_service.index_document_version.call_args.kwargs
+    )
+    assert indexing_kwargs["organization_id"] == setup.document.organization_id
 
     repository.activate_pending_version.assert_called_once_with(
-        setup.version_id
+        setup.version_id,
+        organization_id=setup.document.organization_id,
     )
 
     # New version's chunk lifecycle is synchronized after commit.
@@ -184,6 +191,7 @@ def test_successful_indexing_and_activation(setup_orchestrator):
             title=setup.document.title,
             summary=setup.version.summary,
             status="pending",
+            organization_id=setup.document.organization_id,
         ),
         call(
             document_id=str(setup.activated_version.document_id),
@@ -192,6 +200,7 @@ def test_successful_indexing_and_activation(setup_orchestrator):
             title=setup.document.title,
             summary=setup.activated_version.summary,
             status="active",
+            organization_id=setup.document.organization_id,
         ),
     ]
 
@@ -219,7 +228,8 @@ def test_previous_active_version_is_synchronized_as_superseded(
         ),
     ):
         result = setup.orchestrator.index_pending_version(
-            setup.version_id
+            setup.version_id,
+            organization_id=setup.document.organization_id,
         )
 
     qdrant_updates = (
@@ -255,13 +265,18 @@ def test_previous_active_version_is_synchronized_as_superseded(
     assert result.lifecycle_sync_pending is False
 
 
-def test_summary_pending_upsert_failure_rolls_back_and_cleans_indexes(
+def test_summary_pending_upsert_failure_after_write_cleans_summary(
     setup_orchestrator,
 ):
     setup = setup_orchestrator
-    setup.summary_storage.upsert_summary.side_effect = RuntimeError(
-        "Summary Qdrant unavailable"
-    )
+    persisted_summaries = []
+
+    def upsert_then_raise(**kwargs):
+        # Simulate Qdrant storing the point before the response fails.
+        persisted_summaries.append(kwargs)
+        raise RuntimeError("Summary response lost after Qdrant upsert")
+
+    setup.summary_storage.upsert_summary.side_effect = upsert_then_raise
 
     with patch_version_loading(setup):
         with pytest.raises(
@@ -269,9 +284,12 @@ def test_summary_pending_upsert_failure_rolls_back_and_cleans_indexes(
             match="transaction was rolled back",
         ):
             setup.orchestrator.index_pending_version(
-                setup.version_id
+                setup.version_id,
+                organization_id=setup.document.organization_id,
             )
 
+    assert len(persisted_summaries) == 1
+    assert persisted_summaries[0]["status"] == "pending"
     setup.db.rollback.assert_called_once()
     setup.db.commit.assert_not_called()
 
@@ -282,10 +300,9 @@ def test_summary_pending_upsert_failure_rolls_back_and_cleans_indexes(
         str(setup.version_id)
     )
 
-    setup.summary_storage.delete_summary.assert_not_called()
-
-    # The original B2 object is not deleted.
-    setup.file_storage.delete_file.assert_not_called()
+    setup.summary_storage.delete_summary.assert_called_once_with(
+        setup.version_id
+    )
 
 
 def test_activation_failure_rolls_back_and_cleans_all_indexes(
@@ -307,7 +324,8 @@ def test_activation_failure_rolls_back_and_cleans_all_indexes(
     ):
         with pytest.raises(DocumentIndexingOrchestrationError):
             setup.orchestrator.index_pending_version(
-                setup.version_id
+                setup.version_id,
+                organization_id=setup.document.organization_id,
             )
 
     setup.db.rollback.assert_called_once()
@@ -348,7 +366,8 @@ def test_post_commit_summary_sync_failure_does_not_rollback(
         ),
     ):
         result = setup.orchestrator.index_pending_version(
-            setup.version_id
+            setup.version_id,
+            organization_id=setup.document.organization_id,
         )
 
     assert result.status == "active"
@@ -396,7 +415,8 @@ def test_post_commit_chunk_sync_failure_is_reported_without_rollback(
         ),
     ):
         result = setup.orchestrator.index_pending_version(
-            setup.version_id
+            setup.version_id,
+            organization_id=setup.document.organization_id,
         )
 
     assert result.status == "active"
@@ -419,7 +439,8 @@ def test_invalid_pending_version_is_rejected_before_download(
     ):
         with pytest.raises(DocumentIndexingOrchestrationError):
             setup.orchestrator.index_pending_version(
-                setup.version_id
+                setup.version_id,
+                organization_id=setup.document.organization_id,
             )
 
     setup.file_storage.download_file.assert_not_called()
@@ -443,7 +464,8 @@ def test_b2_download_failure_rolls_back_without_indexing(
     with patch_version_loading(setup):
         with pytest.raises(DocumentIndexingOrchestrationError):
             setup.orchestrator.index_pending_version(
-                setup.version_id
+                setup.version_id,
+                organization_id=setup.document.organization_id,
             )
 
     setup.db.rollback.assert_called_once()
@@ -471,7 +493,8 @@ def test_empty_downloaded_pdf_is_rejected(
             match="transaction was rolled back",
         ):
             setup.orchestrator.index_pending_version(
-                setup.version_id
+                setup.version_id,
+                organization_id=setup.document.organization_id,
             )
 
     setup.db.rollback.assert_called_once()
@@ -493,7 +516,8 @@ def test_pdf_extraction_failure_rolls_back(
     with patch_version_loading(setup):
         with pytest.raises(DocumentIndexingOrchestrationError):
             setup.orchestrator.index_pending_version(
-                setup.version_id
+                setup.version_id,
+                organization_id=setup.document.organization_id,
             )
 
     setup.db.rollback.assert_called_once()
@@ -517,7 +541,8 @@ def test_empty_pdf_extraction_result_is_rejected(
             match="transaction was rolled back",
         ):
             setup.orchestrator.index_pending_version(
-                setup.version_id
+                setup.version_id,
+                organization_id=setup.document.organization_id,
             )
 
     setup.db.rollback.assert_called_once()
@@ -538,7 +563,8 @@ def test_indexing_service_failure_rolls_back(
     with patch_version_loading(setup):
         with pytest.raises(DocumentIndexingOrchestrationError):
             setup.orchestrator.index_pending_version(
-                setup.version_id
+                setup.version_id,
+                organization_id=setup.document.organization_id,
             )
 
     setup.db.rollback.assert_called_once()
@@ -572,7 +598,8 @@ def test_activation_returning_none_rolls_back_and_cleans(
             match="transaction was rolled back",
         ):
             setup.orchestrator.index_pending_version(
-                setup.version_id
+                setup.version_id,
+                organization_id=setup.document.organization_id,
             )
 
     setup.db.rollback.assert_called_once()
@@ -618,7 +645,8 @@ def test_cleanup_failures_are_reported(
             DocumentIndexingOrchestrationError
         ) as exc_info:
             setup.orchestrator.index_pending_version(
-                setup.version_id
+                setup.version_id,
+                organization_id=setup.document.organization_id,
             )
 
     error = exc_info.value

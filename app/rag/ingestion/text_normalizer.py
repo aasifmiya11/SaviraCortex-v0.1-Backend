@@ -47,7 +47,8 @@ class TextNormalizer:
         text = "".join(
             char
             for char in text
-            if char in ("\n", "\t") or not unicodedata.category(char).startswith("C")
+            if char in ("\n", "\t", "\u200c", "\u200d")
+            or not unicodedata.category(char).startswith("C")
         )
 
         # 5. Normalize horizontal whitespace.

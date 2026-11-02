@@ -25,6 +25,7 @@ def test_summary_collection_exists(summary_store):
 def test_summary_upsert_search_and_delete(summary_store):
     document_id = str(uuid.uuid4())
     version_id = str(uuid.uuid4())
+    organization_id = str(uuid.uuid4())
 
     summary = (
         "Integration test document about employee leave policies, "
@@ -40,12 +41,14 @@ def test_summary_upsert_search_and_delete(summary_store):
             title="Temporary Qdrant Integration Test",
             summary=summary,
             status="pending",
+            organization_id=organization_id,
         )
 
         # 2. Search using the exact same summary.
         results = summary_store.search_similar_summaries(
             summary=summary,
             limit=10,
+            organization_id=organization_id,
         )
 
         matching_results = [
@@ -71,6 +74,7 @@ def test_summary_upsert_search_and_delete(summary_store):
     results_after_delete = summary_store.search_similar_summaries(
         summary=summary,
         limit=10,
+        organization_id=organization_id,
     )
 
     assert not any(

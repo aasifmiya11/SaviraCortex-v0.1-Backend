@@ -6,6 +6,8 @@ import pytest
 
 from app.services.document_matching import DocumentHashMatcher
 
+ORGANIZATION_ID = uuid4()
+
 
 @pytest.fixture
 def repository():
@@ -21,6 +23,7 @@ def make_version(
     file_hash=None,
     content_hash=None,
     status="active",
+    organization_id=None,
 ):
     return SimpleNamespace(
         id=uuid4(),
@@ -45,6 +48,7 @@ def test_exact_file_hash_match(matcher, repository):
     result = matcher.match(
         file_hash="file_hash_123",
         content_hash="different_content_hash",
+        organization_id=ORGANIZATION_ID,
     )
 
     assert result.is_duplicate is True
@@ -64,6 +68,7 @@ def test_exact_content_hash_match(matcher, repository):
     result = matcher.match(
         file_hash="different_file_hash_2",
         content_hash="content_hash_123",
+        organization_id=ORGANIZATION_ID,
     )
 
     assert result.is_duplicate is True
@@ -78,6 +83,7 @@ def test_no_duplicate_found(matcher, repository):
     result = matcher.match(
         file_hash="new_file_hash",
         content_hash="new_content_hash",
+        organization_id=ORGANIZATION_ID,
     )
 
     assert result.is_duplicate is False
@@ -100,6 +106,7 @@ def test_archived_version_is_still_a_duplicate(
     result = matcher.match(
         file_hash="archived_hash",
         content_hash=None,
+        organization_id=ORGANIZATION_ID,
     )
 
     assert result.is_duplicate is True
@@ -114,6 +121,7 @@ def test_both_hashes_match_same_version(
     version = make_version(
         file_hash="same_file_hash",
         content_hash="same_content_hash",
+        organization_id=ORGANIZATION_ID,
     )
 
     repository.get_by_hash.return_value = [version]
@@ -121,6 +129,7 @@ def test_both_hashes_match_same_version(
     result = matcher.match(
         file_hash="same_file_hash",
         content_hash="same_content_hash",
+        organization_id=ORGANIZATION_ID,
     )
 
     assert result.is_duplicate is True
@@ -134,4 +143,5 @@ def test_hash_is_required(matcher):
         matcher.match(
             file_hash=None,
             content_hash=None,
+            organization_id=ORGANIZATION_ID,
         )

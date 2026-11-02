@@ -39,3 +39,12 @@ def test_normalize_and_combine_pages():
     assert "[PAGE 1]" in combined
     assert "[PAGE 2]" in combined
     assert "[PAGE 3]" in combined
+
+
+def test_normalize_preserves_zero_width_joiners():
+    text = "नम\u200dस्ते न\u200cमस्ते"
+
+    normalized = TextNormalizer.normalize(text)
+
+    assert "\u200d" in normalized
+    assert "\u200c" in normalized

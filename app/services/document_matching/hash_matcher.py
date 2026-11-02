@@ -54,6 +54,8 @@ class DocumentHashMatcher:
         self,
         file_hash: str | None,
         content_hash: str | None,
+        *,
+        organization_id: UUID,
     ) -> HashMatchResult:
 
         if not file_hash and not content_hash:
@@ -64,6 +66,7 @@ class DocumentHashMatcher:
         versions = self.repository.get_by_hash(
             file_hash=file_hash,
             content_hash=content_hash,
+            organization_id=organization_id,
         )
 
         candidates_by_id: dict[UUID, HashMatchCandidate] = {}

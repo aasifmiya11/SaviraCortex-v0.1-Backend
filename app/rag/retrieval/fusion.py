@@ -49,10 +49,21 @@ def reciprocal_rank_fusion(
             scores[key] += float(weight) / (k + rank)
             documents.setdefault(key, document)
 
+    rank_positions = [
+        {
+            _key(document): rank
+            for rank, (document, _) in enumerate(result_list, 1)
+        }
+        for result_list in ranked_lists
+    ]
+    
     ranked_keys = sorted(
         scores,
-        key=scores.get,
-        reverse=True,
+        key=lambda key: (
+            -scores[key],
+            rank_positions[1].get(key, float("inf")) if len(rank_positions) > 1 else float("inf"),
+            rank_positions[0].get(key, float("inf")) if rank_positions else float("inf"),
+        ),
     )
 
     return [

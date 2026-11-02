@@ -33,6 +33,7 @@ class QdrantSummaryStore:
         )
 
         self._create_collection_if_not_exists()
+        self._ensure_organization_index()
 
     def _create_collection_if_not_exists(self) -> None:
         """Create the summary collection using the existing embedding model."""
@@ -51,6 +52,24 @@ class QdrantSummaryStore:
                 distance=models.Distance.COSINE,
             ),
         )
+        self.client.create_payload_index(
+            collection_name=self.collection_name,
+            field_name="organization_id",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+            wait=True,
+        )
+
+    def _ensure_organization_index(self) -> None:
+        collection_info = self.client.get_collection(
+            collection_name=self.collection_name
+        )
+        if "organization_id" not in (collection_info.payload_schema or {}):
+            self.client.create_payload_index(
+                collection_name=self.collection_name,
+                field_name="organization_id",
+                field_schema=models.PayloadSchemaType.KEYWORD,
+                wait=True,
+            )
 
     @staticmethod
     def _normalize_id(value: UUID | str) -> str:
@@ -65,6 +84,7 @@ class QdrantSummaryStore:
         title: str,
         summary: str,
         status: str,
+        organization_id: UUID | str,
     ) -> str:
         """
         Insert or replace one document-version summary.
@@ -87,6 +107,7 @@ class QdrantSummaryStore:
 
         document_id = self._normalize_id(document_id)
         version_id = self._normalize_id(document_version_id)
+        organization_id = self._normalize_id(organization_id)
         summary = summary.strip()
 
         vector = embedding_client.embed_query(summary)
@@ -96,6 +117,7 @@ class QdrantSummaryStore:
             vector=vector,
             payload={
                 "document_id": document_id,
+                "organization_id": organization_id,
                 "document_version_id": version_id,
                 "version_number": version_number,
                 "title": title.strip(),
@@ -116,6 +138,8 @@ class QdrantSummaryStore:
         self,
         summary: str,
         limit: int = 20,
+        *,
+        organization_id: UUID | str,
     ) -> list[dict[str, Any]]:
         """
         Search summaries by cosine similarity.
@@ -130,12 +154,24 @@ class QdrantSummaryStore:
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise ValueError("limit must be a positive integer.")
 
+        organization_id = self._normalize_id(organization_id)
+        if not organization_id.strip():
+            raise ValueError("organization_id cannot be empty.")
+
         vector = embedding_client.embed_query(summary.strip())
 
         response = self.client.query_points(
             collection_name=self.collection_name,
             query=vector,
             limit=limit,
+            query_filter=models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="organization_id",
+                        match=models.MatchValue(value=organization_id),
+                    )
+                ]
+            ),
             with_payload=True,
             with_vectors=False,
         )

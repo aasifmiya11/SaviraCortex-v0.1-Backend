@@ -1,5 +1,6 @@
 
 from unittest.mock import MagicMock
+from uuid import uuid4
 import pytest
 
 from app.services.document_matching import DocumentSummaryMatcher
@@ -17,6 +18,9 @@ def matcher(summary_store):
         threshold=0.80,
         candidate_limit=20,
     )
+
+
+ORGANIZATION_ID = uuid4()
 
 
 def make_result(
@@ -40,7 +44,10 @@ def test_similar_summary_is_matched(matcher, summary_store):
         make_result(score=0.91)
     ]
 
-    result = matcher.match("Employee leave policy and eligibility.")
+    result = matcher.match(
+        "Employee leave policy and eligibility.",
+        organization_id=ORGANIZATION_ID,
+    )
 
     assert result.is_match is True
     assert result.match_count == 1
@@ -52,7 +59,10 @@ def test_result_below_threshold_is_ignored(matcher, summary_store):
         make_result(score=0.79)
     ]
 
-    result = matcher.match("A completely different document.")
+    result = matcher.match(
+        "A completely different document.",
+        organization_id=ORGANIZATION_ID,
+    )
 
     assert result.is_match is False
     assert result.match_count == 0
@@ -63,7 +73,10 @@ def test_result_at_exact_threshold_is_matched(matcher, summary_store):
         make_result(score=0.80)
     ]
 
-    result = matcher.match("Employee leave policy.")
+    result = matcher.match(
+        "Employee leave policy.",
+        organization_id=ORGANIZATION_ID,
+    )
 
     assert result.is_match is True
     assert result.match_count == 1
@@ -76,7 +89,10 @@ def test_multiple_candidates_are_returned(matcher, summary_store):
         make_result("version-3", 0.82),
     ]
 
-    result = matcher.match("Employee leave policy.")
+    result = matcher.match(
+        "Employee leave policy.",
+        organization_id=ORGANIZATION_ID,
+    )
 
     assert result.match_count == 3
     assert [c.version_id for c in result.candidates] == [
@@ -93,7 +109,10 @@ def test_candidates_are_sorted_by_similarity(matcher, summary_store):
         make_result("version-3", 0.88),
     ]
 
-    result = matcher.match("Employee leave policy.")
+    result = matcher.match(
+        "Employee leave policy.",
+        organization_id=ORGANIZATION_ID,
+    )
 
     scores = [c.similarity_score for c in result.candidates]
 
@@ -105,7 +124,10 @@ def test_archived_version_is_still_a_match(matcher, summary_store):
         make_result(score=0.91, status="archived")
     ]
 
-    result = matcher.match("Employee leave policy.")
+    result = matcher.match(
+        "Employee leave policy.",
+        organization_id=ORGANIZATION_ID,
+    )
 
     assert result.is_match is True
     assert result.candidates[0].status == "archived"
@@ -117,7 +139,10 @@ def test_duplicate_version_ids_are_deduplicated(matcher, summary_store):
         make_result("version-1", 0.93),
     ]
 
-    result = matcher.match("Employee leave policy.")
+    result = matcher.match(
+        "Employee leave policy.",
+        organization_id=ORGANIZATION_ID,
+    )
 
     assert result.match_count == 1
     assert result.candidates[0].similarity_score == 0.93
@@ -126,7 +151,10 @@ def test_duplicate_version_ids_are_deduplicated(matcher, summary_store):
 def test_empty_search_results(matcher, summary_store):
     summary_store.search_similar_summaries.return_value = []
 
-    result = matcher.match("New document summary.")
+    result = matcher.match(
+        "New document summary.",
+        organization_id=ORGANIZATION_ID,
+    )
 
     assert result.is_match is False
     assert result.candidates == ()
@@ -134,7 +162,7 @@ def test_empty_search_results(matcher, summary_store):
 
 def test_empty_summary_is_rejected(matcher):
     with pytest.raises(ValueError):
-        matcher.match("   ")
+        matcher.match("   ", organization_id=ORGANIZATION_ID)
 
 
 def test_invalid_threshold_is_rejected(summary_store):
@@ -150,9 +178,13 @@ def test_invalid_candidate_limit_is_rejected(summary_store):
 def test_search_limit_is_passed_to_store(matcher, summary_store):
     summary_store.search_similar_summaries.return_value = []
 
-    matcher.match("Employee leave policy.")
+    matcher.match(
+        "Employee leave policy.",
+        organization_id=ORGANIZATION_ID,
+    )
 
     summary_store.search_similar_summaries.assert_called_once_with(
         summary="Employee leave policy.",
         limit=20,
+        organization_id=ORGANIZATION_ID,
     )

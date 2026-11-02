@@ -111,14 +111,46 @@ class DocumentIndexingOrchestrator:
     def _load_version(
         db: Session,
         version_id: UUID,
+        *,
+        organization_id: UUID,
     ) -> tuple[DocumentVersion, Document]:
-
-        version = db.scalar(
-            select(DocumentVersion).where(
-                DocumentVersion.id == version_id
+        document_id = db.scalar(
+            select(DocumentVersion.document_id)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(
+                DocumentVersion.id == version_id,
+                Document.organization_id == organization_id,
             )
         )
+        if document_id is None:
+            raise ValueError(
+                f"Document version not found: {version_id}"
+            )
 
+        document = db.scalar(
+            select(Document)
+            .where(
+                Document.id == document_id,
+                Document.organization_id == organization_id,
+            )
+            .with_for_update()
+        )
+        if document is None:
+            raise ValueError(
+                f"Parent document not found: {document_id}"
+            )
+
+        version = db.scalar(
+            select(DocumentVersion)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(
+                DocumentVersion.id == version_id,
+                DocumentVersion.document_id == document_id,
+                Document.organization_id == organization_id,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if version is None:
             raise ValueError(
                 f"Document version not found: {version_id}"
@@ -133,13 +165,6 @@ class DocumentIndexingOrchestrator:
             raise ValueError(
                 "Only pending versions can be indexed. "
                 f"Current status: {version.status}"
-            )
-
-        document = db.get(Document, version.document_id)
-
-        if document is None:
-            raise ValueError(
-                f"Parent document not found: {version.document_id}"
             )
 
         if not version.storage_key:
@@ -196,7 +221,7 @@ class DocumentIndexingOrchestrator:
         self,
         indexing_result: IndexingResult | None,
         version_id: UUID,
-        summary_created: bool,
+        summary_upsert_attempted: bool,
     ) -> list[str]:
         """
         Compensate for indexing operations after a failed activation.
@@ -228,7 +253,7 @@ class DocumentIndexingOrchestrator:
                     f"{type(exc).__name__}: {exc}"
                 )
 
-        if summary_created:
+        if summary_upsert_attempted:
             try:
                 self.summary_storage.delete_summary(version_id)
             except Exception as exc:
@@ -242,11 +267,14 @@ class DocumentIndexingOrchestrator:
     def index_pending_version(
         self,
         version_id: UUID,
+        *,
+        organization_id: UUID,
     ) -> IndexingOrchestrationResult:
 
         indexing_result: IndexingResult | None = None
-        summary_created = False
+        summary_upsert_attempted = False
         committed = False
+        commit_attempted = False
 
         with self.session_factory() as db:
 
@@ -258,9 +286,11 @@ class DocumentIndexingOrchestrator:
                 version, document = self._load_version(
                     db,
                     version_id,
+                    organization_id=organization_id,
                 )
 
                 document_id = version.document_id
+                organization_id = document.organization_id
                 version_number = version.version_number
                 storage_key = version.storage_key
                 original_filename = Path(
@@ -312,6 +342,7 @@ class DocumentIndexingOrchestrator:
                             page_documents=page_documents,
                             document_id=document_id,
                             document_version_id=version_id,
+                            organization_id=organization_id,
                             version_number=version_number,
                             source_filename=original_filename,
                         )
@@ -324,6 +355,7 @@ class DocumentIndexingOrchestrator:
                 # 5. Upsert the summary as pending.
                 # ------------------------------------------
 
+                summary_upsert_attempted = True
                 summary_point_id = (
                     self.summary_storage.upsert_summary(
                         document_id=document_id,
@@ -332,10 +364,9 @@ class DocumentIndexingOrchestrator:
                         title=document.title,
                         summary=version.summary,
                         status="pending",
+                        organization_id=document.organization_id,
                     )
                 )
-
-                summary_created = True
 
                 # ------------------------------------------
                 # 6. Update actual extracted page count.
@@ -351,7 +382,8 @@ class DocumentIndexingOrchestrator:
                 repository = DocumentVersionRepository(db)
 
                 activation = repository.activate_pending_version(
-                    version_id
+                    version_id,
+                    organization_id=organization_id,
                 )
 
                 if activation is None:
@@ -378,19 +410,49 @@ class DocumentIndexingOrchestrator:
                 # 8. Commit PostgreSQL lifecycle changes.
                 # ------------------------------------------
 
+                commit_attempted = True
                 db.commit()
                 committed = True
 
             except Exception as exc:
 
                 if not committed:
-                    db.rollback()
+                    if commit_attempted:
+                        rollback_errors = []
+                        try:
+                            db.rollback()
+                        except Exception as rollback_exc:
+                            rollback_errors.append(
+                                "PostgreSQL rollback after uncertain "
+                                "commit failed: "
+                                f"{type(rollback_exc).__name__}: "
+                                f"{rollback_exc}"
+                            )
+                        raise DocumentIndexingOrchestrationError(
+                            "PostgreSQL commit outcome is uncertain. "
+                            "External indexes were preserved to avoid "
+                            "deleting data belonging to a possibly "
+                            "committed version.",
+                            cleanup_errors=rollback_errors,
+                        ) from exc
 
+                    # Clean external stores while PostgreSQL locks
+                    # are still held.
                     cleanup_errors = self._cleanup(
                         indexing_result=indexing_result,
                         version_id=version_id,
-                        summary_created=summary_created,
+                        summary_upsert_attempted=summary_upsert_attempted,
                     )
+
+                    # Release locks only after compensation finishes.
+                    try:
+                        db.rollback()
+                    except Exception as rollback_exc:
+                        cleanup_errors.append(
+                            "PostgreSQL rollback after cleanup failed: "
+                            f"{type(rollback_exc).__name__}: "
+                            f"{rollback_exc}"
+                        )
 
                     raise DocumentIndexingOrchestrationError(
                         "Document indexing orchestration failed. "
@@ -437,6 +499,7 @@ class DocumentIndexingOrchestrator:
                 title=document_title,
                 summary=activated_summary,
                 status="active",
+                organization_id=organization_id,
             )
 
         except Exception as exc:

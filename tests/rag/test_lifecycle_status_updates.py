@@ -24,6 +24,7 @@ def test_bm25_updates_only_target_version(bm25_store):
             page_content="target version chunk",
             metadata={
                 "document_id": "doc-1",
+                "organization_id": "organization-1",
                 "document_version_id": "version-1",
                 "chunk_index": 0,
                 "status": "pending",
@@ -34,6 +35,7 @@ def test_bm25_updates_only_target_version(bm25_store):
             page_content="other version chunk",
             metadata={
                 "document_id": "doc-1",
+                "organization_id": "organization-1",
                 "document_version_id": "version-2",
                 "chunk_index": 0,
                 "status": "active",
@@ -57,6 +59,7 @@ def test_bm25_updates_only_target_version(bm25_store):
 
     assert target.metadata["status"] == "active"
     assert target.metadata["source"] == "resume.pdf"
+    assert target.metadata["organization_id"] == "organization-1"
     assert other.metadata["status"] == "active"
 
 

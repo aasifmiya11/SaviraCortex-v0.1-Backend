@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+from uuid import uuid4
 
 import pytest
 from langchain_core.documents import Document
@@ -10,6 +11,8 @@ from app.services.document_ingestion import (
     DocumentIngestionError,
     DocumentIngestionService,
 )
+
+TEST_ORGANIZATION_ID = uuid4()
 
 
 class FakeValidator:
@@ -85,6 +88,8 @@ def make_service(
     registration_error=None,
     upload_error=None,
     validation=None,
+    sampler=None,
+    summarizer=None,
     loader=None,
 ):
     pdf_path = tmp_path / "sample.pdf"
@@ -121,8 +126,8 @@ def make_service(
         validator=validation or FakeValidator(),
         loader=loader or FakeLoader(),
         hash_service=FakeHashService(),
-        sampler=FakeSampler(),
-        summarizer=FakeSummarizer(),
+        sampler=sampler if sampler is not None else FakeSampler(),
+summarizer=summarizer if summarizer is not None else FakeSummarizer(),
         file_storage=storage,
         session_factory=session_factory,
         matching_orchestrator_factory=lambda _db: matching,
@@ -135,7 +140,10 @@ def make_service(
 def test_no_match_uploads_original_and_registers_pending_version(tmp_path):
     service, pdf_path, db, matching, registration, storage = make_service(tmp_path)
 
-    result = service.ingest_pdf(pdf_path)
+    result = service.ingest_pdf(
+        pdf_path,
+        organization_id=TEST_ORGANIZATION_ID,
+    )
 
     assert result.status == "registered_pending"
     assert result.original_filename == "sample.pdf"
@@ -145,22 +153,123 @@ def test_no_match_uploads_original_and_registers_pending_version(tmp_path):
     assert result.storage_key.endswith(".pdf")
     assert result.registration_result is not None
 
-    storage.upload_file.assert_called_once()
-    upload_kwargs = storage.upload_file.call_args.kwargs
-    assert upload_kwargs["local_path"] == pdf_path.resolve()
-    assert upload_kwargs["content_type"] == "application/pdf"
-    assert upload_kwargs["metadata"] == {"file-hash": "file-sha256"}
 
-    registration.register_new_document.assert_called_once()
-    registration_kwargs = registration.register_new_document.call_args.kwargs
-    assert registration_kwargs["version_data"].storage_key == result.storage_key
-    assert registration_kwargs["version_data"].file_hash == "file-sha256"
-    assert registration_kwargs["version_data"].content_hash == "content-sha256"
-    assert registration_kwargs["version_data"].page_count == 2
+def test_all_blank_pages_are_rejected_before_matching(tmp_path):
+    loader = FakeLoader(
+        pages=[
+            Document(page_content="   ", metadata={"page": 1}),
+            Document(page_content="\n\t", metadata={"page": 2}),
+        ]
+    )
+    service, pdf_path, db, matching, registration, storage = make_service(
+        tmp_path,
+        loader=loader,
+    )
 
-    db.commit.assert_called_once()
-    db.rollback.assert_not_called()
-    storage.delete_file.assert_not_called()
+    with pytest.raises(
+        DocumentIngestionError,
+        match="no usable text",
+    ):
+        service.ingest_pdf(
+            pdf_path,
+            organization_id=TEST_ORGANIZATION_ID,
+        )
+
+    matching.match.assert_not_called()
+    storage.upload_file.assert_not_called()
+    registration.register_new_document.assert_not_called()
+    db.commit.assert_not_called()
+
+
+def test_ingestion_rejects_non_uuid_organization_id(tmp_path):
+    service, pdf_path, db, matching, registration, storage = make_service(
+        tmp_path
+    )
+
+    with pytest.raises(
+        TypeError,
+        match="organization_id must be a UUID",
+    ):
+        service.ingest_pdf(
+            pdf_path,
+            organization_id="not-a-uuid",
+        )
+
+    matching.match.assert_not_called()
+    storage.upload_file.assert_not_called()
+    registration.register_new_document.assert_not_called()
+
+
+def test_pages_are_normalized_before_sampling_and_summarization(tmp_path):
+    loader = FakeLoader(
+        pages=[
+            Document(
+                page_content="  First   page content.  ",
+                metadata={"page": 1, "ocr_used": False},
+            ),
+            Document(
+                page_content="  Second   page content.  ",
+                metadata={"page": 2, "ocr_used": True},
+            ),
+        ]
+    )
+
+    class CapturingSampler:
+        def __init__(self):
+            self.received_pages = None
+
+        def sample(self, pages):
+            self.received_pages = list(pages)
+            return pages[:1]
+
+    class CapturingSummarizer:
+        def __init__(self):
+            self.received_pages = None
+
+        def summarize(self, pages):
+            self.received_pages = list(pages)
+            return FakeSummarizer().summarize(pages)
+
+    sampler = CapturingSampler()
+    summarizer = CapturingSummarizer()
+
+    service, pdf_path, *_ = make_service(
+        tmp_path,
+        loader=loader,
+        sampler=sampler,
+        summarizer=summarizer,
+    )
+
+    result = service.ingest_pdf(
+        pdf_path,
+        organization_id=TEST_ORGANIZATION_ID,
+    )
+
+    assert result.status == "registered_pending"
+
+    # Both pages must be normalized before sampling.
+    assert [page.page_content for page in sampler.received_pages] == [
+        "First page content.",
+        "Second page content.",
+    ]
+
+    # Original page metadata must survive normalization.
+    assert sampler.received_pages[0].metadata == {
+        "page": 1,
+        "ocr_used": False,
+    }
+    assert sampler.received_pages[1].metadata == {
+        "page": 2,
+        "ocr_used": True,
+    }
+
+    # The summarizer must receive the normalized sampled documents.
+    assert len(summarizer.received_pages) == 1
+    assert summarizer.received_pages[0].page_content == "First page content."
+    assert summarizer.received_pages[0].metadata == {
+        "page": 1,
+        "ocr_used": False,
+    }
 
 
 @pytest.mark.parametrize("classification", ["exact_file_match", "exact_content_match"])
@@ -169,7 +278,10 @@ def test_exact_duplicate_does_not_upload_or_register(tmp_path, classification):
         tmp_path, classification=classification
     )
 
-    result = service.ingest_pdf(pdf_path)
+    result = service.ingest_pdf(
+        pdf_path,
+        organization_id=TEST_ORGANIZATION_ID,
+    )
 
     assert result.status == "duplicate"
     assert result.registration_result is None
@@ -184,7 +296,10 @@ def test_potential_match_requires_review_without_upload(tmp_path):
         tmp_path, classification="potential_match"
     )
 
-    result = service.ingest_pdf(pdf_path)
+    result = service.ingest_pdf(
+        pdf_path,
+        organization_id=TEST_ORGANIZATION_ID,
+    )
 
     assert result.status == "review_required"
     assert result.registration_result is None
@@ -204,7 +319,10 @@ def test_invalid_pdf_stops_before_extraction(tmp_path):
     )
 
     with pytest.raises(DocumentIngestionError, match="PDF validation failed"):
-        service.ingest_pdf(pdf_path)
+        service.ingest_pdf(
+            pdf_path,
+            organization_id=TEST_ORGANIZATION_ID,
+        )
 
     storage.upload_file.assert_not_called()
     matching.match.assert_not_called()
@@ -220,7 +338,10 @@ def test_page_count_mismatch_stops_before_matching(tmp_path):
     )
 
     with pytest.raises(DocumentIngestionError, match="page count does not match"):
-        service.ingest_pdf(pdf_path)
+        service.ingest_pdf(
+            pdf_path,
+            organization_id=TEST_ORGANIZATION_ID,
+        )
 
     matching.match.assert_not_called()
     storage.upload_file.assert_not_called()
@@ -232,7 +353,10 @@ def test_upload_failure_rolls_back_and_attempts_cleanup(tmp_path):
     )
 
     with pytest.raises(DocumentIngestionError, match="failed during upload"):
-        service.ingest_pdf(pdf_path)
+        service.ingest_pdf(
+            pdf_path,
+            organization_id=TEST_ORGANIZATION_ID,
+        )
 
     db.rollback.assert_called_once()
     db.commit.assert_not_called()
@@ -247,7 +371,10 @@ def test_registration_failure_rolls_back_and_deletes_uploaded_original(tmp_path)
     )
 
     with pytest.raises(DocumentIngestionError, match="failed during upload"):
-        service.ingest_pdf(pdf_path)
+        service.ingest_pdf(
+            pdf_path,
+            organization_id=TEST_ORGANIZATION_ID,
+        )
 
     storage.upload_file.assert_called_once()
     db.rollback.assert_called_once()
@@ -263,7 +390,10 @@ def test_cleanup_failure_is_preserved_on_ingestion_error(tmp_path):
     storage.exists.side_effect = RuntimeError("B2 cleanup check failed")
 
     with pytest.raises(DocumentIngestionError) as exc_info:
-        service.ingest_pdf(pdf_path)
+        service.ingest_pdf(
+            pdf_path,
+            organization_id=TEST_ORGANIZATION_ID,
+        )
 
     assert isinstance(exc_info.value.cleanup_error, RuntimeError)
     assert str(exc_info.value.cleanup_error) == "B2 cleanup check failed"

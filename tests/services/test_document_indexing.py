@@ -76,6 +76,7 @@ def test_successful_indexing(pages, dependencies):
         page_documents=pages,
         document_id="document-1",
         document_version_id="version-1",
+        organization_id="organization-1",
         version_number=1,
         source_filename="policy.pdf",
     )
@@ -94,6 +95,7 @@ def test_successful_indexing(pages, dependencies):
 
     for index, chunk in enumerate(indexed_chunks):
         assert chunk.metadata["document_id"] == "document-1"
+        assert chunk.metadata["organization_id"] == "organization-1"
         assert chunk.metadata["document_version_id"] == "version-1"
         assert chunk.metadata["version_number"] == 1
         assert chunk.metadata["chunk_index"] == index
@@ -118,6 +120,7 @@ def test_qdrant_failure_triggers_cleanup(pages, dependencies):
             page_documents=pages,
             document_id="document-1",
             document_version_id="version-1",
+            organization_id="organization-1",
             version_number=1,
             source_filename="policy.pdf",
         )
@@ -144,6 +147,7 @@ def test_bm25_failure_triggers_cleanup(pages, dependencies):
             page_documents=pages,
             document_id="document-1",
             document_version_id="version-1",
+            organization_id="organization-1",
             version_number=1,
             source_filename="policy.pdf",
         )
@@ -166,6 +170,7 @@ def test_empty_page_list_is_rejected(dependencies):
             page_documents=[],
             document_id="document-1",
             document_version_id="version-1",
+            organization_id="organization-1",
             version_number=1,
             source_filename="policy.pdf",
         )
@@ -185,6 +190,7 @@ def test_invalid_version_number_is_rejected(pages, dependencies):
             page_documents=pages,
             document_id="document-1",
             document_version_id="version-1",
+            organization_id="organization-1",
             version_number=0,
             source_filename="policy.pdf",
         )
@@ -202,6 +208,7 @@ def test_qdrant_ids_are_deterministic(pages, dependencies):
         page_documents=pages,
         document_id="document-1",
         document_version_id="version-1",
+        organization_id="organization-1",
         version_number=1,
         source_filename="policy.pdf",
     )
@@ -210,6 +217,7 @@ def test_qdrant_ids_are_deterministic(pages, dependencies):
         page_documents=pages,
         document_id="document-1",
         document_version_id="version-1",
+        organization_id="organization-1",
         version_number=1,
         source_filename="policy.pdf",
     )

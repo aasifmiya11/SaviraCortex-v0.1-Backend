@@ -16,10 +16,20 @@ class DocumentRepository:
     # CREATE
     # ================================================
 
-    def create(self,title: str,document_type: str,department: str | None = None,description: str | None = None,document_id: UUID | None = None,) -> Document:
-
+    def create(
+        self,
+        title: str,
+        document_type: str,
+        organization_id: UUID,
+        department: str | None = None,
+        description: str | None = None,
+        uploaded_by_user_id: UUID | None = None,
+        document_id: UUID | None = None,
+    ) -> Document:
         document = Document(
             id=document_id,
+            organization_id=organization_id,
+            uploaded_by_user_id=uploaded_by_user_id,
             title=title,
             document_type=document_type,
             department=department,
@@ -36,19 +46,33 @@ class DocumentRepository:
     # READ
     # ================================================
 
-    def get_by_id(self, document_id: UUID) -> Document | None:
+    def get_by_id(
+        self,
+        document_id: UUID,
+        *,
+        organization_id: UUID,
+    ) -> Document | None:
 
         statement = select(Document).where(
-            Document.id == document_id
+            Document.id == document_id,
+            Document.organization_id == organization_id,
         )
 
         return self.db.scalar(statement)
 
-    def get_by_title(self, title: str) -> list[Document]:
+    def get_by_title(
+        self,
+        title: str,
+        *,
+        organization_id: UUID,
+    ) -> list[Document]:
 
         statement = (
             select(Document)
-            .where(Document.title.ilike(title))
+            .where(
+                Document.title.ilike(title),
+                Document.organization_id == organization_id,
+            )
             .order_by(Document.created_at.desc())
         )
 
@@ -60,9 +84,13 @@ class DocumentRepository:
         document_type: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        *,
+        organization_id: UUID,
     ) -> list[Document]:
 
-        statement = select(Document)
+        statement = select(Document).where(
+            Document.organization_id == organization_id
+        )
 
         if department:
             statement = statement.where(
@@ -90,10 +118,15 @@ class DocumentRepository:
     def update(
         self,
         document_id: UUID,
+        *,
+        organization_id: UUID,
         **kwargs,
     ) -> Document | None:
 
-        document = self.get_by_id(document_id)
+        document = self.get_by_id(
+            document_id,
+            organization_id=organization_id,
+        )
 
         if document is None:
             return None
@@ -124,9 +157,17 @@ class DocumentRepository:
     # DELETE
     # ================================================
 
-    def delete(self, document_id: UUID) -> bool:
+    def delete(
+        self,
+        document_id: UUID,
+        *,
+        organization_id: UUID,
+    ) -> bool:
 
-        document = self.get_by_id(document_id)
+        document = self.get_by_id(
+            document_id,
+            organization_id=organization_id,
+        )
 
         if document is None:
             return False
