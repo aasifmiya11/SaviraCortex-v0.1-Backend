@@ -56,9 +56,6 @@ def test_document_indexing_live_stores():
     qdrant_point_ids = []
 
     try:
-        # Record BM25 count before indexing.
-        bm25_count_before = service.bm25_store.count()
-
         # Run the actual indexing service.
         result = service.index_document_version(
             page_documents=page_documents,
@@ -81,7 +78,6 @@ def test_document_indexing_live_stores():
         assert result.chunk_count > 1
 
         assert len(result.qdrant_point_ids) == result.chunk_count
-        assert len(result.bm25_chunk_ids) == result.chunk_count
 
         # ----------------------------------------
         # 2. Verify Qdrant insertion
@@ -106,23 +102,11 @@ def test_document_indexing_live_stores():
             assert payload["version_number"] == 1
             assert payload["status"] == "pending"
 
-        # ----------------------------------------
-        # 3. Verify BM25 insertion
-        # ----------------------------------------
-
-        bm25_count_after = service.bm25_store.count()
-
-        assert (
-            bm25_count_after - bm25_count_before
-            == result.chunk_count
-        )
-
         print("\nINDEXING RESULT")
         print(result.to_dict())
 
         print("\nLIVE STORE VERIFICATION")
         print(f"Qdrant points verified: {len(retrieved_points)}")
-        print(f"BM25 chunks added: {result.chunk_count}")
 
     finally:
         # ----------------------------------------
@@ -130,8 +114,6 @@ def test_document_indexing_live_stores():
         # ----------------------------------------
 
         service.qdrant_store.delete_points(qdrant_point_ids)
-
-        service.bm25_store.delete_version(document_version_id)
 
         # Verify Qdrant cleanup.
         if qdrant_point_ids:
@@ -143,8 +125,5 @@ def test_document_indexing_live_stores():
             )
 
             assert len(remaining_points) == 0
-
-        # Verify BM25 cleanup.
-        assert service.bm25_store.count() == bm25_count_before
 
         print("\nCLEANUP VERIFIED")

@@ -57,18 +57,13 @@ class FakeExternalStore:
         with self.lock:
             self.records.difference_update(point_ids)
 
-    def delete_version(self, version_id):
-        with self.lock:
-            self.records.clear()
-
     def update_version_status(self, **kwargs):
         pass
 
 
 class FakeIndexingService:
-    def __init__(self, qdrant_store, bm25_store):
+    def __init__(self, qdrant_store):
         self.qdrant_store = qdrant_store
-        self.bm25_store = bm25_store
         self.calls = []
         self.lock = Lock()
 
@@ -79,10 +74,7 @@ class FakeIndexingService:
             self.calls.append(worker)
 
         point_id = "shared-test-point"
-        chunk_id = "shared-test-chunk"
-
         self.qdrant_store.add(point_id)
-        self.bm25_store.add(chunk_id)
 
         return type(
             "FakeIndexingResult",
@@ -92,7 +84,6 @@ class FakeIndexingService:
                 "ocr_page_count": 0,
                 "chunk_count": 1,
                 "qdrant_point_ids": [point_id],
-                "bm25_chunk_ids": [chunk_id],
             },
         )()
 
@@ -157,9 +148,7 @@ def test_cleanup_holds_document_lock_until_external_cleanup_finishes(
         organization_id = organization.id
 
     qdrant = FakeExternalStore(block_cleanup=True)
-    bm25 = FakeExternalStore()
-
-    indexing_service = FakeIndexingService(qdrant, bm25)
+    indexing_service = FakeIndexingService(qdrant)
     summary_storage = FakeSummaryStorage()
 
     orchestrator = DocumentIndexingOrchestrator(
@@ -245,7 +234,6 @@ def test_cleanup_holds_document_lock_until_external_cleanup_finishes(
 
         # A's cleanup must not delete B's subsequently indexed records.
         assert "shared-test-point" in qdrant.records
-        assert "shared-test-chunk" in bm25.records
 
         # PostgreSQL must show the version as active.
         with SessionLocal() as db:

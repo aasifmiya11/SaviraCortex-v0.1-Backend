@@ -73,7 +73,6 @@ def setup_orchestrator(tmp_path):
         ocr_page_count=0,
         chunk_count=3,
         qdrant_point_ids=["qdrant-1", "qdrant-2", "qdrant-3"],
-        bm25_chunk_ids=["bm25-1", "bm25-2", "bm25-3"],
         status="completed",
     )
 
@@ -150,9 +149,6 @@ def test_successful_indexing_and_activation(setup_orchestrator):
     assert result.qdrant_point_ids == [
         "qdrant-1", "qdrant-2", "qdrant-3"
     ]
-    assert result.bm25_chunk_ids == [
-        "bm25-1", "bm25-2", "bm25-3"
-    ]
     assert result.summary_point_id == str(setup.version_id)
 
     setup.db.flush.assert_called_once()
@@ -177,11 +173,6 @@ def test_successful_indexing_and_activation(setup_orchestrator):
         document_version_id=str(setup.version_id),
         status="active",
     )
-    setup.indexing_service.bm25_store.update_version_status.assert_called_once_with(
-        document_version_id=str(setup.version_id),
-        status="active",
-    )
-
     # Summary is first pending, then active.
     assert setup.summary_storage.upsert_summary.call_args_list == [
         call(
@@ -235,22 +226,7 @@ def test_previous_active_version_is_synchronized_as_superseded(
     qdrant_updates = (
         setup.indexing_service.qdrant_store.update_version_status.call_args_list
     )
-    bm25_updates = (
-        setup.indexing_service.bm25_store.update_version_status.call_args_list
-    )
-
     assert qdrant_updates == [
-        call(
-            document_version_id=str(setup.version_id),
-            status="active",
-        ),
-        call(
-            document_version_id=str(setup.previous_version.id),
-            status="superseded",
-        ),
-    ]
-
-    assert bm25_updates == [
         call(
             document_version_id=str(setup.version_id),
             status="active",
@@ -296,10 +272,6 @@ def test_summary_pending_upsert_failure_after_write_cleans_summary(
     setup.indexing_service.qdrant_store.delete_points.assert_called_once_with(
         setup.indexing_result.qdrant_point_ids
     )
-    setup.indexing_service.bm25_store.delete_version.assert_called_once_with(
-        str(setup.version_id)
-    )
-
     setup.summary_storage.delete_summary.assert_called_once_with(
         setup.version_id
     )
@@ -332,9 +304,6 @@ def test_activation_failure_rolls_back_and_cleans_all_indexes(
     setup.db.commit.assert_not_called()
 
     setup.indexing_service.qdrant_store.delete_points.assert_called_once()
-    setup.indexing_service.bm25_store.delete_version.assert_called_once_with(
-        str(setup.version_id)
-    )
     setup.summary_storage.delete_summary.assert_called_once_with(
         setup.version_id
     )
@@ -383,12 +352,9 @@ def test_post_commit_summary_sync_failure_does_not_rollback(
 
     # Chunk lifecycle synchronization still happens.
     setup.indexing_service.qdrant_store.update_version_status.assert_called_once()
-    setup.indexing_service.bm25_store.update_version_status.assert_called_once()
-
-
 @pytest.mark.parametrize(
     "store_name",
-    ["qdrant_store", "bm25_store"],
+    ["qdrant_store"],
 )
 def test_post_commit_chunk_sync_failure_is_reported_without_rollback(
     setup_orchestrator,
@@ -575,7 +541,6 @@ def test_indexing_service_failure_rolls_back(
     # The indexing service owns cleanup when indexing itself fails.
     # The orchestrator has not received an IndexingResult.
     setup.indexing_service.qdrant_store.delete_points.assert_not_called()
-    setup.indexing_service.bm25_store.delete_version.assert_not_called()
 
 
 def test_activation_returning_none_rolls_back_and_cleans(
@@ -606,9 +571,6 @@ def test_activation_returning_none_rolls_back_and_cleans(
     setup.db.commit.assert_not_called()
 
     setup.indexing_service.qdrant_store.delete_points.assert_called_once()
-    setup.indexing_service.bm25_store.delete_version.assert_called_once_with(
-        str(setup.version_id)
-    )
     setup.summary_storage.delete_summary.assert_called_once_with(
         setup.version_id
     )
@@ -626,9 +588,6 @@ def test_cleanup_failures_are_reported(
 
     setup.indexing_service.qdrant_store.delete_points.side_effect = (
         RuntimeError("Qdrant cleanup unavailable")
-    )
-    setup.indexing_service.bm25_store.delete_version.side_effect = (
-        RuntimeError("BM25 cleanup unavailable")
     )
     setup.summary_storage.delete_summary.side_effect = (
         RuntimeError("Summary cleanup unavailable")
@@ -651,14 +610,10 @@ def test_cleanup_failures_are_reported(
 
     error = exc_info.value
 
-    assert len(error.cleanup_errors) == 3
+    assert len(error.cleanup_errors) == 2
 
     assert any(
         "Qdrant cleanup failed" in item
-        for item in error.cleanup_errors
-    )
-    assert any(
-        "BM25 cleanup failed" in item
         for item in error.cleanup_errors
     )
     assert any(

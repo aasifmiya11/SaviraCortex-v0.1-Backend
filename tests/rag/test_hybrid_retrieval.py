@@ -50,11 +50,14 @@ def test_hybrid_pipeline_forwards_status_to_both_retrievers(monkeypatch):
 
     pipeline.search(
         query="machine learning",
+        organization_id="org-1",
         status="pending",
     )
 
     assert bm25.calls[0]["status"] == "pending"
     assert dense.calls[0]["status"] == "pending"
+    assert bm25.calls[0]["organization_id"] == "org-1"
+    assert dense.calls[0]["organization_id"] == "org-1"
 
 
 @pytest.mark.parametrize(
@@ -78,7 +81,11 @@ def test_pipeline_calls_only_requested_retrievers(
     monkeypatch.setattr(pipeline_module, "dense_retriever", dense)
 
     pipeline = HybridRetrievalPipeline()
-    pipeline.search("machine learning", mode=mode)
+    pipeline.search(
+        "machine learning",
+        organization_id="org-1",
+        mode=mode,
+    )
 
     assert len(bm25.calls) == expected_bm25_calls
     assert len(dense.calls) == expected_dense_calls
@@ -91,10 +98,15 @@ def test_pipeline_uses_active_status_by_default(monkeypatch):
     monkeypatch.setattr(pipeline_module, "bm25_retriever", bm25)
     monkeypatch.setattr(pipeline_module, "dense_retriever", dense)
 
-    HybridRetrievalPipeline().search("machine learning")
+    HybridRetrievalPipeline().search(
+        "machine learning",
+        organization_id="org-1",
+    )
 
     assert bm25.calls[0]["status"] == "active"
     assert dense.calls[0]["status"] == "active"
+    assert bm25.calls[0]["organization_id"] == "org-1"
+    assert dense.calls[0]["organization_id"] == "org-1"
 
 
 def test_pipeline_preserves_result_structure(monkeypatch):
@@ -106,7 +118,10 @@ def test_pipeline_preserves_result_structure(monkeypatch):
     monkeypatch.setattr(pipeline_module, "bm25_retriever", bm25)
     monkeypatch.setattr(pipeline_module, "dense_retriever", dense)
 
-    result = HybridRetrievalPipeline().search("machine learning")
+    result = HybridRetrievalPipeline().search(
+        "machine learning",
+        organization_id="org-1",
+    )
 
     assert result["query"] == "machine learning"
     assert result["mode"] == "hybrid"
@@ -120,7 +135,18 @@ def test_pipeline_rejects_empty_status():
     pipeline = HybridRetrievalPipeline()
 
     with pytest.raises(ValueError, match="status cannot be empty"):
-        pipeline.search("machine learning", status=" ")
+        pipeline.search(
+            "machine learning",
+            organization_id="org-1",
+            status=" ",
+        )
+
+
+def test_hybrid_retrieval_requires_organization_id():
+    pipeline = HybridRetrievalPipeline()
+
+    with pytest.raises(ValueError, match="organization_id cannot be empty"):
+        pipeline.search("machine learning", organization_id=" ")
 
 
 def test_rrf_merges_same_version_chunk_from_both_retrievers():

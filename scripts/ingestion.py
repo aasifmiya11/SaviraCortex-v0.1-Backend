@@ -19,6 +19,9 @@ from app.models.organization_memberships import OrganizationMembership
 from app.models.organizations import Organization
 from app.models.users import User
 from app.services.document_ingestion import DocumentIngestionService
+from app.services.document_indexing.indexing_orchestrator import (
+    DocumentIndexingOrchestrator,
+)
 
 
 def create_demo_tenant() -> tuple[Organization, User]:
@@ -73,8 +76,8 @@ def associate_uploader(
         db.commit()
 
 
-def ingest_pdf(pdf_path: Path) -> None:
-    """Create a tenant, ingest the PDF, and print the resulting IDs."""
+def ingest_pdf(pdf_path: Path, *, skip_index: bool = False) -> None:
+    """Create a tenant, ingest the PDF, and optionally index it end to end."""
 
     if not pdf_path.is_file():
         raise FileNotFoundError(f"PDF does not exist: {pdf_path}")
@@ -96,6 +99,18 @@ def ingest_pdf(pdf_path: Path) -> None:
             user_id=user.id,
         )
 
+        if not skip_index:
+            indexing_result = (
+                DocumentIndexingOrchestrator().index_pending_version(
+                    result.registration_result.document_version_id,
+                    organization_id=organization.id,
+                )
+            )
+        else:
+            indexing_result = None
+    else:
+        indexing_result = None
+
     print(f"Organization ID: {organization.id}")
     print(f"User ID: {user.id}")
     print(f"Ingestion status: {result.status}")
@@ -108,6 +123,9 @@ def ingest_pdf(pdf_path: Path) -> None:
         )
     if result.storage_key:
         print(f"Storage key: {result.storage_key}")
+    if indexing_result is not None:
+        print(f"Indexing status: {indexing_result.status}")
+        print(f"Qdrant chunks: {indexing_result.chunk_count}")
 
 
 def main() -> None:
@@ -121,8 +139,16 @@ def main() -> None:
         default=Path(r"F:\resume.pdf"),
         help=r"PDF to ingest (default: F:\resume.pdf).",
     )
+    parser.add_argument(
+        "--skip-index",
+        action="store_true",
+        help="Stop after pending registration instead of indexing.",
+    )
     args = parser.parse_args()
-    ingest_pdf(args.pdf_path.expanduser().resolve())
+    ingest_pdf(
+        args.pdf_path.expanduser().resolve(),
+        skip_index=args.skip_index,
+    )
 
 
 if __name__ == "__main__":

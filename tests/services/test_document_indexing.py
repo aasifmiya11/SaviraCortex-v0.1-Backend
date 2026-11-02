@@ -36,7 +36,6 @@ def pages():
 def dependencies():
     splitter = MagicMock()
     qdrant = MagicMock()
-    bm25 = MagicMock()
 
     def split_documents(documents):
         return [
@@ -53,23 +52,15 @@ def dependencies():
         lambda documents, ids: ids
     )
 
-    bm25.add_documents.side_effect = (
-        lambda documents: [
-            f"bm25-{index}"
-            for index, _ in enumerate(documents)
-        ]
-    )
-
-    return splitter, qdrant, bm25
+    return splitter, qdrant
 
 
 def test_successful_indexing(pages, dependencies):
-    splitter, qdrant, bm25 = dependencies
+    splitter, qdrant = dependencies
 
     service = DocumentIndexingService(
         text_splitter=splitter,
         qdrant_store=qdrant,
-        bm25_store=bm25,
     )
 
     result = service.index_document_version(
@@ -85,13 +76,11 @@ def test_successful_indexing(pages, dependencies):
     assert result.ocr_page_count == 1
     assert result.chunk_count == 2
     assert len(result.qdrant_point_ids) == 2
-    assert len(result.bm25_chunk_ids) == 2
     assert result.status == "completed"
 
     qdrant.add_documents.assert_called_once()
-    bm25.add_documents.assert_called_once()
 
-    indexed_chunks = bm25.add_documents.call_args.args[0]
+    indexed_chunks = qdrant.add_documents.call_args.args[0]
 
     for index, chunk in enumerate(indexed_chunks):
         assert chunk.metadata["document_id"] == "document-1"
@@ -103,7 +92,7 @@ def test_successful_indexing(pages, dependencies):
 
 
 def test_qdrant_failure_triggers_cleanup(pages, dependencies):
-    splitter, qdrant, bm25 = dependencies
+    splitter, qdrant = dependencies
 
     qdrant.add_documents.side_effect = RuntimeError(
         "Qdrant unavailable"
@@ -112,7 +101,6 @@ def test_qdrant_failure_triggers_cleanup(pages, dependencies):
     service = DocumentIndexingService(
         text_splitter=splitter,
         qdrant_store=qdrant,
-        bm25_store=bm25,
     )
 
     with pytest.raises(IndexingError):
@@ -126,43 +114,14 @@ def test_qdrant_failure_triggers_cleanup(pages, dependencies):
         )
 
     qdrant.delete_points.assert_called_once()
-    bm25.delete_version.assert_called_once_with("version-1")
-
-
-def test_bm25_failure_triggers_cleanup(pages, dependencies):
-    splitter, qdrant, bm25 = dependencies
-
-    bm25.add_documents.side_effect = RuntimeError(
-        "SQLite write failed"
-    )
-
-    service = DocumentIndexingService(
-        text_splitter=splitter,
-        qdrant_store=qdrant,
-        bm25_store=bm25,
-    )
-
-    with pytest.raises(IndexingError):
-        service.index_document_version(
-            page_documents=pages,
-            document_id="document-1",
-            document_version_id="version-1",
-            organization_id="organization-1",
-            version_number=1,
-            source_filename="policy.pdf",
-        )
-
-    qdrant.delete_points.assert_called_once()
-    bm25.delete_version.assert_called_once_with("version-1")
 
 
 def test_empty_page_list_is_rejected(dependencies):
-    splitter, qdrant, bm25 = dependencies
+    splitter, qdrant = dependencies
 
     service = DocumentIndexingService(
         text_splitter=splitter,
         qdrant_store=qdrant,
-        bm25_store=bm25,
     )
 
     with pytest.raises(ValueError):
@@ -177,12 +136,11 @@ def test_empty_page_list_is_rejected(dependencies):
 
 
 def test_invalid_version_number_is_rejected(pages, dependencies):
-    splitter, qdrant, bm25 = dependencies
+    splitter, qdrant = dependencies
 
     service = DocumentIndexingService(
         text_splitter=splitter,
         qdrant_store=qdrant,
-        bm25_store=bm25,
     )
 
     with pytest.raises(ValueError):
@@ -196,12 +154,11 @@ def test_invalid_version_number_is_rejected(pages, dependencies):
         )
 
 def test_qdrant_ids_are_deterministic(pages, dependencies):
-    splitter, qdrant, bm25 = dependencies
+    splitter, qdrant = dependencies
 
     service = DocumentIndexingService(
         text_splitter=splitter,
         qdrant_store=qdrant,
-        bm25_store=bm25,
     )
 
     first_result = service.index_document_version(
