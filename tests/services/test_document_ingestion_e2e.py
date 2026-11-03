@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from app.core.database import get_db_session
+from app.models.documents import Document
 from app.models.document_versions import DocumentVersion
 from app.models.organizations import Organization
 from app.services.document_ingestion import DocumentIngestionService
@@ -93,7 +94,8 @@ def test_real_pdf_ingestion_persists_original_and_pending_version():
 
         assert version is not None
         assert version.status == "pending"
-        assert version.archived is False
+        document = db.get(Document, version.document_id)
+        assert document.archived is False
         assert version.storage_key == result.storage_key
         assert version.file_hash == original_hash
         assert version.original_filename == pdf_path.name

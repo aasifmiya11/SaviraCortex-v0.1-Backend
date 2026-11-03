@@ -146,7 +146,7 @@ class DocumentVersionRepository:
                 DocumentVersion.document_id == document_id,
                 Document.organization_id == organization_id,
                 DocumentVersion.status == "active",
-                DocumentVersion.archived.is_(False),
+                Document.archived.is_(False),
             )
         )
 
@@ -209,7 +209,7 @@ class DocumentVersionRepository:
             .where(
                 DocumentVersion.document_id == document_id,
                 Document.organization_id == organization_id,
-                DocumentVersion.archived.is_(False),
+                Document.archived.is_(False),
             )
         )
 
@@ -314,92 +314,17 @@ class DocumentVersionRepository:
         if version is None:
             return None
 
+        if status == "active":
+            raise ValueError(
+                "Use activate_pending_version() to activate a version."
+            )
+
         version.status = status
 
         self.db.flush()
         self.db.refresh(version)
 
         return version
-
-    def archive(
-        self,
-        version_id: UUID,
-        *,
-        organization_id: UUID,
-    ) -> DocumentVersion | None:
-
-        version = self.get_by_id(
-            version_id,
-            organization_id=organization_id,
-        )
-
-        if version is None:
-            return None
-
-        if version.status == "pending":
-            raise ValueError(
-                "A pending version cannot be archived."
-            )
-
-        if version.archived:
-            raise ValueError(
-                "This version is already archived."
-            )
-
-        version.archived = True
-
-        self.db.flush()
-        self.db.refresh(version)
-
-        return version
-
-    def unarchive(
-        self,
-        version_id: UUID,
-        restore_status: str,
-        *,
-        organization_id: UUID,
-    ) -> DocumentVersion | None:
-
-        if restore_status not in {"active", "superseded"}:
-            raise ValueError(
-                "An archived version can only be restored "
-                "as active or superseded."
-            )
-
-        version = self.get_by_id(
-            version_id,
-            organization_id=organization_id,
-        )
-
-        if version is None:
-            return None
-
-        if not version.archived:
-            raise ValueError(
-                "Only archived versions can be unarchived."
-            )
-
-        if (
-            restore_status == "active"
-            and self.get_active_version(
-                version.document_id,
-                organization_id=organization_id,
-            ) is not None
-        ):
-            raise ValueError(
-                "Another active version already exists for this document."
-            )
-
-        version.status = restore_status
-        version.archived = False
-
-        self.db.flush()
-        self.db.refresh(version)
-
-        return version
-    
-    
 
     def activate_pending_version(
         self,
@@ -467,9 +392,9 @@ class DocumentVersionRepository:
             return None
     
         # 4. Validate lifecycle state.
-        if target.archived:
+        if document.archived:
             raise ValueError(
-                "An archived version cannot be activated."
+                "An archived document cannot be activated."
             )
     
         if target.status != "pending":
@@ -486,7 +411,6 @@ class DocumentVersionRepository:
                 DocumentVersion.document_id == document_id,
                 Document.organization_id == organization_id,
                 DocumentVersion.status == "active",
-                DocumentVersion.archived.is_(False),
                 DocumentVersion.id != version_id,
             )
             .with_for_update()

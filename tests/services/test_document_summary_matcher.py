@@ -119,9 +119,9 @@ def test_candidates_are_sorted_by_similarity(matcher, summary_store):
     assert scores == [0.95, 0.88, 0.82]
 
 
-def test_archived_version_is_still_a_match(matcher, summary_store):
+def test_archived_document_version_is_still_a_match(matcher, summary_store):
     summary_store.search_similar_summaries.return_value = [
-        make_result(score=0.91, status="archived")
+        make_result(score=0.91, status="superseded")
     ]
 
     result = matcher.match(
@@ -130,7 +130,7 @@ def test_archived_version_is_still_a_match(matcher, summary_store):
     )
 
     assert result.is_match is True
-    assert result.candidates[0].status == "archived"
+    assert result.candidates[0].status == "superseded"
 
 
 def test_duplicate_version_ids_are_deduplicated(matcher, summary_store):

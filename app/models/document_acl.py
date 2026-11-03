@@ -14,7 +14,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..core.database import Base
 
@@ -29,12 +29,21 @@ class DocumentACL(Base):
                 principal_type = 'user'
                 AND user_id IS NOT NULL
                 AND role_id IS NULL
+                AND department_id IS NULL
             )
             OR
             (
                 principal_type = 'role'
                 AND role_id IS NOT NULL
                 AND user_id IS NULL
+                AND department_id IS NULL
+            )
+            OR
+            (
+                principal_type = 'department'
+                AND department_id IS NOT NULL
+                AND user_id IS NULL
+                AND role_id IS NULL
             )
             """,
             name="chk_document_acl_principal",
@@ -67,6 +76,15 @@ class DocumentACL(Base):
             ondelete="CASCADE",
             name="fk_document_acl_role",
         ),
+        ForeignKeyConstraint(
+            ["organization_id", "department_id"],
+            [
+                "organization_departments.organization_id",
+                "organization_departments.id",
+            ],
+            ondelete="NO ACTION",
+            name="fk_document_acl_department",
+        ),
         Index(
             "idx_document_acl_document",
             "organization_id",
@@ -83,6 +101,11 @@ class DocumentACL(Base):
             "role_id",
         ),
         Index(
+            "idx_document_acl_department",
+            "organization_id",
+            "department_id",
+        ),
+        Index(
             "uq_document_acl_user",
             "organization_id",
             "document_id",
@@ -97,6 +120,14 @@ class DocumentACL(Base):
             "role_id",
             unique=True,
             postgresql_where=text("principal_type = 'role'"),
+        ),
+        Index(
+            "uq_document_acl_department",
+            "organization_id",
+            "document_id",
+            "department_id",
+            unique=True,
+            postgresql_where=text("principal_type = 'department'"),
         ),
     )
 
@@ -132,6 +163,11 @@ class DocumentACL(Base):
         nullable=True,
     )
 
+    department_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        nullable=True,
+    )
+
     effect: Mapped[str] = mapped_column(
         String(10),
         nullable=False,
@@ -142,3 +178,17 @@ class DocumentACL(Base):
         server_default=func.now(),
         nullable=False,
     )
+
+    department: Mapped["OrganizationDepartment | None"] = relationship(
+        "OrganizationDepartment",
+        back_populates="acl_entries",
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<DocumentACL("
+            f"organization_id={self.organization_id}, "
+            f"document_id={self.document_id}, "
+            f"principal_type={self.principal_type!r}, "
+            f"effect={self.effect!r})>"
+        )

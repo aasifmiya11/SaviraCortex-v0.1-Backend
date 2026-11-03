@@ -4,13 +4,14 @@ from datetime import date, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    and_,
     String,
     Text,
     Integer,
     Date,
     DateTime,
-    Boolean,
     ForeignKey,
+    ForeignKeyConstraint,
     CheckConstraint,
     UniqueConstraint,
     Index,
@@ -18,9 +19,18 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship, remote
 
 from ..core.database import Base
+
+
+def _supersedes_join():
+    return and_(
+        remote(DocumentVersion.document_id)
+        == DocumentVersion.document_id,
+        remote(DocumentVersion.id)
+        == foreign(DocumentVersion.supersedes_version_id),
+    )
 
 
 class DocumentVersion(Base):
@@ -34,6 +44,17 @@ class DocumentVersion(Base):
             "document_id",
             "version_number",
             name="uq_document_version_number",
+        ),
+        UniqueConstraint(
+            "document_id",
+            "id",
+            name="uq_document_version_document_id",
+        ),
+        ForeignKeyConstraint(
+            ["document_id", "supersedes_version_id"],
+            ["document_versions.document_id", "document_versions.id"],
+            ondelete="RESTRICT",
+            name="fk_document_version_supersedes",
         ),
 
         # Version number must be positive.
@@ -70,14 +91,12 @@ class DocumentVersion(Base):
             name="chk_document_version_status",
         ),
 
-        # Only one non-archived active version per document.
+        # Only one active version per document.
         Index(
             "idx_one_active_version",
             "document_id",
             unique=True,
-            postgresql_where=text(
-                "status = 'active' AND archived = false"
-            ),
+            postgresql_where=text("status = 'active'"),
         ),
 
         # Hash lookup indexes.
@@ -97,11 +116,6 @@ class DocumentVersion(Base):
             "status",
         ),
 
-        # Archive filtering index.
-        Index(
-            "idx_versions_archived",
-            "archived",
-        ),
     )
 
     # =================================================
@@ -184,17 +198,6 @@ class DocumentVersion(Base):
     )
 
     # =================================================
-    # Archive State
-    # =================================================
-
-    archived: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        default=False,
-        server_default=text("false"),
-    )
-
-    # =================================================
     # Storage Key
     # =================================================
 
@@ -224,10 +227,6 @@ class DocumentVersion(Base):
 
     supersedes_version_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey(
-            "document_versions.id",
-            ondelete="RESTRICT",
-        ),
         nullable=True,
     )
 
@@ -262,7 +261,11 @@ class DocumentVersion(Base):
     # Reference to the previous version.
     supersedes_version: Mapped["DocumentVersion | None"] = relationship(
         "DocumentVersion",
-        remote_side="DocumentVersion.id",
+        primaryjoin=_supersedes_join,
+        remote_side=lambda: [
+            DocumentVersion.document_id,
+            DocumentVersion.id,
+        ],
         foreign_keys=[supersedes_version_id],
         back_populates="superseded_by",
     )
@@ -280,6 +283,5 @@ class DocumentVersion(Base):
             f"id={self.id}, "
             f"document_id={self.document_id}, "
             f"version={self.version_number}, "
-            f"status={self.status!r}, "
-            f"archived={self.archived})>"
+            f"status={self.status!r})>"
         )

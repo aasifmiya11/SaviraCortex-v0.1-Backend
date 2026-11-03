@@ -26,7 +26,6 @@ def setup_orchestrator(tmp_path):
         original_filename="document.pdf",
         summary="Test document summary.",
         status="pending",
-        archived=False,
         page_count=0,
     )
 
@@ -34,6 +33,7 @@ def setup_orchestrator(tmp_path):
         id=document_id,
         title="Test Document",
         organization_id=uuid4(),
+        archived=False,
     )
 
     activated_version = SimpleNamespace(

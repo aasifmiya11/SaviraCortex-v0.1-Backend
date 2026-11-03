@@ -32,14 +32,14 @@ class Organization(Base):
     memberships: Mapped[list["OrganizationMembership"]] = relationship(
         "OrganizationMembership",
         back_populates="organization",
-        cascade="all, delete-orphan",
     )
 
     documents: Mapped[list["Document"]] = relationship(
         "Document",
         back_populates="organization",
-        cascade="save-update, merge",
     )
 
-    def __repr__(self) -> str:
-        return f"<Organization(id={self.id}, name={self.name!r})>"
+    departments: Mapped[list["OrganizationDepartment"]] = relationship(
+        "OrganizationDepartment",
+        back_populates="organization",
+    )

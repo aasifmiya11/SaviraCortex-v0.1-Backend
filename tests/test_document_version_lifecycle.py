@@ -51,304 +51,130 @@ def create_document_and_version(
     return document, version
 
 
-def test_new_version_defaults_to_not_archived():
+def test_new_document_defaults_to_not_archived():
     with get_db_session() as db:
         try:
-            _, version = create_document_and_version(db)
+            document, version = create_document_and_version(db)
 
-            assert version.archived is False
+            assert document.archived is False
             assert version.status == "pending"
 
         finally:
             db.rollback()
 
 
-def test_archive_preserves_active_status():
-    with get_db_session() as db:
-        try:
-            _, version = create_document_and_version(
-                db,
-                status="active",
-            )
-
-            version_repo = DocumentVersionRepository(db)
-
-            archived_version = version_repo.archive(
-                version.id,
-                organization_id=version.document.organization_id,
-            )
-
-            assert archived_version is not None
-            assert archived_version.archived is True
-            assert archived_version.status == "active"
-
-            assert version_repo.get_active_version(
-                version.document_id,
-                organization_id=version.document.organization_id,
-            ) is None
-
-        finally:
-            db.rollback()
-
-
-def test_archive_preserves_superseded_status():
-    with get_db_session() as db:
-        try:
-            _, version = create_document_and_version(
-                db,
-                status="superseded",
-            )
-
-            version_repo = DocumentVersionRepository(db)
-
-            archived_version = version_repo.archive(
-                version.id,
-                organization_id=version.document.organization_id,
-            )
-
-            assert archived_version.archived is True
-            assert archived_version.status == "superseded"
-
-        finally:
-            db.rollback()
-
-
-def test_pending_version_cannot_be_archived():
-    with get_db_session() as db:
-        try:
-            _, version = create_document_and_version(
-                db,
-                status="pending",
-            )
-
-            version_repo = DocumentVersionRepository(db)
-
-            with pytest.raises(ValueError):
-                version_repo.archive(
-                    version.id,
-                    organization_id=version.document.organization_id,
-                )
-
-        finally:
-            db.rollback()
-
-
-def test_cannot_archive_twice():
-    with get_db_session() as db:
-        try:
-            _, version = create_document_and_version(
-                db,
-                status="active",
-            )
-
-            version_repo = DocumentVersionRepository(db)
-
-            version_repo.archive(
-                version.id,
-                organization_id=version.document.organization_id,
-            )
-
-            with pytest.raises(ValueError):
-                version_repo.archive(
-                    version.id,
-                    organization_id=version.document.organization_id,
-                )
-
-        finally:
-            db.rollback()
-
-
-def test_unarchive_as_superseded():
-    with get_db_session() as db:
-        try:
-            _, version = create_document_and_version(
-                db,
-                status="superseded",
-            )
-
-            version_repo = DocumentVersionRepository(db)
-
-            version_repo.archive(
-                version.id,
-                organization_id=version.document.organization_id,
-            )
-
-            restored = version_repo.unarchive(
-                version.id,
-                restore_status="superseded",
-                organization_id=version.document.organization_id,
-            )
-
-            assert restored.archived is False
-            assert restored.status == "superseded"
-
-        finally:
-            db.rollback()
-
-
-def test_unarchive_as_active_when_no_active_version_exists():
-    with get_db_session() as db:
-        try:
-            document, version = create_document_and_version(
-                db,
-                status="active",
-            )
-
-            version_repo = DocumentVersionRepository(db)
-
-            version_repo.archive(
-                version.id,
-                organization_id=version.document.organization_id,
-            )
-
-            restored = version_repo.unarchive(
-                version.id,
-                restore_status="active",
-                organization_id=version.document.organization_id,
-            )
-
-            assert restored.archived is False
-            assert restored.status == "active"
-
-            active = version_repo.get_active_version(
-                document.id,
-                organization_id=document.organization_id,
-            )
-
-            assert active is not None
-            assert active.id == version.id
-
-        finally:
-            db.rollback()
-
-
-def test_cannot_unarchive_as_active_if_another_active_exists():
-    with get_db_session() as db:
-        try:
-            document, first_version = create_document_and_version(
-                db,
-                status="active",
-            )
-
-            version_repo = DocumentVersionRepository(db)
-
-            version_repo.archive(
-                first_version.id,
-                organization_id=document.organization_id,
-            )
-
-            second_version = version_repo.create(
-                document_id=document.id,
-                version_number=2,
-                original_filename="second_version.pdf",
-                storage_key=(
-                    f"test/documents/{uuid.uuid4().hex}.pdf"
-                ),
-                summary="Second version.",
-                status="active",
-                page_count=5,
-                organization_id=document.organization_id,
-            )
-
-            with pytest.raises(ValueError):
-                version_repo.unarchive(
-                    first_version.id,
-                    restore_status="active",
-                    organization_id=document.organization_id,
-                )
-
-            current_active = version_repo.get_active_version(
-                document.id,
-                organization_id=document.organization_id,
-            )
-
-            assert current_active is not None
-            assert current_active.id == second_version.id
-
-        finally:
-            db.rollback()
-
-
-def test_archived_versions_are_excluded_from_retrieval():
+def test_document_archive_excludes_all_versions_without_changing_status():
     with get_db_session() as db:
         try:
             document, active_version = create_document_and_version(
                 db,
                 status="active",
             )
-
             version_repo = DocumentVersionRepository(db)
-
             historical_version = version_repo.create(
                 document_id=document.id,
                 version_number=2,
                 original_filename="historical.pdf",
-                storage_key=(
-                    f"test/documents/{uuid.uuid4().hex}.pdf"
-                ),
+                storage_key=f"test/documents/{uuid.uuid4().hex}.pdf",
                 summary="Historical version.",
                 status="superseded",
                 page_count=5,
                 organization_id=document.organization_id,
             )
 
-            version_repo.archive(
-                historical_version.id,
-                organization_id=document.organization_id,
-            )
-
-            all_eligible = version_repo.get_retrieval_eligible_versions(
+            document_repo = DocumentRepository(db)
+            archived = document_repo.archive(
                 document.id,
-                include_historical=True,
                 organization_id=document.organization_id,
             )
 
-            active_only = version_repo.get_retrieval_eligible_versions(
+            assert archived is not None
+            assert archived.archived is True
+            assert active_version.status == "active"
+            assert historical_version.status == "superseded"
+            assert version_repo.get_active_version(
                 document.id,
-                include_historical=False,
                 organization_id=document.organization_id,
-            )
-
-            assert len(all_eligible) == 1
-            assert all_eligible[0].id == active_version.id
-
-            assert len(active_only) == 1
-            assert active_only[0].id == active_version.id
-
+            ) is None
+            assert version_repo.get_retrieval_eligible_versions(
+                document.id,
+                organization_id=document.organization_id,
+            ) == []
         finally:
             db.rollback()
 
 
-def test_archived_versions_are_included_in_hash_matching():
+def test_document_unarchive_restores_version_eligibility():
+    with get_db_session() as db:
+        try:
+            document, active_version = create_document_and_version(
+                db,
+                status="active",
+            )
+            version_repo = DocumentVersionRepository(db)
+            historical_version = version_repo.create(
+                document_id=document.id,
+                version_number=2,
+                original_filename="historical.pdf",
+                storage_key=f"test/documents/{uuid.uuid4().hex}.pdf",
+                summary="Historical version.",
+                status="superseded",
+                page_count=5,
+                organization_id=document.organization_id,
+            )
+            document_repo = DocumentRepository(db)
+
+            document_repo.archive(
+                document.id,
+                organization_id=document.organization_id,
+            )
+            document_repo.unarchive(
+                document.id,
+                organization_id=document.organization_id,
+            )
+
+            assert document.archived is False
+            assert active_version.status == "active"
+            assert historical_version.status == "superseded"
+            assert version_repo.get_active_version(
+                document.id,
+                organization_id=document.organization_id,
+            ).id == active_version.id
+            assert {
+                version.id
+                for version in version_repo.get_retrieval_eligible_versions(
+                    document.id,
+                    organization_id=document.organization_id,
+                )
+            } == {active_version.id, historical_version.id}
+        finally:
+            db.rollback()
+
+
+def test_archived_documents_are_included_in_hash_matching():
     with get_db_session() as db:
         try:
             file_hash = uuid.uuid4().hex
             content_hash = uuid.uuid4().hex
-
             document, version = create_document_and_version(
                 db,
                 status="active",
                 file_hash=file_hash,
                 content_hash=content_hash,
             )
-
-            version_repo = DocumentVersionRepository(db)
-
-            version_repo.archive(
-                version.id,
-                organization_id=version.document.organization_id,
+            DocumentRepository(db).archive(
+                document.id,
+                organization_id=document.organization_id,
             )
 
-            matches = version_repo.get_by_hash(
+            matches = DocumentVersionRepository(db).get_by_hash(
                 file_hash=file_hash,
                 content_hash=content_hash,
                 organization_id=document.organization_id,
             )
 
-            assert len(matches) == 1
-            assert matches[0].id == version.id
-            assert matches[0].archived is True
-
+            assert [match.id for match in matches] == [version.id]
+            assert document.archived is True
         finally:
             db.rollback()
 
@@ -438,15 +264,6 @@ def test_version_repository_rejects_cross_organization_access():
                 "superseded",
                 organization_id=wrong_org_id,
             ) is None
-            assert repository.archive(
-                version.id,
-                organization_id=wrong_org_id,
-            ) is None
-            assert repository.unarchive(
-                version.id,
-                restore_status="active",
-                organization_id=wrong_org_id,
-            ) is None
             assert repository.activate_pending_version(
                 version.id,
                 organization_id=wrong_org_id,
@@ -459,7 +276,7 @@ def test_version_repository_rejects_cross_organization_access():
             db.refresh(version)
             assert version.summary == "Test document summary."
             assert version.status == "active"
-            assert version.archived is False
+            assert document.archived is False
         finally:
             db.rollback()
 
@@ -488,80 +305,57 @@ def test_cannot_create_version_for_another_organizations_document():
             db.rollback()
 
 
-def test_cannot_unarchive_another_organizations_version():
+def test_cannot_archive_another_organizations_document():
     with get_db_session() as db:
         try:
-            _, version = create_document_and_version(
-                db,
-                status="superseded",
-            )
-            repository = DocumentVersionRepository(db)
-            archived = repository.archive(
-                version.id,
-                organization_id=version.document.organization_id,
-            )
-            assert archived is not None
-            assert archived.archived is True
+            document, _ = create_document_and_version(db)
 
             another_organization = Organization(
-                name=f"Unarchive Isolation {uuid.uuid4()}"
+                name=f"Archive Isolation {uuid.uuid4()}"
             )
             db.add(another_organization)
             db.flush()
 
-            assert repository.unarchive(
-                version.id,
-                restore_status="superseded",
+            assert DocumentRepository(db).archive(
+                document.id,
                 organization_id=another_organization.id,
             ) is None
 
-            db.refresh(version)
-            assert version.archived is True
+            assert document.archived is False
         finally:
             db.rollback()
 
 
-def test_invalid_restore_status_is_rejected():
+def test_document_archive_requires_not_archived_state():
     with get_db_session() as db:
         try:
-            _, version = create_document_and_version(
-                db,
-                status="superseded",
-            )
-
-            version_repo = DocumentVersionRepository(db)
-
-            version_repo.archive(
-                version.id,
-                organization_id=version.document.organization_id,
+            document, _ = create_document_and_version(db)
+            repository = DocumentRepository(db)
+            repository.archive(
+                document.id,
+                organization_id=document.organization_id,
             )
 
             with pytest.raises(ValueError):
-                version_repo.unarchive(
-                    version.id,
-                    restore_status="pending",
-                    organization_id=version.document.organization_id,
+                repository.archive(
+                    document.id,
+                    organization_id=document.organization_id,
                 )
 
         finally:
             db.rollback()
 
 
-def test_cannot_unarchive_non_archived_version():
+def test_document_unarchive_requires_archived_state():
     with get_db_session() as db:
         try:
-            _, version = create_document_and_version(
-                db,
-                status="superseded",
-            )
-
-            version_repo = DocumentVersionRepository(db)
+            document, _ = create_document_and_version(db)
+            repository = DocumentRepository(db)
 
             with pytest.raises(ValueError):
-                version_repo.unarchive(
-                    version.id,
-                    restore_status="superseded",
-                    organization_id=version.document.organization_id,
+                repository.unarchive(
+                    document.id,
+                    organization_id=document.organization_id,
                 )
 
         finally:
@@ -590,7 +384,6 @@ def test_activate_pending_version_without_previous_active():
 
             assert activated.id == version.id
             assert activated.status == "active"
-            assert activated.archived is False
             assert previous is None
 
             active = version_repo.get_active_version(
@@ -601,6 +394,27 @@ def test_activate_pending_version_without_previous_active():
             assert active is not None
             assert active.id == version.id
 
+        finally:
+            db.rollback()
+
+
+def test_change_status_cannot_activate_directly():
+    with get_db_session() as db:
+        try:
+            document, version = create_document_and_version(
+                db,
+                status="pending",
+            )
+
+            with pytest.raises(
+                ValueError,
+                match="activate_pending_version",
+            ):
+                DocumentVersionRepository(db).change_status(
+                    version.id,
+                    "active",
+                    organization_id=document.organization_id,
+                )
         finally:
             db.rollback()
 
@@ -675,13 +489,15 @@ def test_activate_superseded_version_is_rejected():
 def test_activate_archived_pending_version_is_rejected():
     with get_db_session() as db:
         try:
-            _, version = create_document_and_version(
+            document, version = create_document_and_version(
                 db,
                 status="pending",
             )
 
-            version.archived = True
-            db.flush()
+            DocumentRepository(db).archive(
+                document.id,
+                organization_id=document.organization_id,
+            )
 
             version_repo = DocumentVersionRepository(db)
 

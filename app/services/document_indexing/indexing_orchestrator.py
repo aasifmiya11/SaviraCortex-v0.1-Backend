@@ -154,10 +154,8 @@ class DocumentIndexingOrchestrator:
                 f"Document version not found: {version_id}"
             )
 
-        if version.archived:
-            raise ValueError(
-                "An archived version cannot be indexed."
-            )
+        if document.archived:
+            raise ValueError("An archived document cannot be indexed.")
 
         if version.status != "pending":
             raise ValueError(

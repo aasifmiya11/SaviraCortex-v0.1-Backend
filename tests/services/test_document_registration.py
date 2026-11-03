@@ -57,7 +57,7 @@ def test_register_new_document():
         assert version.document_id == document.id
         assert version.version_number == 1
         assert version.status == "pending"
-        assert version.archived is False
+        assert document.archived is False
 
         db.rollback()
 
@@ -98,7 +98,7 @@ def test_register_new_version():
         assert second.version_number == 2
         assert second_version is not None
         assert second_version.status == "pending"
-        assert second_version.archived is False
+        assert db.get(Document, first.document_id).archived is False
         assert (
             second_version.supersedes_version_id
             == first.document_version_id
@@ -146,6 +146,37 @@ def test_cannot_register_version_for_another_organization():
                 document_id=result.document_id,
                 version_data=make_version_data("policy_v2.pdf", 2),
                 organization_id=organization_b.id,
+            )
+
+        db.rollback()
+
+
+def test_cannot_register_version_for_archived_document():
+    with get_db_session() as db:
+        organization = create_organization(db)
+        service = DocumentRegistrationService(db)
+
+        first = service.register_new_document(
+            DocumentRegistrationData(
+                title=f"Archived Policy {uuid4()}",
+                document_type="Policy",
+            ),
+            make_version_data(),
+            organization_id=organization.id,
+        )
+        service.document_repository.archive(
+            first.document_id,
+            organization_id=organization.id,
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="Cannot register a new version for an archived document",
+        ):
+            service.register_new_version(
+                document_id=first.document_id,
+                version_data=make_version_data("policy_v2.pdf", 2),
+                organization_id=organization.id,
             )
 
         db.rollback()

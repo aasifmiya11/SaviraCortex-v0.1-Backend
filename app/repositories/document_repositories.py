@@ -153,6 +153,46 @@ class DocumentRepository:
 
         return document
 
+    def archive(
+        self,
+        document_id: UUID,
+        *,
+        organization_id: UUID,
+    ) -> Document | None:
+        document = self.get_by_id(
+            document_id,
+            organization_id=organization_id,
+        )
+        if document is None:
+            return None
+        if document.archived:
+            raise ValueError("This document is already archived.")
+
+        document.archived = True
+        self.db.flush()
+        self.db.refresh(document)
+        return document
+
+    def unarchive(
+        self,
+        document_id: UUID,
+        *,
+        organization_id: UUID,
+    ) -> Document | None:
+        document = self.get_by_id(
+            document_id,
+            organization_id=organization_id,
+        )
+        if document is None:
+            return None
+        if not document.archived:
+            raise ValueError("This document is not archived.")
+
+        document.archived = False
+        self.db.flush()
+        self.db.refresh(document)
+        return document
+
     # ================================================
     # DELETE
     # ================================================

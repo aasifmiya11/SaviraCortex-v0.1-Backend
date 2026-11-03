@@ -141,7 +141,7 @@ class DocumentRegistrationService:
             document_version_id=version.id,
             version_number=version.version_number,
             status=version.status,
-            archived=version.archived,
+            archived=document.archived,
         )
     def register_new_document(
         self,
@@ -232,7 +232,12 @@ class DocumentRegistrationService:
                 raise ValueError(
                     f"Document not found: {document_id}"
                 )
-    
+
+            if document.archived:
+                raise ValueError(
+                    "Cannot register a new version for an archived document."
+                )
+
             existing_versions = (
                 self.version_repository.get_by_document(
                     document_id,

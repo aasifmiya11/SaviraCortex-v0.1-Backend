@@ -91,14 +91,14 @@ def test_no_duplicate_found(matcher, repository):
     assert result.candidates == []
 
 
-def test_archived_version_is_still_a_duplicate(
+def test_archived_document_version_is_still_a_duplicate(
     matcher,
     repository,
 ):
 
     version = make_version(
         file_hash="archived_hash",
-        status="archived",
+        status="superseded",
     )
 
     repository.get_by_hash.return_value = [version]
@@ -110,7 +110,7 @@ def test_archived_version_is_still_a_duplicate(
     )
 
     assert result.is_duplicate is True
-    assert result.candidates[0].status == "archived"
+    assert result.candidates[0].status == "superseded"
 
 
 def test_both_hashes_match_same_version(
