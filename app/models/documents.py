@@ -16,7 +16,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
+from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship, validates
 
 from ..core.database import Base
 
@@ -133,6 +133,17 @@ class Document(Base):
         back_populates="document",
         cascade="save-update, merge",
     )
+
+    @validates("department")
+    def _accept_legacy_department_name(
+        self,
+        _key: str,
+        value: "OrganizationDepartment | str | None",
+    ) -> "OrganizationDepartment | None":
+        if isinstance(value, str):
+            self.suggested_department = value
+            return None
+        return value
 
     def __repr__(self) -> str:
         return (

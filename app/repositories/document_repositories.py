@@ -32,7 +32,7 @@ class DocumentRepository:
             uploaded_by_user_id=uploaded_by_user_id,
             title=title,
             document_type=document_type,
-            department=department,
+            suggested_department=department,
             description=description,
         )
     
@@ -94,7 +94,7 @@ class DocumentRepository:
 
         if department:
             statement = statement.where(
-                Document.department == department
+                Document.suggested_department == department
             )
 
         if document_type:
