@@ -1,6 +1,7 @@
 
 import json
 from json import JSONDecodeError
+from typing import Any
 from uuid import UUID
 
 from redis.asyncio import Redis
@@ -28,6 +29,13 @@ class AuthorizationCacheService:
         user_id: UUID,
     ) -> str:
         return f"auth_scope:{organization_id}:{user_id}"
+
+    @staticmethod
+    def _build_catalog_cache_key(
+        organization_id: UUID,
+        user_id: UUID,
+    ) -> str:
+        return f"auth_catalog:{organization_id}:{user_id}"
 
     async def get_authorized_document_ids(
         self,
@@ -125,5 +133,97 @@ class AuthorizationCacheService:
             organization_id=organization_id,
             user_id=user_id,
         )
+        catalog_cache_key = self._build_catalog_cache_key(
+            organization_id=organization_id,
+            user_id=user_id,
+        )
+        redis_client = await get_redis()
+        await redis_client.delete(cache_key, catalog_cache_key)
+
+    async def get_authorized_document_catalog(
+        self,
+        organization_id: UUID,
+        user_id: UUID,
+    ) -> list[dict[str, Any]]:
+        """Return and cache the user's authorized version catalogue."""
+        cache_key = self._build_catalog_cache_key(
+            organization_id=organization_id,
+            user_id=user_id,
+        )
+
+        redis_client: Redis | None = None
+        cached_value: str | None = None
+        try:
+            redis_client = await get_redis()
+            cached_value = await redis_client.get(cache_key)
+        except RedisError:
+            redis_client = None
+
+        if cached_value is not None:
+            try:
+                catalogue = json.loads(cached_value)
+                self._validate_catalogue(catalogue)
+                if redis_client is not None:
+                    try:
+                        await redis_client.expire(cache_key, self.ttl_seconds)
+                    except RedisError:
+                        pass
+                return catalogue
+            except (JSONDecodeError, ValueError, TypeError):
+                if redis_client is not None:
+                    try:
+                        await redis_client.delete(cache_key)
+                    except RedisError:
+                        pass
+
+        catalogue = self.authorization_service.get_authorized_document_catalog(
+            organization_id=organization_id,
+            user_id=user_id,
+        )
+
+        if redis_client is not None:
+            try:
+                await redis_client.set(
+                    cache_key,
+                    json.dumps(catalogue),
+                    ex=self.ttl_seconds,
+                )
+            except RedisError:
+                pass
+
+        return catalogue
+
+    async def invalidate_authorized_document_catalog(
+        self,
+        organization_id: UUID,
+        user_id: UUID,
+    ) -> None:
+        """Invalidate one user's cached document catalogue."""
+        cache_key = self._build_catalog_cache_key(
+            organization_id=organization_id,
+            user_id=user_id,
+        )
         redis_client = await get_redis()
         await redis_client.delete(cache_key)
+
+    @staticmethod
+    def _validate_catalogue(value: Any) -> None:
+        if not isinstance(value, list):
+            raise ValueError("Invalid authorization catalogue format.")
+
+        required_fields = {
+            "document_id",
+            "document_version_id",
+            "document_title",
+            "document_summary",
+            "version_year",
+            "version_status",
+            "last_updated",
+        }
+        for item in value:
+            if (
+                not isinstance(item, dict)
+                or not required_fields.issubset(item)
+                or item["version_status"] not in {"active", "superseded"}
+            ):
+                raise ValueError("Invalid authorization catalogue entry.")
