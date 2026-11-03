@@ -1,0 +1,465 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import Sequence
+from typing import Any
+from uuid import UUID
+
+from langchain_core.messages import BaseMessage
+
+from app.agents.Multi_query_generator.agent import MultiQueryGeneratorAgent
+from app.agents.Multi_query_generator.schemas import (
+    AvailableDocument,
+    AvailableDocuments,
+    GeneratedQuery,
+)
+from app.rag.retrieval.adaptive_k_selector import AdaptiveKSelector
+from app.rag.retrieval.candidate_document_generator import (
+    CandidateDocumentGenerator,
+    QueryCandidateResult,
+)
+from app.rag.retrieval.cross_encoder_reranker import CrossEncoderReranker
+from app.rag.retrieval.global_fusion import GlobalResultFusion
+from app.rag.retrieval.pipeline import HybridRetrievalPipeline
+from app.services.authorization.authorization_service import AuthorizationService
+
+logger = logging.getLogger(__name__)
+
+
+class RetrievalOrchestrationError(Exception):
+    """Raised when retrieval orchestration cannot produce a valid result."""
+
+
+class RetrievalOrchestrator:
+    """Coordinate authorization, query generation, retrieval, fusion and reranking.
+
+    The orchestrator owns no database session and does not initialize heavyweight
+    models. All dependencies are injected so the application can control their
+    lifecycle and tests can replace them with fakes.
+
+    AuthorizationService currently uses a synchronous SQLAlchemy repository.
+    Its method is called on the caller's event-loop thread to avoid moving a
+    request-scoped SQLAlchemy Session across threads. If the database call
+    becomes a latency bottleneck, expose an async authorization boundary or
+    create/use the Session inside a dedicated worker instead of sharing it.
+    """
+
+    def __init__(
+        self,
+        *,
+        authorization_service: AuthorizationService,
+        multi_query_agent: MultiQueryGeneratorAgent,
+        candidate_document_generator: CandidateDocumentGenerator,
+        hybrid_retrieval_pipeline: HybridRetrievalPipeline,
+        global_fusion: GlobalResultFusion,
+        cross_encoder_reranker: CrossEncoderReranker,
+        adaptive_k_selector: AdaptiveKSelector,
+        retrieval_concurrency: int = 6,
+    ) -> None:
+        if isinstance(retrieval_concurrency, bool) or retrieval_concurrency < 1:
+            raise ValueError("retrieval_concurrency must be at least 1.")
+
+        self.authorization_service = authorization_service
+        self.multi_query_agent = multi_query_agent
+        self.candidate_document_generator = candidate_document_generator
+        self.hybrid_retrieval_pipeline = hybrid_retrieval_pipeline
+        self.global_fusion = global_fusion
+        self.cross_encoder_reranker = cross_encoder_reranker
+        self.adaptive_k_selector = adaptive_k_selector
+        self.retrieval_concurrency = retrieval_concurrency
+
+    async def retrieve(
+        self,
+        *,
+        current_query: str,
+        organization_id: UUID,
+        user_id: UUID,
+        conversation_history: Sequence[BaseMessage] | None = None,
+        top_k: int = 10,
+        candidate_k: int = 20,
+        mode: str = "hybrid",
+        rrf_k: int = 60,
+    ) -> dict[str, Any]:
+        """Run retrieval and return selected chunks with provenance/statistics."""
+
+        self._validate_request(
+            current_query=current_query,
+            organization_id=organization_id,
+            user_id=user_id,
+            top_k=top_k,
+            candidate_k=candidate_k,
+            mode=mode,
+            rrf_k=rrf_k,
+        )
+
+        history = list(conversation_history or [])
+
+        # This service method uses a synchronous request-scoped SQLAlchemy
+        # Session. Keep the call on the same thread that owns that Session.
+        authorized_catalogue = self.authorization_service.get_authorized_document_catalog(
+            organization_id=organization_id,
+            user_id=user_id,
+        )
+
+        if not authorized_catalogue:
+            return self._empty_response(
+                current_query=current_query,
+                top_k=top_k,
+                candidate_k=candidate_k,
+                mode=mode,
+                reason="no_authorized_document_versions",
+            )
+
+        available_documents = self._build_available_documents(authorized_catalogue)
+
+        generated_queries = await self.multi_query_agent.agenerate(
+            current_query=current_query,
+            conversation_history=history,
+            available_documents=available_documents,
+        )
+        generated_queries = self._deduplicate_queries(generated_queries, set())
+        if not generated_queries:
+            raise RetrievalOrchestrationError(
+                "The multi-query generator returned no usable queries."
+            )
+
+        all_queries: list[GeneratedQuery] = list(generated_queries)
+        branch_results: list[dict[str, Any]] = []
+        branch_stats: list[dict[str, Any]] = []
+        expansion_round = 0
+        expansion_stop_reason = "target_met"
+
+        candidate_results = await self.candidate_document_generator.generate_candidates(
+            queries=generated_queries,
+            authorized_catalogue=authorized_catalogue,
+            organization_id=organization_id,
+        )
+        new_branches, new_stats = await self._retrieve_candidate_branches(
+            candidate_results=candidate_results,
+            organization_id=organization_id,
+            top_k=candidate_k,
+            candidate_k=candidate_k,
+            mode=mode,
+            rrf_k=rrf_k,
+        )
+        branch_results.extend(new_branches)
+        branch_stats.extend(new_stats)
+
+        fused, reranked, selection = await self._fuse_rerank_select(
+            current_query=current_query,
+            branch_results=branch_results,
+            top_k=top_k,
+            rrf_k=rrf_k,
+            expansion_round=expansion_round,
+        )
+
+        # Expansion reuses the existing multi-query agent. The composed prompt
+        # includes previous queries and retrieved chunks so the agent can
+        # produce additional, non-duplicate search formulations.
+        while selection["expansion_required"]:
+            expansion_stop_reason = "no_new_queries"
+            expansion_queries = await self._generate_expansion_queries(
+                current_query=current_query,
+                previous_queries=all_queries,
+                reranked_candidates=reranked,
+                available_documents=available_documents,
+                conversation_history=history,
+            )
+            expansion_queries = self._deduplicate_queries(
+                expansion_queries,
+                {query.query.casefold() for query in all_queries},
+            )
+
+            if not expansion_queries:
+                logger.info(
+                    "Stopping retrieval expansion because no new queries were generated."
+                )
+                break
+
+            expansion_round += 1
+            expansion_stop_reason = "max_expansion_rounds_reached"
+            all_queries.extend(expansion_queries)
+
+            candidate_results = await self.candidate_document_generator.generate_candidates(
+                queries=expansion_queries,
+                authorized_catalogue=authorized_catalogue,
+                organization_id=organization_id,
+            )
+            new_branches, new_stats = await self._retrieve_candidate_branches(
+                candidate_results=candidate_results,
+                organization_id=organization_id,
+                top_k=candidate_k,
+                candidate_k=candidate_k,
+                mode=mode,
+                rrf_k=rrf_k,
+            )
+            branch_results.extend(new_branches)
+            branch_stats.extend(new_stats)
+
+            fused, reranked, selection = await self._fuse_rerank_select(
+                current_query=current_query,
+                branch_results=branch_results,
+                top_k=top_k,
+                rrf_k=rrf_k,
+                expansion_round=expansion_round,
+            )
+            if not selection["expansion_required"]:
+                expansion_stop_reason = "target_met"
+
+        return {
+            "query": current_query,
+            "mode": mode,
+            "top_k": top_k,
+            "candidate_k": candidate_k,
+            "selected_candidates": selection["selected_candidates"],
+            "selected_count": selection["selected_count"],
+            "eligible_count": selection["eligible_count"],
+            "fused_count": len(fused),
+            "reranked_count": len(reranked),
+            "generated_queries": [self._query_to_dict(query) for query in all_queries],
+            "branch_count": len(branch_results),
+            "branches": branch_stats,
+            "expansion": {
+                "rounds_performed": expansion_round,
+                "max_rounds": selection["max_expansion_rounds"],
+                "required_after_final_round": selection["expansion_required"],
+                "stop_reason": expansion_stop_reason,
+                "score_threshold": selection["score_threshold"],
+            },
+            "retrieval_reason": None,
+        }
+
+    async def _retrieve_candidate_branches(
+        self,
+        *,
+        candidate_results: Sequence[QueryCandidateResult],
+        organization_id: UUID,
+        top_k: int,
+        candidate_k: int,
+        mode: str,
+        rrf_k: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        semaphore = asyncio.Semaphore(self.retrieval_concurrency)
+
+        async def retrieve_one(
+            candidate_result: QueryCandidateResult,
+        ) -> tuple[dict[str, Any], dict[str, Any]]:
+            version_ids = [
+                candidate.document_version_id
+                for candidate in candidate_result.candidates
+            ]
+            stats = {
+                "query": candidate_result.query,
+                "candidate_version_count": len(version_ids),
+                "result_count": 0,
+                "retrieval_error": candidate_result.retrieval_error,
+            }
+
+            if candidate_result.retrieval_error or not version_ids:
+                return (
+                    {"query": candidate_result.query, "results": []},
+                    stats,
+                )
+
+            async with semaphore:
+                result = await asyncio.to_thread(
+                    self.hybrid_retrieval_pipeline.search,
+                    query=candidate_result.query,
+                    organization_id=organization_id,
+                    top_k=top_k,
+                    candidate_k=candidate_k,
+                    mode=mode,
+                    rrf_k=rrf_k,
+                    # Candidate versions have already been authorized and
+                    # lifecycle-filtered. Include superseded versions too.
+                    status=None,
+                    candidate_document_version_ids=version_ids,
+                )
+
+            branch = {
+                "query": candidate_result.query,
+                "results": result["results"],
+            }
+            stats["result_count"] = result["result_count"]
+            return branch, stats
+
+        pairs = await asyncio.gather(
+            *(retrieve_one(item) for item in candidate_results)
+        )
+        return [pair[0] for pair in pairs], [pair[1] for pair in pairs]
+
+    async def _fuse_rerank_select(
+        self,
+        *,
+        current_query: str,
+        branch_results: list[dict[str, Any]],
+        top_k: int,
+        rrf_k: int,
+        expansion_round: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+        # Keep enough fused candidates for reranking. Each branch contributes
+        # up to candidate_k results; the global fusion component applies its
+        # own deterministic deduplication and ranking.
+        fusion_top_k = max(top_k, sum(len(branch["results"]) for branch in branch_results))
+        fused = self.global_fusion.fuse(
+            branch_results=branch_results,
+            top_k=max(1, fusion_top_k),
+            rrf_k=rrf_k,
+        )
+
+        reranked = await asyncio.to_thread(
+            self.cross_encoder_reranker.rerank,
+            current_query,
+            fused,
+        ) if fused else []
+
+        selection = self.adaptive_k_selector.select(
+            reranked,
+            expansion_round=expansion_round,
+        )
+        return fused, reranked, selection
+
+    async def _generate_expansion_queries(
+        self,
+        *,
+        current_query: str,
+        previous_queries: Sequence[GeneratedQuery],
+        reranked_candidates: Sequence[dict[str, Any]],
+        available_documents: AvailableDocuments,
+        conversation_history: Sequence[BaseMessage],
+    ) -> list[GeneratedQuery]:
+        retrieved_context = []
+        for index, candidate in enumerate(reranked_candidates[:8], start=1):
+            content = str(candidate.get("page_content", "")).strip()
+            if content:
+                retrieved_context.append(f"[{index}] {content[:1200]}")
+
+        previous_query_text = "\n".join(
+            f"- {query.query}" for query in previous_queries
+        )
+        context_text = "\n\n".join(retrieved_context) or "No relevant chunks were retrieved."
+
+        expansion_request = (
+            "Generate additional retrieval queries for the user's original question. "
+            "Do not repeat or lightly rephrase any previous query. Explore aspects, "
+            "terminology, constraints, or missing details that the retrieved chunks "
+            "do not adequately cover. Keep the queries grounded in the authorized "
+            "document catalogue and assign accurate version scopes and target years.\n\n"
+            f"Original user question:\n{current_query}\n\n"
+            f"Previous queries (do not repeat):\n{previous_query_text}\n\n"
+            f"Retrieved chunks:\n{context_text}\n\n"
+            "Return only additional queries that could retrieve complementary evidence."
+        )
+
+        return await self.multi_query_agent.agenerate(
+            current_query=expansion_request,
+            conversation_history=conversation_history,
+            available_documents=available_documents,
+        )
+
+    @staticmethod
+    def _build_available_documents(
+        authorized_catalogue: list[dict[str, Any]],
+    ) -> AvailableDocuments:
+        active: list[AvailableDocument] = []
+        superseded: list[AvailableDocument] = []
+
+        for entry in authorized_catalogue:
+            item = AvailableDocument(
+                document_title=entry["document_title"],
+                document_summary=entry["document_summary"],
+                version_year=entry["version_year"],
+                version_status=entry["version_status"],
+            )
+            if item.version_status == "active":
+                active.append(item)
+            elif item.version_status == "superseded":
+                superseded.append(item)
+            else:
+                raise ValueError(
+                    f"Unsupported authorized version status: {item.version_status}"
+                )
+
+        return AvailableDocuments(
+            active_documents=active,
+            superseded_documents=superseded,
+        )
+
+    @staticmethod
+    def _deduplicate_queries(
+        queries: Sequence[GeneratedQuery],
+        existing: set[str],
+    ) -> list[GeneratedQuery]:
+        unique: list[GeneratedQuery] = []
+        seen = set(existing)
+        for query in queries:
+            normalized = query.query.strip().casefold()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            unique.append(query)
+        return unique
+
+    @staticmethod
+    def _query_to_dict(query: GeneratedQuery) -> dict[str, Any]:
+        return {
+            "query": query.query,
+            "version_scope": query.version_scope.value,
+            "target_versions": list(query.target_versions),
+        }
+
+    @staticmethod
+    def _validate_request(
+        *,
+        current_query: str,
+        organization_id: UUID,
+        user_id: UUID,
+        top_k: int,
+        candidate_k: int,
+        mode: str,
+        rrf_k: int,
+    ) -> None:
+        if not isinstance(current_query, str) or not current_query.strip():
+            raise ValueError("current_query cannot be empty.")
+        if not isinstance(organization_id, UUID):
+            raise ValueError("organization_id must be a UUID.")
+        if not isinstance(user_id, UUID):
+            raise ValueError("user_id must be a UUID.")
+        for name, value in (("top_k", top_k), ("candidate_k", candidate_k), ("rrf_k", rrf_k)):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"{name} must be a positive integer.")
+        if mode not in {"hybrid", "bm25", "dense"}:
+            raise ValueError("mode must be hybrid, bm25, or dense.")
+
+    @staticmethod
+    def _empty_response(
+        *,
+        current_query: str,
+        top_k: int,
+        candidate_k: int,
+        mode: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        return {
+            "query": current_query,
+            "mode": mode,
+            "top_k": top_k,
+            "candidate_k": candidate_k,
+            "selected_candidates": [],
+            "selected_count": 0,
+            "eligible_count": 0,
+            "fused_count": 0,
+            "reranked_count": 0,
+            "generated_queries": [],
+            "branch_count": 0,
+            "branches": [],
+            "expansion": {
+                "rounds_performed": 0,
+                "max_rounds": 0,
+                "required_after_final_round": False,
+                "stop_reason": "no_authorized_document_versions",
+                "score_threshold": None,
+            },
+            "retrieval_reason": reason,
+        }
