@@ -1,6 +1,7 @@
 from typing import Sequence
 
 from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.output_parsers import PydanticOutputParser
 from langgraph.graph import END, START, StateGraph
 
 from app.llm.client import llm_client
@@ -35,15 +36,15 @@ class MultiQueryGeneratorAgent:
         if self.client is None:
             self.model = llm_client.get_llm()
 
-        self.structured_llm = self.model.with_structured_output(
-            MultiQueryGeneratorOutput
+        self.parser = PydanticOutputParser(
+            pydantic_object=MultiQueryGeneratorOutput
         )
 
         self.prompt = get_multi_query_generator_prompt(
             max_queries=self.config.max_queries
         )
 
-        self.chain = self.prompt | self.structured_llm
+        self.chain = self.prompt | self.model | self.parser
 
         self.graph = self._build_graph()
 
@@ -76,6 +77,7 @@ class MultiQueryGeneratorAgent:
             {
                 "current_query": current_query,
                 "conversation_history": conversation_history,
+                "format_instructions": self.parser.get_format_instructions(),
             },
             config={
                 "metadata": {
@@ -86,13 +88,11 @@ class MultiQueryGeneratorAgent:
 
         queries = result.queries[:self.config.max_queries]
 
-        generated_messages = [
+        return {
+            "generated_queries": [
             HumanMessage(content=query)
             for query in queries
-        ]
-
-        return {
-            "generated_queries": generated_messages,
+            ],
         }
 
     def generate(
@@ -127,12 +127,20 @@ class MultiQueryGeneratorAgent:
 
         history = list(conversation_history or [])
 
-        result = await self.graph.ainvoke(
+        result = await self.chain.ainvoke(
             {
-                "current_query": current_query,
+                "current_query": current_query.strip(),
                 "conversation_history": history,
-                "generated_queries": [],
-            }
+                "format_instructions": self.parser.get_format_instructions(),
+            },
+            config={
+                "metadata": {
+                    "agent": "multi_query_generator",
+                }
+            },
         )
 
-        return result["generated_queries"]
+        return [
+            HumanMessage(content=query)
+            for query in result.queries[:self.config.max_queries]
+        ]

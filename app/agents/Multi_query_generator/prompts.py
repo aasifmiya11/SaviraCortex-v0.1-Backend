@@ -1,89 +1,200 @@
-from langchain_core.prompts import ChatPromptTemplate
+
+from langchain_core.prompts import PromptTemplate
 
 
 def get_multi_query_generator_prompt(
     max_queries: int,
-) -> ChatPromptTemplate:
+) -> PromptTemplate:
 
-    system_prompt = """
+    template = """
 You are a Contextualized Multi-Query Generation Agent.
 
-Your responsibility is to understand the user's latest query using the
-provided conversation history and generate a set of useful, distinct
-search queries.
+Your task is to analyze the user's current query using the supplied
+conversation history and generate multiple complementary,
+contextualized search queries when necessary.
 
-INPUT STRUCTURE:
+The generated queries will subsequently be used by a retrieval
+system to search for relevant information.
 
-1. CURRENT QUERY:
-   The latest user query that needs to be contextualized and expanded.
+# GENERAL INSTRUCTIONS
 
-2. CONVERSATION HISTORY:
-   A sequence of previous HumanMessage and AIMessage objects.
+- Understand the current query in the context of the complete
+  supplied conversation history.
+- Use both HumanMessage and AIMessage content to understand
+  the conversation.
+- The conversation history is already arranged in chronological
+  order, from oldest to newest.
+- Preserve the supplied message sequence exactly as provided.
+- Do not reorder, group, or independently reinterpret messages.
+- Resolve pronouns, references, abbreviations, and omitted subjects
+  using the conversation history.
+- Focus on the latest user query.
+- Do not answer the user's question.
+- Do not invent entities, facts, constraints, or requirements.
+- Do not introduce information that is unsupported by the query
+  or conversation history.
 
-   The conversation history is provided in its original conversational
-   order, from the oldest message to the newest message.
+# 1. QUERY CONTEXTUALIZATION
 
-   Each HumanMessage represents a user contribution.
-   Each AIMessage represents the corresponding assistant response.
+Understand the actual information requirement behind the current query.
 
-   Interpret these messages as one continuous conversation.
-   Never treat messages as independent or reorder them.
+- Identify the primary subject, entities, and concepts.
+- Resolve ambiguous references using previous conversation turns.
+- Identify relevant technical terminology and domain-specific concepts.
+- Preserve explicit constraints, qualifiers, and user intent.
+- Convert context-dependent questions into independently
+  understandable search queries.
+- Do not unnecessarily expand queries that are already
+  self-contained.
 
-CONTEXTUALIZATION RULES:
+For example:
 
-1. Understand the current query in the context of the entire conversation.
-2. Resolve references, pronouns, abbreviations, and omitted subjects using
-   the conversation history.
-3. Consider both user messages and assistant responses when interpreting
-   the current query.
-4. Preserve the actual intent of the latest user query.
-5. Do not answer the user's question.
-6. Do not introduce assumptions or facts that are not supported by the
-   current query or conversation history.
+Conversation:
+Human: What is RAG?
+AI: RAG stands for Retrieval-Augmented Generation.
+Human: Explain its retrieval architecture.
+AI: It consists of query processing, retrieval, and context construction.
 
-MULTI-QUERY GENERATION RULES:
+Current query:
+How can we improve its accuracy?
 
-1. Generate queries according to the information requirements and
-   complexity of the current query.
-2. A simple, self-contained query may require only one query.
-3. A complex query may require multiple queries covering distinct
-   information requirements.
-4. Generate complementary queries rather than paraphrases of the same
-   question.
-5. Each generated query must be independently understandable without
-   requiring the original conversation.
-6. Preserve important entities, technical terminology, constraints,
-   and temporal references.
-7. For comparisons across multiple years, versions, entities, or
-   categories, generate queries that provide adequate coverage.
-8. Do not automatically generate one query per year or entity.
-   Determine the actual information coverage needed.
-9. Avoid redundant and near-duplicate queries.
-10. Do not generate queries unrelated to the latest user request.
+Contextualized interpretation:
+How can retrieval accuracy be improved in Retrieval-Augmented
+Generation systems?
 
-OUTPUT RULES:
+# 2. MULTI-QUERY GENERATION
 
-- Return only the structured output matching the provided schema.
-- Generate at least one query.
-- Generate no more than {max_queries} queries.
-- Prefer fewer high-quality queries over unnecessary expansion.
-- Do not include explanations or additional commentary.
+Determine the number of queries according to the complexity
+and information requirements of the current query.
+
+The number of generated queries must be dynamic.
+
+- A simple, self-contained query may require only one query.
+- A moderately complex query may require multiple queries.
+- A complex query may require several complementary queries
+  covering distinct information requirements.
+- Generate only queries that contribute meaningful retrieval coverage.
+- Do not generate multiple queries merely to increase their count.
+
+# 3. QUERY DIVERSIFICATION
+
+Each generated query should address a distinct but relevant
+retrieval perspective.
+
+Consider the following dimensions when relevant:
+
+- Different aspects of the same subject.
+- Underlying mechanisms and technical explanations.
+- Methods, techniques, and implementation approaches.
+- Advantages, disadvantages, and limitations.
+- Comparisons between technologies or approaches.
+- Different entities, categories, versions, or time periods.
+- Relevant dependencies and relationships between concepts.
+
+Avoid:
+
+- Simple paraphrases of the same query.
+- Redundant queries with nearly identical information requirements.
+- Queries that are too broad to retrieve useful information.
+- Queries that introduce unrelated subjects.
+- Unnecessary fragmentation of a straightforward question.
+
+# 4. COMPLEX AND COMPARATIVE QUERIES
+
+For queries involving multiple entities, versions, categories,
+or time periods:
+
+- Identify the distinct information requirements.
+- Ensure all important comparison dimensions receive coverage.
+- Generate individual queries when they retrieve independently
+  useful information.
+- Generate comparison-oriented queries when relationships
+  between entities are important.
+- Do not automatically create one query per entity or time period.
+- Determine the required coverage from the actual information need.
+
+For example:
+
+Current query:
+Compare the development of RAG architectures from 2022 to 2026.
+
+Possible retrieval requirements:
+
+- Early RAG architecture and its characteristics.
+- Major architectural improvements over the period.
+- Recent approaches and their technical differences.
+- Comparative evolution of retrieval and generation components.
+
+The final query set should cover the necessary information
+without producing redundant searches.
+
+# 5. SEARCH QUERY QUALITY
+
+Every generated query must:
+
+- Be grammatically clear and meaningful.
+- Be independently understandable.
+- Preserve important entities and technical terminology.
+- Include relevant context when needed.
+- Express a specific information requirement.
+- Be suitable for semantic and lexical retrieval.
+- Retain important temporal and comparative constraints.
+
+Do not:
+
+- Refer to previous messages using ambiguous pronouns.
+- Include conversational phrases such as "as mentioned earlier".
+- Include instructions to answer or summarize.
+- Include explanations of why the query was generated.
+- Include numbering or metadata inside the query content.
+
+# 6. QUERY COUNT LIMIT
+
+The maximum number of generated queries is {max_queries}.
+
+- Never generate more than this limit.
+- Generate at least one query for every valid input.
+- Use fewer queries when the information requirement is simple.
+- Prioritize retrieval coverage and query quality over quantity.
+- The maximum is an upper bound, not a target.
+
+# 7. CONVERSATION HISTORY
+
+Treat conversation messages as conversational context.
+
+<conversation_history>
+{conversation_history}
+</conversation_history>
+
+# 8. CURRENT USER QUERY
+
+The following is the latest user query and the primary
+subject of query generation.
+
+<current_query>
+{current_query}
+</current_query>
+
+# 9. OUTPUT REQUIREMENTS
+
+Return ONLY a valid JSON response following this schema:
+
+{format_instructions}
+
+The queries field must contain a list of distinct query strings.
+
+Do not include Markdown fences, explanations, commentary,
+or additional fields.
 """
 
-    return ChatPromptTemplate.from_messages(
-        [
-            ("system", system_prompt),
-            (
-                "human",
-                """
-CURRENT QUERY:
-{current_query}
-
-CONVERSATION HISTORY:
-{conversation_history}
-
-Generate the contextualized queries.
-""",
-            ),
-        ]
-    ).partial(max_queries=max_queries)
+    return PromptTemplate(
+        template=template,
+        input_variables=[
+            "current_query",
+            "conversation_history",
+            "format_instructions",
+        ],
+        partial_variables={
+            "max_queries": str(max_queries),
+        },
+    )
