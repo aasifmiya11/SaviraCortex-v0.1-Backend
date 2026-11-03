@@ -62,7 +62,19 @@ class AuthorizationCacheService:
                 if not all(isinstance(item, str) for item in cached_ids):
                     raise ValueError("Invalid document ID in authorization cache.")
 
-                return [UUID(item) for item in cached_ids]
+                authorized_ids = [UUID(item) for item in cached_ids]
+
+                # Sliding TTL: reset expiration on every valid cache hit.
+                if redis_client is not None:
+                    try:
+                        await redis_client.expire(
+                            cache_key,
+                            self.ttl_seconds,
+                        )
+                    except RedisError:
+                        pass
+
+                return authorized_ids
 
             except (JSONDecodeError, ValueError, TypeError):
                 # Invalid cache entry: remove it and recalculate.
@@ -98,3 +110,20 @@ class AuthorizationCacheService:
                 pass
 
         return authorized_ids
+
+    async def invalidate_authorized_document_ids(
+        self,
+        organization_id: UUID,
+        user_id: UUID,
+    ) -> None:
+        """
+        Invalidate one user's cached authorization scope.
+
+        Call after the corresponding database transaction commits.
+        """
+        cache_key = self._build_cache_key(
+            organization_id=organization_id,
+            user_id=user_id,
+        )
+        redis_client = await get_redis()
+        await redis_client.delete(cache_key)

@@ -61,6 +61,24 @@ async def test_authorization_cache_miss_and_hit():
 
             assert second_result == first_result
 
+            # Verify sliding TTL.
+            await redis.expire(cache_key, 1)
+            third_result = await cache_service.get_authorized_document_ids(
+                organization_id=ORGANIZATION_ID,
+                user_id=USER_ID,
+            )
+            refreshed_ttl = await redis.ttl(cache_key)
+
+            assert third_result == first_result
+            assert refreshed_ttl > 1
+
+            # Verify explicit invalidation.
+            await cache_service.invalidate_authorized_document_ids(
+                organization_id=ORGANIZATION_ID,
+                user_id=USER_ID,
+            )
+            assert await redis.exists(cache_key) == 0
+
     finally:
         await redis.delete(cache_key)
 
