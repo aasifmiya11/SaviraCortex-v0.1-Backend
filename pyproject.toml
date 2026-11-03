@@ -25,6 +25,8 @@ dependencies = [
     "pymupdf>=2.0",
     "pytesseract>=0.3.13",
     "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1.post1",
+    "pytest-trio>=0.8.0",
     "python-dotenv>=1.2.4",
     "redis>=8.1.0",
     "sentence-transformers>=6.2.0",
@@ -36,4 +38,9 @@ dependencies = [
 pythonpath = ["."]
 markers = [
     "integration: tests that require external services or integration infrastructure",
+]
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio",
 ]
