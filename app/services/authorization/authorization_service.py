@@ -42,3 +42,14 @@ class AuthorizationService:
             organization_id=organization_id,
             user_id=user_id,
         )
+
+    def get_organization_document_catalog(
+        self,
+        organization_id: UUID,
+    ) -> list[dict[str, Any]]:
+        if not isinstance(organization_id, UUID):
+            raise ValueError("organization_id must be a UUID.")
+
+        return self.repository.get_organization_document_catalog(
+            organization_id=organization_id,
+        )

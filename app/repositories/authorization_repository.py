@@ -221,3 +221,46 @@ class AuthorizationRepository:
             )
 
         return catalogue
+
+    def get_organization_document_catalog(
+        self,
+        organization_id: UUID,
+    ) -> list[dict[str, Any]]:
+        """Return non-archived active and superseded version metadata."""
+        statement = (
+            select(Document, DocumentVersion)
+            .join(
+                DocumentVersion,
+                DocumentVersion.document_id == Document.id,
+            )
+            .where(
+                Document.organization_id == organization_id,
+                Document.archived.is_(False),
+                DocumentVersion.status.in_(("active", "superseded")),
+            )
+            .order_by(
+                Document.id,
+                DocumentVersion.version_number.desc(),
+            )
+        )
+
+        catalogue = []
+        for document, version in self.db.execute(statement):
+            effective_year = (
+                version.effective_from.year
+                if version.effective_from is not None
+                else version.created_at.year
+            )
+            catalogue.append(
+                {
+                    "document_id": str(document.id),
+                    "document_version_id": str(version.id),
+                    "document_title": document.title,
+                    "document_summary": version.summary or "",
+                    "version_year": effective_year,
+                    "version_status": version.status,
+                    "last_updated": version.created_at.isoformat(),
+                }
+            )
+
+        return catalogue

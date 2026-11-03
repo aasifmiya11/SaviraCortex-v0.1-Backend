@@ -16,12 +16,20 @@ class AuthorizationCacheService:
         self,
         authorization_service: AuthorizationService,
         ttl_seconds: int = 300,
+        organization_catalog_ttl_seconds: int = 3600,
     ):
         if ttl_seconds <= 0:
             raise ValueError("ttl_seconds must be greater than zero.")
+        if organization_catalog_ttl_seconds <= 0:
+            raise ValueError(
+                "organization_catalog_ttl_seconds must be greater than zero."
+            )
 
         self.authorization_service = authorization_service
         self.ttl_seconds = ttl_seconds
+        self.organization_catalog_ttl_seconds = (
+            organization_catalog_ttl_seconds
+        )
 
     @staticmethod
     def _build_cache_key(
@@ -31,11 +39,10 @@ class AuthorizationCacheService:
         return f"auth_scope:{organization_id}:{user_id}"
 
     @staticmethod
-    def _build_catalog_cache_key(
+    def _build_organization_catalog_cache_key(
         organization_id: UUID,
-        user_id: UUID,
     ) -> str:
-        return f"auth_catalog:{organization_id}:{user_id}"
+        return f"org_catalog:{organization_id}"
 
     async def get_authorized_document_ids(
         self,
@@ -133,22 +140,16 @@ class AuthorizationCacheService:
             organization_id=organization_id,
             user_id=user_id,
         )
-        catalog_cache_key = self._build_catalog_cache_key(
-            organization_id=organization_id,
-            user_id=user_id,
-        )
         redis_client = await get_redis()
-        await redis_client.delete(cache_key, catalog_cache_key)
+        await redis_client.delete(cache_key)
 
-    async def get_authorized_document_catalog(
+    async def get_organization_document_catalog(
         self,
         organization_id: UUID,
-        user_id: UUID,
     ) -> list[dict[str, Any]]:
-        """Return and cache the user's authorized version catalogue."""
-        cache_key = self._build_catalog_cache_key(
+        """Return and cache the shared organization version catalogue."""
+        cache_key = self._build_organization_catalog_cache_key(
             organization_id=organization_id,
-            user_id=user_id,
         )
 
         redis_client: Redis | None = None
@@ -165,7 +166,10 @@ class AuthorizationCacheService:
                 self._validate_catalogue(catalogue)
                 if redis_client is not None:
                     try:
-                        await redis_client.expire(cache_key, self.ttl_seconds)
+                        await redis_client.expire(
+                            cache_key,
+                            self.organization_catalog_ttl_seconds,
+                        )
                     except RedisError:
                         pass
                 return catalogue
@@ -176,9 +180,8 @@ class AuthorizationCacheService:
                     except RedisError:
                         pass
 
-        catalogue = self.authorization_service.get_authorized_document_catalog(
+        catalogue = self.authorization_service.get_organization_document_catalog(
             organization_id=organization_id,
-            user_id=user_id,
         )
 
         if redis_client is not None:
@@ -186,22 +189,20 @@ class AuthorizationCacheService:
                 await redis_client.set(
                     cache_key,
                     json.dumps(catalogue),
-                    ex=self.ttl_seconds,
+                    ex=self.organization_catalog_ttl_seconds,
                 )
             except RedisError:
                 pass
 
         return catalogue
 
-    async def invalidate_authorized_document_catalog(
+    async def invalidate_organization_document_catalog(
         self,
         organization_id: UUID,
-        user_id: UUID,
     ) -> None:
-        """Invalidate one user's cached document catalogue."""
-        cache_key = self._build_catalog_cache_key(
+        """Invalidate the shared organization document catalogue."""
+        cache_key = self._build_organization_catalog_cache_key(
             organization_id=organization_id,
-            user_id=user_id,
         )
         redis_client = await get_redis()
         await redis_client.delete(cache_key)
