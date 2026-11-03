@@ -6,7 +6,12 @@ from typing import Any, Sequence
 
 
 class AdaptiveKSelector:
-    """Select sufficiently relevant reranked chunks and signal when expansion is needed."""
+    """Select reranked chunks and signal when expansion is needed.
+
+    ``score_threshold`` is model/configuration-specific, not a calibrated
+    probability of relevance. Calibrate it against held-out relevance
+    judgments for the configured cross-encoder before production use.
+    """
 
     def __init__(
         self,

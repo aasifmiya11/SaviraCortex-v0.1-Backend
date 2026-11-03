@@ -91,3 +91,25 @@ def test_global_fusion_validates_arguments(kwargs, message):
 def test_global_fusion_rejects_malformed_branch():
     with pytest.raises(ValueError, match="results list"):
         GlobalResultFusion().fuse([{"query": "missing results"}])
+
+
+def test_global_fusion_fallback_keeps_different_documents_separate():
+    first = {
+        "rank": 1,
+        "score": 0.5,
+        "page_content": "same content",
+        "metadata": {"document_id": "doc-1", "source": "file.pdf", "page": 1},
+    }
+    second = {
+        "rank": 1,
+        "score": 0.5,
+        "page_content": "same content",
+        "metadata": {"document_id": "doc-2", "source": "file.pdf", "page": 1},
+    }
+
+    result = GlobalResultFusion().fuse([
+        make_branch("one", [first]),
+        make_branch("two", [second]),
+    ])
+
+    assert len(result) == 2

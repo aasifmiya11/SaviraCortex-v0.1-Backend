@@ -16,6 +16,7 @@ from app.agents.Multi_query_generator.schemas import (
 )
 from app.rag.retrieval.adaptive_k_selector import AdaptiveKSelector
 from app.rag.retrieval.candidate_document_generator import (
+    CandidateDocumentGenerationError,
     CandidateDocumentGenerator,
     QueryCandidateResult,
 )
@@ -129,12 +130,36 @@ class RetrievalOrchestrator:
         branch_stats: list[dict[str, Any]] = []
         expansion_round = 0
         expansion_stop_reason = "target_met"
+        candidate_generation_error = None
 
-        candidate_results = await self.candidate_document_generator.generate_candidates(
-            queries=generated_queries,
-            authorized_catalogue=authorized_catalogue,
-            organization_id=organization_id,
-        )
+        try:
+            candidate_results = await self.candidate_document_generator.generate_candidates(
+                queries=generated_queries,
+                authorized_catalogue=authorized_catalogue,
+                organization_id=organization_id,
+            )
+        except CandidateDocumentGenerationError as exc:
+            logger.exception("Initial candidate generation failed.")
+            response = self._empty_response(
+                current_query=current_query,
+                top_k=top_k,
+                candidate_k=candidate_k,
+                mode=mode,
+                reason="candidate_generation_failed",
+            )
+            response["candidate_generation_error"] = str(exc)
+            response["generated_queries"] = [
+                self._query_to_dict(query) for query in all_queries
+            ]
+            response["expansion"]["max_rounds"] = (
+                self.adaptive_k_selector.max_expansion_rounds
+            )
+            response["expansion"]["score_threshold"] = (
+                self.adaptive_k_selector.score_threshold
+            )
+            response["expansion"]["stop_reason"] = "candidate_generation_failed"
+            return response
+
         new_branches, new_stats = await self._retrieve_candidate_branches(
             candidate_results=candidate_results,
             organization_id=organization_id,
@@ -181,11 +206,18 @@ class RetrievalOrchestrator:
             expansion_stop_reason = "max_expansion_rounds_reached"
             all_queries.extend(expansion_queries)
 
-            candidate_results = await self.candidate_document_generator.generate_candidates(
-                queries=expansion_queries,
-                authorized_catalogue=authorized_catalogue,
-                organization_id=organization_id,
-            )
+            try:
+                candidate_results = await self.candidate_document_generator.generate_candidates(
+                    queries=expansion_queries,
+                    authorized_catalogue=authorized_catalogue,
+                    organization_id=organization_id,
+                )
+            except CandidateDocumentGenerationError as exc:
+                logger.exception("Candidate generation failed during query expansion.")
+                expansion_stop_reason = "candidate_generation_failed"
+                candidate_generation_error = str(exc)
+                break
+
             new_branches, new_stats = await self._retrieve_candidate_branches(
                 candidate_results=candidate_results,
                 organization_id=organization_id,
@@ -228,6 +260,7 @@ class RetrievalOrchestrator:
                 "score_threshold": selection["score_threshold"],
             },
             "retrieval_reason": None,
+            "candidate_generation_error": candidate_generation_error,
         }
 
     async def _retrieve_candidate_branches(
@@ -462,4 +495,5 @@ class RetrievalOrchestrator:
                 "score_threshold": None,
             },
             "retrieval_reason": reason,
+            "candidate_generation_error": None,
         }

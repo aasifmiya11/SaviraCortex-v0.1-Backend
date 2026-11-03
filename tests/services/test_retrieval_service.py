@@ -4,7 +4,11 @@ from uuid import uuid4
 import pytest
 
 from app.agents.Multi_query_generator.schemas import GeneratedQuery, QueryVersionScope
-from app.rag.retrieval.candidate_document_generator import CandidateDocument, QueryCandidateResult
+from app.rag.retrieval.candidate_document_generator import (
+    CandidateDocument,
+    CandidateDocumentGenerationError,
+    QueryCandidateResult,
+)
 from app.services.retrieval.retrieval_service import RetrievalOrchestrator
 
 
@@ -174,3 +178,93 @@ def test_query_deduplication_is_case_insensitive():
     result = RetrievalOrchestrator._deduplicate_queries(queries, set())
 
     assert [query.query for query in result] == ["Policy search", "New angle"]
+
+
+class FailingCandidateGenerator:
+    async def generate_candidates(self, **kwargs):
+        raise CandidateDocumentGenerationError("summary search unavailable")
+
+
+@pytest.mark.asyncio
+async def test_initial_candidate_generation_failure_is_reported_explicitly():
+    catalogue = [{
+        "document_id": "document-1",
+        "document_version_id": "version-1",
+        "document_title": "Document",
+        "document_summary": "Summary",
+        "version_year": 2026,
+        "version_status": "active",
+    }]
+    orchestrator = RetrievalOrchestrator(
+        authorization_service=FakeAuthorizationService(catalogue),
+        multi_query_agent=FakeMultiQueryAgent(),
+        candidate_document_generator=FailingCandidateGenerator(),
+        hybrid_retrieval_pipeline=FakeHybridPipeline(),
+        global_fusion=__import__(
+            "app.rag.retrieval.global_fusion",
+            fromlist=["GlobalResultFusion"],
+        ).GlobalResultFusion(),
+        cross_encoder_reranker=FakeReranker(),
+        adaptive_k_selector=FakeSelector(),
+    )
+
+    result = await orchestrator.retrieve(
+        current_query="What is the policy?",
+        organization_id=uuid4(),
+        user_id=uuid4(),
+    )
+
+    assert result["selected_candidates"] == []
+    assert result["retrieval_reason"] == "candidate_generation_failed"
+    assert result["expansion"]["stop_reason"] == "candidate_generation_failed"
+    assert result["generated_queries"]
+    assert result["candidate_generation_error"] == "summary search unavailable"
+
+
+@pytest.mark.asyncio
+async def test_expansion_candidate_generation_failure_preserves_initial_results():
+    class FailsOnlyOnExpansion:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate_candidates(self, **kwargs):
+            self.calls += 1
+            if self.calls > 1:
+                raise CandidateDocumentGenerationError(
+                    "expansion summary search unavailable"
+                )
+            return await FakeCandidateGenerator().generate_candidates(**kwargs)
+
+    catalogue = [{
+        "document_id": "document-1",
+        "document_version_id": "version-1",
+        "document_title": "Document",
+        "document_summary": "Summary",
+        "version_year": 2026,
+        "version_status": "active",
+    }]
+    orchestrator = RetrievalOrchestrator(
+        authorization_service=FakeAuthorizationService(catalogue),
+        multi_query_agent=FakeMultiQueryAgent(),
+        candidate_document_generator=FailsOnlyOnExpansion(),
+        hybrid_retrieval_pipeline=FakeHybridPipeline(),
+        global_fusion=__import__(
+            "app.rag.retrieval.global_fusion",
+            fromlist=["GlobalResultFusion"],
+        ).GlobalResultFusion(),
+        cross_encoder_reranker=FakeReranker(),
+        adaptive_k_selector=FakeSelector(),
+    )
+
+    result = await orchestrator.retrieve(
+        current_query="What is the policy?",
+        organization_id=uuid4(),
+        user_id=uuid4(),
+    )
+
+    assert result["branch_count"] == 1
+    assert result["selected_count"] == 1
+    assert result["expansion"]["stop_reason"] == "candidate_generation_failed"
+    assert result["candidate_generation_error"] == (
+        "expansion summary search unavailable"
+    )

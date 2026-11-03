@@ -18,7 +18,12 @@ def _chunk_identity(result: dict[str, Any]) -> str:
     if document_id is not None and chunk_index is not None:
         return f"{document_id}:{chunk_index}"
 
+    # Include document identity in the legacy fallback so identical
+    # filenames/pages/content from different documents are not merged.
+    document_identity = document_id or document_version_id
+    identity_prefix = f"{document_identity}:" if document_identity is not None else ""
     return (
+        f"{identity_prefix}"
         f"{metadata.get('source', '')}:"
         f"{metadata.get('page', '')}:"
         f"{result.get('page_content', '')}"
