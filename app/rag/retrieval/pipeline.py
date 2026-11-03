@@ -33,13 +33,14 @@ class HybridRetrievalPipeline:
         self,
         query: str,
         organization_id: UUID | str,
-        top_k: int = 5,
+        top_k: int = 10,
         candidate_k: int = 20,
         mode: str = "hybrid",
         document_id: str | None = None,
         user_id: str | None = None,
         rrf_k: int = 60,
-        status: str = "active",
+        status: str | None = "active",
+        candidate_document_version_ids: list[str] | None = None,
     ) -> dict[str, Any]:
 
         if not query or not query.strip():
@@ -58,7 +59,7 @@ class HybridRetrievalPipeline:
                 "mode must be hybrid, bm25, or dense."
             )
 
-        if not status or not status.strip():
+        if status is not None and not status.strip():
             raise ValueError("status cannot be empty.")
 
         bm25 = []
@@ -72,6 +73,7 @@ class HybridRetrievalPipeline:
                 document_id=document_id,
                 user_id=user_id,
                 status=status,
+                candidate_document_version_ids=candidate_document_version_ids,
             )
 
         if mode in {"hybrid", "dense"}:
@@ -82,6 +84,7 @@ class HybridRetrievalPipeline:
                 document_id=document_id,
                 user_id=user_id,
                 status=status,
+                candidate_document_version_ids=candidate_document_version_ids,
             )
 
         if mode == "bm25":

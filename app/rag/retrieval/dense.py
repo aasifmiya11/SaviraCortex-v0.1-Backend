@@ -21,6 +21,7 @@ class DenseRetriever:
         document_id: str | None = None,
         user_id: str | None = None,
         status: str | None = "active",
+        candidate_document_version_ids: list[str] | None = None,
     ) -> list[tuple[Document, float]]:
 
         if not query or not query.strip():
@@ -34,6 +35,17 @@ class DenseRetriever:
 
         if status is not None and not status.strip():
             raise ValueError("status cannot be empty.")
+
+        if candidate_document_version_ids is not None:
+            candidate_document_version_ids = list(
+                dict.fromkeys(
+                    str(version_id).strip()
+                    for version_id in candidate_document_version_ids
+                    if version_id and str(version_id).strip()
+                )
+            )
+            if not candidate_document_version_ids:
+                return []
 
         conditions = []
 
@@ -59,6 +71,16 @@ class DenseRetriever:
                 models.FieldCondition(
                     key="metadata.user_id",
                     match=models.MatchValue(value=str(user_id)),
+                )
+            )
+
+        if candidate_document_version_ids is not None:
+            conditions.append(
+                models.FieldCondition(
+                    key="metadata.document_version_id",
+                    match=models.MatchAny(
+                        any=candidate_document_version_ids,
+                    ),
                 )
             )
 
