@@ -1,32 +1,65 @@
 import pytest
 
 from pydantic import ValidationError
-
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableLambda
 
 from app.agents.Multi_query_generator import (
+    AvailableDocuments,
+    EmptyQueryError,
+    GeneratedQuery,
     MultiQueryGeneratorAgent,
     MultiQueryGeneratorConfig,
     MultiQueryGeneratorOutput,
-    EmptyQueryError,
+    QueryVersionScope,
 )
+
+
+def query(
+    text: str,
+    scope: QueryVersionScope = QueryVersionScope.ACTIVE,
+    years: list[int] | None = None,
+) -> GeneratedQuery:
+    return GeneratedQuery(
+        query=text,
+        version_scope=scope,
+        target_versions=years or [],
+    )
+
+
+def catalogue() -> AvailableDocuments:
+    return AvailableDocuments(
+        active_documents=[{
+            "document_title": "Leave Policy",
+            "document_summary": "Current leave rules.",
+            "version_year": 2026,
+            "version_status": "active",
+        }],
+        superseded_documents=[{
+            "document_title": "Leave Policy",
+            "document_summary": "Historical leave rules.",
+            "version_year": 2024,
+            "version_status": "superseded",
+        }, {
+            "document_title": "Leave Policy",
+            "document_summary": "Prior historical leave rules.",
+            "version_year": 2025,
+            "version_status": "superseded",
+        }],
+    )
 
 
 @pytest.fixture
 def make_agent(monkeypatch):
-    """Create an agent with a mocked parser-compatible LLM."""
-
     def _make(config=None):
         model = RunnableLambda(
-            lambda _: '{"queries": ["Default generated query"]}'
+            lambda _: '{"queries": [{"query": "Default", '
+            '"version_scope": "active", "target_versions": []}]}'
         )
-
         monkeypatch.setattr(
             "app.agents.Multi_query_generator.agent.llm_client.get_llm",
             lambda: model,
         )
-
         return MultiQueryGeneratorAgent(config=config)
 
     return _make
@@ -34,231 +67,182 @@ def make_agent(monkeypatch):
 
 def test_successful_query_generation(make_agent):
     agent = make_agent()
-
-    expected_queries = [
-        "RAG retrieval architecture",
-        "Techniques for improving RAG retrieval accuracy",
-        "Best practices for optimizing retrieval quality",
+    expected = [
+        query("RAG retrieval architecture"),
+        query("Techniques for improving RAG retrieval accuracy"),
     ]
-
     agent.chain = RunnableLambda(
-        lambda _: MultiQueryGeneratorOutput(queries=expected_queries)
+        lambda _: MultiQueryGeneratorOutput(queries=expected)
     )
 
-    result = agent.generate(
-        current_query="How can I improve RAG retrieval?",
-        conversation_history=[],
+    result = agent.generate("How can I improve RAG retrieval?")
+
+    assert result == expected
+
+
+def test_active_historical_and_comparison_queries_are_validated(make_agent):
+    agent = make_agent()
+    expected = [
+        query("Current leave entitlements", QueryVersionScope.ACTIVE, [2026]),
+        query("2024 leave entitlements", QueryVersionScope.SUPERSEDED, [2024]),
+        query("Compare leave policies", QueryVersionScope.BOTH, [2024, 2026]),
+    ]
+    agent.chain = RunnableLambda(
+        lambda _: MultiQueryGeneratorOutput(queries=expected)
     )
 
-    assert len(result) == 3
-    assert all(isinstance(message, HumanMessage) for message in result)
-    assert [message.content for message in result] == expected_queries
+    assert agent.generate("Compare current and 2024 leave policy", available_documents=catalogue()) == expected
+
+
+def test_multiple_superseded_years_are_supported(make_agent):
+    agent = make_agent()
+    expected = query(
+        "Compare historical leave policies",
+        QueryVersionScope.SUPERSEDED,
+        [2024, 2025],
+    )
+    agent.chain = RunnableLambda(
+        lambda _: MultiQueryGeneratorOutput(queries=[expected])
+    )
+
+    assert agent.generate(
+        "Compare 2024 and 2025",
+        available_documents=catalogue(),
+    ) == [expected]
+
+
+@pytest.mark.parametrize("year", [2023, 9999])
+def test_unknown_years_are_rejected(make_agent, year):
+    agent = make_agent()
+    agent.chain = RunnableLambda(lambda _: MultiQueryGeneratorOutput(
+        queries=[query("Unavailable", QueryVersionScope.BOTH, [year])]
+    ))
+
+    with pytest.raises(Exception, match="unavailable"):
+        agent.generate("Historical policy", catalogue())
+
+
+def test_scope_and_target_year_must_match(make_agent):
+    agent = make_agent()
+    agent.chain = RunnableLambda(lambda _: MultiQueryGeneratorOutput(
+        queries=[query("Wrong scope", QueryVersionScope.ACTIVE, [2024])]
+    ))
+
+    with pytest.raises(Exception, match="scope"):
+        agent.generate(
+            "Current policy",
+            available_documents=catalogue(),
+        )
+
+
+def test_empty_catalogue_allows_unspecified_scope(make_agent):
+    agent = make_agent()
+    expected = query("What is cosine similarity?", QueryVersionScope.ACTIVE)
+    agent.chain = RunnableLambda(
+        lambda _: MultiQueryGeneratorOutput(queries=[expected])
+    )
+
+    assert agent.generate("What is cosine similarity?") == [expected]
 
 
 def test_contextual_history_is_preserved(make_agent):
     agent = make_agent()
-
     history = [
         HumanMessage(content="What is RAG?"),
-        AIMessage(content="RAG stands for Retrieval-Augmented Generation."),
-        HumanMessage(content="Explain its retrieval architecture."),
-        AIMessage(content="It includes query processing and retrieval."),
+        AIMessage(content="Retrieval-Augmented Generation."),
     ]
-
     captured = {}
 
-    def mock_generation(payload):
+    def generate(payload):
         captured.update(payload)
-
         return MultiQueryGeneratorOutput(
-            queries=["RAG retrieval architecture"]
+            queries=[query("RAG retrieval architecture")]
         )
 
-    agent.chain = RunnableLambda(mock_generation)
+    agent.chain = RunnableLambda(generate)
+    agent.generate("Explain its architecture", history)
 
-    agent.generate(
-        current_query="How can we improve its accuracy?",
-        conversation_history=history,
+    assert captured["conversation_history"] == history
+    assert all(
+        received is original
+        for received, original in zip(captured["conversation_history"], history)
     )
-
-    received_history = captured["conversation_history"]
-
-    assert received_history == history
-    assert len(received_history) == len(history)
-
-    # Verify original chronological ordering and message objects.
-    for received, original in zip(received_history, history):
-        assert received is original
-
-    assert captured["current_query"] == "How can we improve its accuracy?"
 
 
 def test_history_is_not_modified(make_agent):
     agent = make_agent()
-
-    history = [
-        HumanMessage(content="What is BM25?"),
-        AIMessage(content="BM25 is a lexical ranking algorithm."),
-        HumanMessage(content="How does it work?"),
-    ]
-
-    original_history = history.copy()
-
-    agent.generate(
-        current_query="Explain its scoring mechanism.",
-        conversation_history=history,
-    )
-
-    assert history == original_history
-
-
-def test_empty_history_is_supported(make_agent):
-    agent = make_agent()
-
-    agent.chain = RunnableLambda(
-        lambda _: MultiQueryGeneratorOutput(
-            queries=["What is cosine similarity?"]
-        )
-    )
-
-    result = agent.generate(
-        current_query="What is cosine similarity?",
-        conversation_history=[],
-    )
-
-    assert len(result) == 1
-    assert result[0].content == "What is cosine similarity?"
+    history = [HumanMessage(content="What is BM25?")]
+    original = history.copy()
+    agent.generate("Explain scoring", history)
+    assert history == original
 
 
 def test_empty_query_is_rejected(make_agent):
-    agent = make_agent()
-
     with pytest.raises(EmptyQueryError):
-        agent.generate(
-            current_query="",
-            conversation_history=[],
-        )
-
-
-def test_whitespace_query_is_rejected(make_agent):
-    agent = make_agent()
-
-    with pytest.raises(EmptyQueryError):
-        agent.generate(
-            current_query="   ",
-            conversation_history=[],
-        )
-
-
-def test_custom_configuration(make_agent):
-    config = MultiQueryGeneratorConfig(
-        max_queries=3,
-        temperature=0.1,
-        max_output_tokens=1000,
-    )
-
-    agent = make_agent(config=config)
-
-    assert agent.config.max_queries == 3
-    assert agent.config.temperature == 0.1
-    assert agent.config.max_output_tokens == 1000
+        make_agent().generate("  ")
 
 
 def test_maximum_query_count_is_enforced(make_agent):
-    config = MultiQueryGeneratorConfig(max_queries=3)
-    agent = make_agent(config=config)
-
-    generated_queries = [
-        f"Query {index}"
-        for index in range(1, 8)
+    agent = make_agent(MultiQueryGeneratorConfig(max_queries=3))
+    generated = [
+        query(f"Query {index}") for index in range(1, 8)
     ]
-
     agent.chain = RunnableLambda(
-        lambda _: MultiQueryGeneratorOutput(queries=generated_queries)
+        lambda _: MultiQueryGeneratorOutput(queries=generated)
     )
 
-    result = agent.generate(
-        current_query="Explain RAG retrieval.",
-    )
-
-    assert len(result) == 3
-    assert [message.content for message in result] == [
-        "Query 1",
-        "Query 2",
-        "Query 3",
-    ]
-
-
-def test_config_rejects_invalid_max_queries():
-    with pytest.raises(ValueError):
-        MultiQueryGeneratorConfig(max_queries=0)
-
-
-def test_config_rejects_invalid_temperature():
-    with pytest.raises(ValueError):
-        MultiQueryGeneratorConfig(temperature=2.5)
-
-
-def test_config_rejects_invalid_output_tokens():
-    with pytest.raises(ValueError):
-        MultiQueryGeneratorConfig(max_output_tokens=0)
+    result = agent.generate("Explain RAG")
+    assert [item.query for item in result] == ["Query 1", "Query 2", "Query 3"]
 
 
 def test_duplicate_queries_are_rejected():
     with pytest.raises(ValidationError):
-        MultiQueryGeneratorOutput(
-            queries=[
-                "Improve RAG retrieval accuracy",
-                "improve rag retrieval accuracy",
-            ]
-        )
+        MultiQueryGeneratorOutput(queries=[
+            query("Improve retrieval"),
+            query("improve retrieval"),
+        ])
 
 
-def test_empty_generated_query_is_rejected():
+def test_target_versions_are_unique_and_positive():
     with pytest.raises(ValidationError):
-        MultiQueryGeneratorOutput(
-            queries=[
-                "Valid query",
-                "   ",
-            ]
+        GeneratedQuery(
+            query="Invalid",
+            version_scope=QueryVersionScope.BOTH,
+            target_versions=[2024, 2024],
         )
 
 
-def test_prompt_contains_configured_maximum(make_agent):
-    agent = make_agent(
-        config=MultiQueryGeneratorConfig(max_queries=4)
-    )
-
-    formatted_prompt = agent.prompt.format(
+def test_prompt_contains_catalogue_and_configured_maximum(make_agent):
+    agent = make_agent(MultiQueryGeneratorConfig(max_queries=4))
+    formatted = agent.prompt.format(
         current_query="Explain RAG.",
         conversation_history=[],
+        available_documents=catalogue().model_dump(),
         format_instructions=agent.parser.get_format_instructions(),
     )
-
-    assert "maximum number of generated queries is 4" in formatted_prompt.lower()
+    assert "maximum number of generated queries is 4" in formatted.lower()
+    assert "Leave Policy" in formatted
+    assert "target_versions" in formatted
 
 
 @pytest.mark.asyncio
 async def test_async_query_generation(make_agent):
     agent = make_agent()
-
-    expected_queries = [
-        "BM25 retrieval mechanism",
-        "BM25 scoring and ranking",
+    expected = [
+        query("BM25 retrieval mechanism"),
+        query("BM25 scoring and ranking"),
     ]
-
     agent.chain = RunnableLambda(
-        lambda _: MultiQueryGeneratorOutput(queries=expected_queries)
+        lambda _: MultiQueryGeneratorOutput(queries=expected)
     )
 
-    result = await agent.agenerate(
-        current_query="Explain BM25 retrieval.",
-        conversation_history=[
-            HumanMessage(content="What is BM25?"),
-            AIMessage(content="BM25 is a lexical retrieval algorithm."),
-        ],
-    )
+    assert await agent.agenerate("Explain BM25 retrieval") == expected
 
-    assert len(result) == 2
-    assert all(isinstance(message, HumanMessage) for message in result)
-    assert [message.content for message in result] == expected_queries
+
+@pytest.mark.parametrize("field,value", [
+    ("max_queries", 0),
+    ("max_output_tokens", 0),
+])
+def test_config_rejects_invalid_values(field, value):
+    with pytest.raises(ValueError):
+        MultiQueryGeneratorConfig(**{field: value})

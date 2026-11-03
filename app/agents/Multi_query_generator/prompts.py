@@ -175,13 +175,30 @@ subject of query generation.
 {current_query}
 </current_query>
 
-# 9. OUTPUT REQUIREMENTS
+# 9. AVAILABLE DOCUMENT VERSIONS
+
+Use only the document versions supplied below. They are already
+authorized and available for retrieval.
+
+<available_documents>
+{available_documents}
+</available_documents>
+
+- Do not invent document titles, years, or version availability.
+- Use "active" for current-information requests.
+- Use "superseded" for historical requests.
+- Use "both" for comparisons requiring current and historical evidence.
+- target_versions must contain only years present in the supplied
+  catalogue and must be empty when no specific year is required.
+
+# 10. OUTPUT REQUIREMENTS
 
 Return ONLY a valid JSON response following this schema:
 
 {format_instructions}
 
-The queries field must contain a list of distinct query strings.
+Each query item must contain a query, version_scope, and target_versions.
+The queries field must contain distinct query strings.
 
 Do not include Markdown fences, explanations, commentary,
 or additional fields.
@@ -192,6 +209,7 @@ or additional fields.
         input_variables=[
             "current_query",
             "conversation_history",
+            "available_documents",
             "format_instructions",
         ],
         partial_variables={

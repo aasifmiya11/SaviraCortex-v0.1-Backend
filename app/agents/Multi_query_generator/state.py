@@ -1,9 +1,12 @@
 from typing import TypedDict
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage
+
+from .schemas import AvailableDocuments, GeneratedQuery
 
 
 class MultiQueryGeneratorState(TypedDict):
     current_query: str
     conversation_history: list[BaseMessage]
-    generated_queries: list[HumanMessage]
+    available_documents: AvailableDocuments
+    generated_queries: list[GeneratedQuery]
