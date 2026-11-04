@@ -61,7 +61,11 @@ class FakeCandidateGenerator:
 
 
 class FakeHybridPipeline:
+    def __init__(self):
+        self.calls = []
+
     def search(self, *, query, **kwargs):
+        self.calls.append({"query": query, **kwargs})
         index = 1 if query == "initial query" else 2
         return {
             "result_count": 1,
@@ -297,3 +301,46 @@ def test_retrieval_concurrency_requires_positive_integer():
             adaptive_k_selector=FakeSelector(),
             retrieval_concurrency=1.5,
         )
+
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_forwards_chunk_exclusions_to_hybrid_pipeline():
+    catalogue = [
+        {
+            "document_id": "document-1",
+            "document_version_id": "version-1",
+            "document_title": "Document",
+            "document_summary": "Summary",
+            "version_year": 2026,
+            "version_status": "active",
+        }
+    ]
+    hybrid_pipeline = FakeHybridPipeline()
+    orchestrator = RetrievalOrchestrator(
+        authorization_service=FakeAuthorizationService(catalogue),
+        multi_query_agent=FakeMultiQueryAgent(),
+        candidate_document_generator=FakeCandidateGenerator(),
+        hybrid_retrieval_pipeline=hybrid_pipeline,
+        global_fusion=__import__(
+            "app.rag.retrieval.global_fusion",
+            fromlist=["GlobalResultFusion"],
+        ).GlobalResultFusion(),
+        cross_encoder_reranker=FakeReranker(),
+        adaptive_k_selector=FakeSelector(),
+    )
+
+    await orchestrator.retrieve(
+        current_query="What is the policy?",
+        organization_id=uuid4(),
+        user_id=uuid4(),
+        exclude=True,
+        excluded_chunk_ids=["version-previous:12"],
+    )
+
+    assert hybrid_pipeline.calls
+    assert all(call["exclude"] is True for call in hybrid_pipeline.calls)
+    assert all(
+        call["excluded_chunk_ids"] == ["version-previous:12"]
+        for call in hybrid_pipeline.calls
+    )

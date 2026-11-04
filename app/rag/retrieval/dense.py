@@ -5,6 +5,7 @@ from uuid import UUID
 from langchain_core.documents import Document
 from qdrant_client import models
 
+from .chunk_exclusion import build_excluded_chunk_filters
 from ..vector_stores.qdrant import client as qdrant_client
 
 
@@ -22,6 +23,8 @@ class DenseRetriever:
         user_id: str | None = None,
         status: str | None = "active",
         candidate_document_version_ids: list[str] | None = None,
+        exclude: bool = False,
+        excluded_chunk_ids: list[str] | None = None,
     ) -> list[tuple[Document, float]]:
 
         if not query or not query.strip():
@@ -36,6 +39,9 @@ class DenseRetriever:
         if status is not None and not status.strip():
             raise ValueError("status cannot be empty.")
 
+        if not isinstance(exclude, bool):
+            raise ValueError("exclude must be a boolean.")
+
         if candidate_document_version_ids is not None:
             candidate_document_version_ids = list(
                 dict.fromkeys(
@@ -47,14 +53,12 @@ class DenseRetriever:
             if not candidate_document_version_ids:
                 return []
 
-        conditions = []
-
-        conditions.append(
+        conditions = [
             models.FieldCondition(
                 key="metadata.organization_id",
                 match=models.MatchValue(value=str(organization_id)),
             )
-        )
+        ]
 
         # Filter by logical document ID.
         if document_id is not None:
@@ -78,14 +82,11 @@ class DenseRetriever:
             conditions.append(
                 models.FieldCondition(
                     key="metadata.document_version_id",
-                    match=models.MatchAny(
-                        any=candidate_document_version_ids,
-                    ),
+                    match=models.MatchAny(any=candidate_document_version_ids),
                 )
             )
 
         # Lifecycle filtering.
-        # Normal retrieval should include active versions only.
         if status is not None:
             conditions.append(
                 models.FieldCondition(
@@ -94,9 +95,15 @@ class DenseRetriever:
                 )
             )
 
+        excluded_filters = (
+            build_excluded_chunk_filters(excluded_chunk_ids)
+            if exclude
+            else []
+        )
+
         qdrant_filter = (
-            models.Filter(must=conditions)
-            if conditions
+            models.Filter(must=conditions, must_not=excluded_filters)
+            if conditions or excluded_filters
             else None
         )
 

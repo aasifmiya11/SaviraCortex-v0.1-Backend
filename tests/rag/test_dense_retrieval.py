@@ -247,3 +247,44 @@ def test_qdrant_wrapper_forwards_query_filter():
         "k": 15,
         "query_filter": query_filter,
     }
+
+
+
+def test_dense_search_excludes_previous_chunks_inside_qdrant():
+    retriever = DenseRetriever()
+    fake_client = FakeQdrantClient()
+    retriever.vector_store = fake_client
+
+    retriever.search(
+        query="machine learning",
+        organization_id="org-1",
+        exclude=True,
+        excluded_chunk_ids=["version-1:3"],
+    )
+
+    query_filter = fake_client.received["query_filter"]
+    assert len(query_filter.must_not) == 2
+
+    version_conditions = {
+        condition.key: condition.match.value
+        for condition in query_filter.must_not[0].must
+    }
+    assert version_conditions == {
+        "metadata.document_version_id": "version-1",
+        "metadata.chunk_index": 3,
+    }
+
+
+def test_dense_search_ignores_excluded_ids_when_exclude_is_false():
+    retriever = DenseRetriever()
+    fake_client = FakeQdrantClient()
+    retriever.vector_store = fake_client
+
+    retriever.search(
+        query="machine learning",
+        organization_id="org-1",
+        exclude=False,
+        excluded_chunk_ids=["version-1:3"],
+    )
+
+    assert fake_client.received["query_filter"].must_not in (None, [])

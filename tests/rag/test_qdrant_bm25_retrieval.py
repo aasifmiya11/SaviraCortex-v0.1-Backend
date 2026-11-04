@@ -114,3 +114,28 @@ def test_bm25_search_does_not_cross_organization_boundary():
     assert client.received["query_filter"].must[0].key == (
         "metadata.organization_id"
     )
+
+
+
+def test_bm25_search_excludes_previous_chunks_inside_qdrant():
+    client = FakeQdrantClient()
+    retriever = QdrantBM25Retriever(client)
+
+    retriever.search(
+        query="retrieval",
+        organization_id="org-1",
+        exclude=True,
+        excluded_chunk_ids=["version-1:5"],
+    )
+
+    query_filter = client.received["query_filter"]
+    assert len(query_filter.must_not) == 2
+
+    version_conditions = {
+        condition.key: condition.match.value
+        for condition in query_filter.must_not[0].must
+    }
+    assert version_conditions == {
+        "metadata.document_version_id": "version-1",
+        "metadata.chunk_index": 5,
+    }

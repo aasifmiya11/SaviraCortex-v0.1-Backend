@@ -203,3 +203,22 @@ def test_rrf_validates_weight_count():
 def test_rrf_validates_k():
     with pytest.raises(ValueError, match="RRF constant k"):
         reciprocal_rank_fusion([], k=0)
+
+
+
+def test_pipeline_forwards_exclusion_to_both_retrievers(monkeypatch):
+    bm25 = FakeRetriever()
+    dense = FakeRetriever()
+    monkeypatch.setattr(pipeline_module, "bm25_retriever", bm25)
+    monkeypatch.setattr(pipeline_module, "dense_retriever", dense)
+
+    HybridRetrievalPipeline().search(
+        query="machine learning",
+        organization_id="org-1",
+        exclude=True,
+        excluded_chunk_ids=["version-1:2"],
+    )
+
+    for retriever in (bm25, dense):
+        assert retriever.calls[0]["exclude"] is True
+        assert retriever.calls[0]["excluded_chunk_ids"] == ["version-1:2"]

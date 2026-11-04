@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from typing import Any
@@ -41,6 +40,8 @@ class HybridRetrievalPipeline:
         rrf_k: int = 60,
         status: str | None = "active",
         candidate_document_version_ids: list[str] | None = None,
+        exclude: bool = False,
+        excluded_chunk_ids: list[str] | None = None,
     ) -> dict[str, Any]:
 
         if not query or not query.strip():
@@ -50,17 +51,16 @@ class HybridRetrievalPipeline:
             raise ValueError("organization_id cannot be empty.")
 
         if top_k < 1 or candidate_k < 1:
-            raise ValueError(
-                "top_k and candidate_k must be at least 1."
-            )
+            raise ValueError("top_k and candidate_k must be at least 1.")
 
         if mode not in {"hybrid", "bm25", "dense"}:
-            raise ValueError(
-                "mode must be hybrid, bm25, or dense."
-            )
+            raise ValueError("mode must be hybrid, bm25, or dense.")
 
         if status is not None and not status.strip():
             raise ValueError("status cannot be empty.")
+
+        if not isinstance(exclude, bool):
+            raise ValueError("exclude must be a boolean.")
 
         bm25 = []
         dense = []
@@ -74,6 +74,8 @@ class HybridRetrievalPipeline:
                 user_id=user_id,
                 status=status,
                 candidate_document_version_ids=candidate_document_version_ids,
+                exclude=exclude,
+                excluded_chunk_ids=excluded_chunk_ids,
             )
 
         if mode in {"hybrid", "dense"}:
@@ -85,6 +87,8 @@ class HybridRetrievalPipeline:
                 user_id=user_id,
                 status=status,
                 candidate_document_version_ids=candidate_document_version_ids,
+                exclude=exclude,
+                excluded_chunk_ids=excluded_chunk_ids,
             )
 
         if mode == "bm25":

@@ -85,8 +85,15 @@ class RetrievalOrchestrator:
         candidate_k: int = 20,
         mode: str = "hybrid",
         rrf_k: int = 60,
+        exclude: bool = False,
+        excluded_chunk_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Run retrieval and return selected chunks with provenance/statistics."""
+
+        if not isinstance(exclude, bool):
+            raise ValueError("exclude must be a boolean.")
+        if excluded_chunk_ids is not None and not isinstance(excluded_chunk_ids, list):
+            raise ValueError("excluded_chunk_ids must be a list of strings or None.")
 
         self._validate_request(
             current_query=current_query,
@@ -171,6 +178,8 @@ class RetrievalOrchestrator:
             candidate_k=candidate_k,
             mode=mode,
             rrf_k=rrf_k,
+            exclude=exclude,
+            excluded_chunk_ids=excluded_chunk_ids,
         )
         branch_results.extend(new_branches)
         branch_stats.extend(new_stats)
@@ -229,6 +238,8 @@ class RetrievalOrchestrator:
                 candidate_k=candidate_k,
                 mode=mode,
                 rrf_k=rrf_k,
+                exclude=exclude,
+                excluded_chunk_ids=excluded_chunk_ids,
             )
             branch_results.extend(new_branches)
             branch_stats.extend(new_stats)
@@ -276,6 +287,8 @@ class RetrievalOrchestrator:
         candidate_k: int,
         mode: str,
         rrf_k: int,
+        exclude: bool = False,
+        excluded_chunk_ids: list[str] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         semaphore = asyncio.Semaphore(self.retrieval_concurrency)
 
@@ -312,6 +325,8 @@ class RetrievalOrchestrator:
                     # lifecycle-filtered. Include superseded versions too.
                     status=None,
                     candidate_document_version_ids=version_ids,
+                    exclude=exclude,
+                    excluded_chunk_ids=excluded_chunk_ids,
                 )
 
             branch = {

@@ -8,6 +8,7 @@ REQUIRED_PAYLOAD_INDEXES = {
     "metadata.organization_id": models.PayloadSchemaType.KEYWORD,
     "metadata.document_version_id": models.PayloadSchemaType.KEYWORD,
     "metadata.document_id": models.PayloadSchemaType.KEYWORD,
+    "metadata.chunk_index": models.PayloadSchemaType.INTEGER,
     "metadata.status": models.PayloadSchemaType.KEYWORD,
 }
 
