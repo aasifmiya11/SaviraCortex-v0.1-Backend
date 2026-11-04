@@ -48,7 +48,7 @@ Voice-AI/
 
 ## 4.2 Package responsibilities
 
-- `app/agents`: LangGraph-based LLM workflows and their prompts, state/configuration and Pydantic schemas.
+- `app/agents`: document summarization (prompt/model/parser chain) and multi-query generation (one-node LangGraph), with prompts, configuration and Pydantic schemas.
 - `app/api`: reserved API namespace; no endpoints were found.
 - `app/core`: global settings, SQLAlchemy engine/session lifecycle and async Redis client.
 - `app/llm`: provider-specific chat model factories.

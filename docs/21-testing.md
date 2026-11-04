@@ -42,4 +42,4 @@ Some tests may require PostgreSQL, Redis/Valkey, Qdrant, model credentials or OC
 
 ## Review status
 
-The documentation pass inspected the test inventory and selected test files/fixtures. The full test suite was not executed as part of this documentation task, so no pass/fail claim is made.
+The audit inspected the test inventory and relevant tests for authorization, PDF processing, agents, matching, registration, indexing, retrieval, storage and reconciliation. The full test suite was not executed as part of this documentation audit, so no pass/fail claim is made.

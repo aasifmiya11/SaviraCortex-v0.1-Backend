@@ -1,18 +1,20 @@
-# 12. Document Registration
+# 12. Document Registration and Version Creation
 
-Registration is implemented by `app/services/document_registration/registration_service.py` and is called after ingestion has uploaded a file and concluded that no duplicate/review decision blocks registration.
+Registration is implemented by `app/services/document_registration/registration_service.py`. It provides separate operations for creating a new logical document and adding a new version to an existing logical document.
 
-## Responsibilities
+## New document
 
-The registration service creates or associates a logical document and creates a pending document-version record in PostgreSQL. The version record retains file-level metadata such as original filename, object storage key, file/content hashes, page count and generated summary/description fields. Exact field names and validation constraints are defined in the SQLAlchemy models and service.
+`register_new_document()` validates the document and version data, then creates a `Document` and its first `DocumentVersion` (version number 1) inside a SQLAlchemy nested transaction/savepoint. The new version is assigned `pending` status. Required data includes a non-empty title and document type, original filename, storage key, non-empty summary, and a 64-character hexadecimal file SHA-256 hash. Optional metadata includes description, content hash, version label, effective dates and page count.
 
-## Pending state
+## New version
 
-Registration does not mean the document is already searchable. A newly registered version is pending until indexing completes and lifecycle activation is committed by the indexing workflow.
+`register_new_version()` creates a pending version for an existing document in the specified organization. It locks the parent document row while calculating the next version number, rejects missing or archived documents, finds the current active version, and records that version in `supersedes_version_id`. The caller supplies the new version's storage key and metadata. The method does not itself upload a file or activate the new version.
 
-## Transaction ownership
+## Pending state and transaction ownership
 
-The service participates in the caller's database session/transaction. Ingestion handles rollback and storage cleanup when registration fails after an object upload. Review service/repository code before introducing a commit boundary; an early commit can make cleanup and consistency harder.
+Registration does not mean the document is searchable as active. A newly registered version remains pending until indexing completes and the indexing orchestrator commits activation.
+
+The registration service does not commit the outer SQLAlchemy transaction. It uses a nested transaction/savepoint and leaves the outer commit/rollback to its caller. The ingestion workflow currently calls `register_new_document()` for a new logical document; it does not automatically route a potential match into `register_new_version()`. The ingestion service uploads the original PDF, registers a new logical document/version, and commits; if upload or registration fails, it rolls back and attempts object cleanup. Do not introduce an early commit without reviewing the cross-store consistency implications.
 
 ## Related modules
 

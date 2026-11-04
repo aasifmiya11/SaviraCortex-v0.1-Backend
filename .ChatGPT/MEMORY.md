@@ -338,3 +338,10 @@ The following targeted suites passed:
 - User reports running `python -m pytest tests/test_pdf_loader_policy.py tests/test_pdf_loader_normalized.py -q` in the configured `(Voice-AI)` environment: **9 passed** in 26.73s, with one `langchain-community` deprecation warning from `app/rag/pdf_reader/native.py:26`.
 - This completes the focused OCR policy/normalization verification in the user's configured environment, including the real `HiPPA.pdf` fixture. The sandbox's PyMuPDF DLL failure remains an isolated runner limitation.
 - Next: rerun the full test suite after these focused checks, then inspect final diff/source state before deciding on a commit. Do not run Qdrant reconciliation with `--apply` without explicit user approval.
+
+
+## Checkpoint — full test suite passed in configured environment (2026-11-04)
+
+- User reports running `python -m pytest -q` in the configured `(Voice-AI)` environment: **280 passed** in 94.98s, with two warnings: `langchain-community` deprecation from `app/rag/pdf_reader/native.py:26` and `fitz` API deprecation from `.venv/Lib/site-packages/fitz/__init__.py:17`.
+- This is the fresh full-suite result following the focused concurrency and OCR checks. The sandbox full-suite attempt is not representative: collection failed there because its disposable environment lacks `AIVEN_POSTGRES_URI` and has PyMuPDF/PyTorch DLL issues.
+- Next: inspect the final diff/source state before deciding whether to commit. No Qdrant `--apply` or live-store writes were performed; reconciliation remains dry-run only.

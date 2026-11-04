@@ -10,15 +10,17 @@ The relational layer uses SQLAlchemy declarative models, a shared `Base`, an eng
 |---|---|
 | User | User identity |
 | Organization | Tenant/organization boundary |
-| OrganizationMembership | User membership and organization membership role |
+| OrganizationMembership | User membership and membership role |
 | OrganizationDepartment | Departments within an organization |
 | OrganizationDepartmentMembership | User-to-department membership |
 | OrganizationRole | Organization-defined roles |
 | UserRoleAssignment | Assigns an organization role to a user |
-| DepartmentAccessPolicy | Department-related access policy data |
+| DepartmentAccessPolicy | Department/role policy model defined in its own module |
 | Document | Logical document identity and organization ownership |
 | DocumentVersion | Version-specific file metadata, hashes, summary, page count and lifecycle status |
 | DocumentACL | Explicit allow/deny rules for user, role or department principals |
+
+**Model registration caveat:** `DepartmentAccessPolicy` is defined in `app/models/department_access_policies.py`, but it is not imported or exported by `app/models/__init__.py`. The current `import app.models` used by the database reset script therefore does not, by itself, register that model's table in `Base.metadata`. Do not assume the table is created by that script without separately importing the module.
 
 ## Logical relationships
 
@@ -35,22 +37,23 @@ erDiagram
  ORGANIZATION ||--o{ DOCUMENT : owns
  DOCUMENT ||--o{ DOCUMENT_VERSION : versions
  DOCUMENT ||--o{ DOCUMENT_ACL : protected_by
- ORGANIZATION ||--o{ DOCUMENT_ACL : scopes
 ```
 
-This is a conceptual diagram. Consult SQLAlchemy declarations for exact foreign keys, uniqueness constraints, indexes, nullability and cascade behavior.
+This is a conceptual diagram. Consult SQLAlchemy declarations for exact foreign keys, uniqueness constraints, indexes, nullability and cascade behavior. The diagram does not include every constraint or model.
 
 ## Document and version distinction
 
-A document is the stable logical identity. A document version represents one uploaded file revision and carries file-specific information such as original filename, storage key, hashes, summary, page count, version number and status. This separation enables a newer version to replace an active version while historical versions remain available, subject to archive and access rules.
+A document is the stable logical identity. A document version represents one uploaded file revision and carries file-specific information such as original filename, storage key, hashes, summary, page count, version number and status. The model enforces unique version numbers per document, a positive version number, and at most one active version per document through a partial unique index (PostgreSQL and SQLite predicates are declared).
 
 ## Version states
 
-The service and repository code uses `pending`, `active`, and `superseded` statuses. Archiving is represented on the logical document and does not itself rewrite version status. Archived documents are excluded from retrieval eligibility, while hash lookup may still find their versions to prevent duplicate re-registration.
+The service and repository code uses `pending`, `active`, and `superseded` statuses. Archiving is represented on the logical document and does not itself rewrite version status. Archived documents are excluded from authorization catalogues/retrieval eligibility, while hash lookup may still find their versions to prevent duplicate re-registration.
 
-## Schema creation and migrations
+## Schema creation and reset
 
-`create_tables()` imports models to register metadata and calls `Base.metadata.create_all()`. This creates missing tables but does not alter existing table definitions. The repository's `migrations/` directory was empty at review time; no checked-in migration history was present there. `create_all` is not a schema migration mechanism.
+`app/core/database.py:create_tables()` imports `app.models` and calls `Base.metadata.create_all()`. This creates missing tables known to the currently imported metadata; it does not alter existing table definitions. The `migrations/` directory is empty in the reviewed tree.
+
+**Destructive script warning:** `scripts/create_tables.py` is a compatibility entry point to `scripts/database.py:reset_database()`. That script prompts for confirmation, then drops and recreates every table registered in `Base.metadata`, deleting their data. It is not a safe additive table-initialization command. `create_all()` and the reset script are not substitutes for a migration system.
 
 ## Transaction conventions
 

@@ -1,10 +1,10 @@
 # Voice-AI Technical Documentation
 
-**Documentation status:** initial code-based documentation  
-**Repository:** `E:\Voice-AI`  
+**Documentation status:** source-to-documentation audit updated 4 November 2026  
+**Repository:** `E:\\Voice-AI`  
 **Review baseline:** 4 November 2026
 
-This documentation describes the implementation present in the repository at the time of review. It is not a product specification and does not imply that planned or placeholder components are implemented.
+This documentation describes the implementation present in the repository at the time of review. It is not a product specification and does not imply that planned or placeholder components are implemented. When code and documentation disagree, the implementation is authoritative.
 
 ## Reading order
 
@@ -17,9 +17,9 @@ This documentation describes the implementation present in the repository at the
 7. [Authorization](07-authorization.md)
 8. [PDF processing](08-pdf-processing.md)
 9. [Document ingestion](09-document-ingestion.md)
-10. [AI agents](10-ai-agents.md)
+10. [AI agents and LLM workflows](10-ai-agents.md)
 11. [Duplicate detection](11-duplicate-detection.md)
-12. [Document registration](12-document-registration.md)
+12. [Document registration and version creation](12-document-registration.md)
 13. [Document indexing](13-document-indexing.md)
 14. [Version lifecycle](14-version-lifecycle.md)
 15. [Retrieval architecture](15-retrieval-architecture.md)
@@ -27,10 +27,10 @@ This documentation describes the implementation present in the repository at the
 17. [Retrieval optimization](17-retrieval-optimization.md)
 18. [Storage](18-storage.md)
 19. [Caching](19-caching.md)
-20. [Scripts and CLI](20-scripts-and-cli.md)
+20. [Scripts and command-line utilities](20-scripts-and-cli.md)
 21. [Testing](21-testing.md)
-22. [Setup](22-setup-guide.md)
-23. [Execution](23-execution-guide.md)
+22. [Setup guide](22-setup-guide.md)
+23. [Execution guide](23-execution-guide.md)
 24. [Error handling](24-error-handling.md)
 25. [Operational runbook](25-operational-runbook.md)
 
@@ -38,13 +38,21 @@ Architecture diagrams are collected in [diagrams/](diagrams/).
 
 ## Important implementation boundaries
 
-- The inspected application is currently a collection of Python modules and service classes, not a complete runnable web API.
-- `main.py` is a greeting/placeholder entry point; `app/main.py` currently prints `hi`.
+- The inspected application is a collection of Python modules and service classes, not a complete runnable web API.
+- Root `main.py` prints a greeting; `app/main.py` prints `hi`. Neither starts an application server.
 - `app/api/v1`, `app/guardrails`, `app/memory`, `app/observability`, `app/schemas`, `app/tasks`, `app/tools`, and `app/utils` contain no implementation files in the reviewed tree.
-- `migrations/` is empty. SQLAlchemy metadata creation is provided by the database helper and scripts.
-- This review did not execute the full test suite or contact external services. Runtime behavior described here is derived from source and tests.
-- The project contains sample PDFs and a local SQLite BM25-related data file under `data/`; treat these as fixtures or local artifacts, not production data.
+- `migrations/` is empty. The current `scripts/create_tables.py` name is misleading: it invokes a destructive reset that drops and recreates registered SQLAlchemy tables after confirmation.
+- The `DepartmentAccessPolicy` model is defined but is not imported by `app.models`' package initializer; it is therefore not registered by the current package import alone.
+- Retrieval currently calls `AuthorizationService` directly; the separate Redis-backed `AuthorizationCacheService` is not wired into the retrieval orchestrator.
+- The summarizer is a prompt/model/parser chain; the multi-query generator is the LangGraph workflow.
+- The project contains sample PDFs and local data artifacts under `data/`; treat these as fixtures or local artifacts, not production data.
+
+## Audit scope and verification limits
+
+The audit compared the documentation set against the repository structure and source for the main configuration, database, authorization, PDF, agent, ingestion, registration, indexing, retrieval, storage and operational-script paths. The relevant documentation pages and diagrams were corrected where source behavior differed or required more precise explanation.
+
+The full test suite was not executed, external services were not contacted, and no production deployment/recovery was performed. Runtime behavior that depends on external providers is documented from source and tests, not claimed as live-verified.
 
 ## Source-of-truth policy
 
-When code and this documentation disagree, the code is authoritative. Update the relevant page when behavior changes. Document uncertainty explicitly rather than inferring undocumented behavior.
+When code and this documentation disagree, code is authoritative. Update the relevant page when implementation changes. Document uncertainty explicitly rather than inferring undocumented behavior.

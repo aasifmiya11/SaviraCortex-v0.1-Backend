@@ -10,7 +10,8 @@ The implementation is organized as a modular Python application with service orc
 |---|---|---|
 | Configuration | Load environment configuration | `app/core/config.py` |
 | Relational persistence | SQLAlchemy engine, sessions and models | `app/core/database.py`, `app/models/` |
-| Authorization | Resolve organization document access and cache scopes | `app/services/authorization/` |
+| Authorization | Resolve organization-scoped document access and expose catalogue data | `app/services/authorization/`, `app/repositories/authorization_repository.py` |
+| Authorization cache | Separate Redis-backed cache wrapper for ID scopes and organization catalogues; not wired into the current retrieval orchestrator | `app/services/authorization/authorization_cache_service.py` |
 | PDF reader | Validate, extract and OCR pages | `app/rag/pdf_reader/` |
 | Ingestion utilities | Normalize, sample and hash content | `app/rag/ingestion/` |
 | LLM agents | Summarize documents and generate query variants | `app/agents/` |
@@ -26,7 +27,7 @@ The implementation is organized as a modular Python application with service orc
 - **PostgreSQL:** organizations, users, memberships, roles, departments, ACL rules, documents and versions.
 - **Qdrant:** chunk vectors/payloads and document-summary vectors in separately configured collections.
 - **Backblaze B2:** original PDF objects, accessed using an S3-compatible client.
-- **Redis-compatible service (Valkey in code comments):** authorization/catalogue cache.
+- **Redis-compatible service (Valkey in code comments):** used by the separate authorization-cache helper. The current retrieval orchestrator calls `AuthorizationService` directly and does not use this cache helper.
 - **SQLite artifact:** `data/bm25_index.sqlite3` exists in the repository; do not assume it is the authoritative lexical retrieval store. The retrieval code includes Qdrant BM25 support.
 
 ## 2.4 High-level data flow

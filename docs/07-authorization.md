@@ -1,32 +1,46 @@
 # 7. Authorization
 
-Authorization is organization-scoped. The authorization repository computes document IDs available to a user within an organization; authorization services and their cache layer expose this scope to retrieval. The reviewed repository does not include HTTP authentication middleware, so callers must supply trusted organization and user identifiers.
+Authorization is organization-scoped. `AuthorizationRepository` computes accessible logical document IDs and a version catalogue from PostgreSQL. `AuthorizationService` validates UUID inputs and exposes those repository operations. The reviewed repository does not include HTTP authentication middleware, so callers must authenticate users and pass trusted organization/user identifiers.
 
 ## Access sources
 
-The implementation and tests cover organization owner implicit access, direct user ACL grants, role grants for roles assigned to the user, department ACL grants, and department-based access where a document belongs to one of the user's departments. Explicit deny rules override matching grants, including owner implicit access. A member without applicable grants, department access or owner privilege receives no document access in tested behavior.
+A user must have an organization membership. Access is then calculated from:
+
+- Organization owner/admin membership, which supplies an organization-wide implicit allow.
+- Explicit `allow` ACL rows for the user.
+- Explicit `allow` ACL rows for roles assigned to the user.
+- Explicit `allow` ACL rows for departments the user belongs to.
+- Assignment of a document to one of the user's departments, which independently grants access to that document.
+
+Explicit `deny` ACL rows for any matching user, role or department principal override all applicable allows, including the owner/admin implicit allow. A user without membership receives no access.
 
 ## Decision model
 
 ```mermaid
 flowchart TD
- A[User and organization] --> B[Resolve membership]
- B --> C[Resolve roles and departments]
- C --> D[Collect applicable grants]
- D --> E[Collect explicit denies]
- E --> F{Matching deny?}
+ A[User and organization] --> B{Organization membership?}
+ B -->|No| X[No access]
+ B -->|Yes| C[Resolve roles and departments]
+ C --> D[Owner/admin, ACL allows, or department assignment]
+ D --> E[Find matching explicit denies]
+ E --> F{Any matching deny?}
  F -->|Yes| G[Exclude document]
- F -->|No| H[Include when a grant exists]
+ F -->|No and allow exists| H[Include document]
+ F -->|No allow| X
 ```
 
-## Cache and retrieval enforcement
+## Retrieval enforcement
 
-`AuthorizationCacheService` and `AuthorizationService` separate scope resolution from cached access/catalogue retrieval. Redis is accessed asynchronously through `app/core/redis.py`. Cache invalidation must follow membership, role, department and ACL changes. Retrieval candidate generation is constrained by authorized document IDs and the available document/version catalogue; vector similarity is not authorization.
+`RetrievalOrchestrator` currently receives an `AuthorizationService` and calls `get_authorized_document_catalog()` directly. The separate `AuthorizationCacheService` is implemented, but it is not injected into this orchestrator's current retrieval path. The authorized catalogue contains non-archived active and superseded versions; pending versions are excluded. Candidate generation and Qdrant retrieval are constrained by this catalogue and exact version IDs. Vector similarity is not authorization.
+
+## Cache behavior and invalidation
+
+The separate cache service caches user document-ID scopes and organization-wide version catalogues in Redis/Valkey. See [Caching](19-caching.md) for keys, TTLs, fallback behavior and the current integration boundary. Invalidate relevant cache entries after membership, role, department, ACL, archive or lifecycle changes.
 
 ## Security requirements
 
 - Authenticate callers before passing identifiers to service methods.
 - Preserve tenant scoping in relational and vector-store filters.
 - Preserve deny-overrides-allow behavior.
-- Invalidate cached scopes after permission changes.
+- Invalidate cached scopes/catalogues after permission or lifecycle changes if the cache service is used.
 - Avoid logging document text or sensitive identity data.
