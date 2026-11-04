@@ -1,4 +1,3 @@
-
 import os
 from dotenv import load_dotenv
 
@@ -49,6 +48,21 @@ class Settings:
     B2_ENDPOINT_URL = os.getenv("B2_ENDPOINT_URL")
     B2_STORAGE_PREFIX = os.getenv("B2_STORAGE_PREFIX", "voice-ai/")
 
+    QDRANT_SUMMARY_COLLECTION_NAME = os.getenv(
+        "QDRANT_SUMMARY_COLLECTION_NAME",
+        f"{QDRANT_COLLECTION_NAME}_summaries" if QDRANT_COLLECTION_NAME else None,
+    )
 
-    QDRANT_SUMMARY_COLLECTION_NAME = os.getenv( "QDRANT_SUMMARY_COLLECTION_NAME", f"{QDRANT_COLLECTION_NAME}_summaries" if QDRANT_COLLECTION_NAME else None, )
+    # Isolated retrieval-evaluation resources. Keep these separate from the
+    # production Qdrant collections and B2 storage prefix.
+    EVAL_ORGANIZATION_ID = os.getenv("SAVIRACORTEX_EVAL_ORGANIZATION_ID")
+    EVAL_QDRANT_COLLECTION_NAME = os.getenv(
+        "SAVIRACORTEX_EVAL_QDRANT_COLLECTION"
+    )
+    EVAL_QDRANT_SUMMARY_COLLECTION_NAME = os.getenv(
+        "SAVIRACORTEX_EVAL_QDRANT_SUMMARY_COLLECTION"
+    )
+    EVAL_B2_STORAGE_PREFIX = os.getenv("SAVIRACORTEX_EVAL_B2_STORAGE_PREFIX")
+
+
 settings = Settings()

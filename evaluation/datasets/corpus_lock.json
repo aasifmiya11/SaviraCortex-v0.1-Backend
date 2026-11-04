@@ -1,0 +1,94 @@
+{
+  "schema_version": "1.0",
+  "corpus_name": "SaviraCortex Layer 1 Retrieval Evaluation Corpus",
+  "status": "locked_for_benchmark",
+  "locked_at": "2026-11-04",
+  "organization_id": "3976ac6b-fd4e-4b44-beda-6c516b45a245",
+  "qdrant_collection": "saviracortex_eval_chunks",
+  "qdrant_point_count": 485,
+  "chunk_catalogue": "evaluation/datasets/chunk_catalogue.json",
+  "source_documents": [
+    {
+      "filename": "AASIFMIYA_025NEB756.pdf",
+      "document_id": "337597d6-57dc-4da3-a5d6-fc69107be271",
+      "document_version_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c",
+      "chunk_count": 22
+    },
+    {
+      "filename": "capstone_proposal.pdf",
+      "document_id": "68ba519e-a312-411f-93cb-4cff77db3d00",
+      "document_version_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d",
+      "chunk_count": 40
+    },
+    {
+      "filename": "El_Nino.pdf",
+      "document_id": "a62f8be2-8a76-436b-a337-593879bee27b",
+      "document_version_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b",
+      "chunk_count": 83
+    },
+    {
+      "filename": "HiPPA.pdf",
+      "document_id": "6c24cfaa-a8f0-46fa-8e25-94591bfba4b5",
+      "document_version_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c",
+      "chunk_count": 67
+    },
+    {
+      "filename": "SaviraNous.pdf",
+      "document_id": "6c0b6913-dcb6-49d4-a994-f56c99c7b7ae",
+      "document_version_id": "2d7e4568-f658-44c6-a75b-f04f966d462f",
+      "chunk_count": 138
+    },
+    {
+      "filename": "Sorting_Algos.pdf",
+      "document_id": "d77606e5-3aff-40e5-8bd1-606bae81da4f",
+      "document_version_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d",
+      "chunk_count": 65
+    },
+    {
+      "filename": "UMS_report.pdf",
+      "document_id": "c4991848-abc2-4e9b-96dd-8ec13caee179",
+      "document_version_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd",
+      "chunk_count": 70
+    }
+  ],
+  "excluded_documents": [
+    {
+      "filename": "2306.07303v1.pdf",
+      "reason": "Duplicate-skipped by ingestion; no points in the evaluation collection."
+    },
+    {
+      "filename": "organized.pdf",
+      "reason": "Ingestion status review_required; no points in the evaluation collection."
+    },
+    {
+      "filename": "Sajid_Miya_AI_Engineer_resume.pdf",
+      "reason": "Excluded by the existing corpus runner by default."
+    }
+  ],
+  "validation": {
+    "live_qdrant_count_matches_catalogue": true,
+    "unique_point_ids": 485,
+    "duplicate_point_ids": 0,
+    "missing_manifest_point_ids": 0,
+    "unexpected_qdrant_point_ids": 0,
+    "metadata_or_chunk_index_mismatches": 0,
+    "chunk_indexes_contiguous_per_document": true
+  },
+  "caveat": "This locks corpus membership and chunk identities. Full chunk text is not yet present in the catalogue because the audit export used --content-limit 0. Do not start relevance labelling until chunk text has been exported and populated.",
+  "full_text_status": "verified_complete",
+  "full_text_verification": {
+    "source": "evaluation/results/qdrant_chunk_export.txt",
+    "qdrant_points": 485,
+    "catalogue_records": 485,
+    "unique_point_ids": 485,
+    "metadata_mismatches": 0,
+    "missing_or_extra_points": 0,
+    "empty_chunks": 0,
+    "truncated_chunks": 0,
+    "encoding": "UTF-8",
+    "total_chunk_text_characters": 392697
+  },
+  "notes": [
+    "Full chunk text has now been exported and verified against all 485 Qdrant point IDs. The catalogue is ready for benchmark query generation and human relevance review."
+  ]
+}
