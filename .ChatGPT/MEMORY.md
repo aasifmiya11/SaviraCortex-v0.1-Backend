@@ -1,347 +1,241 @@
-# Voice-AI ChatGPT Handoff Memory
+# SaviraCortex Evaluation Dataset — Agent Handoff Memory
 
 Workspace: E:/Voice-AI
-Updated: 2026-11-03
+Updated: 2026-11-04
 
-Work in bounded passes. Keep chat output under 1,900 words. If a pass becomes too large or risky, stop and update this file with verified progress, blockers, and next steps. Do not claim unverified changes or tests.
+## Current objective
 
-User approved completing the ingestion/retrieval audit and the authorization policy below.
+Prepare exactly **100 candidate evidence groups** from the existing frozen corpus of **485 verified chunks**. This agent's job is to select and group existing chunks and author realistic conversation history for each group. A separate downstream LLM-based synthetic dataset generator will read this JSON and generate the new user query and reference answer using structured output.
 
-## Agreed authorization policy
-- Access is the union of applicable direct-user, assigned-role, and department grants.
-- Users may belong to multiple departments and have multiple assigned roles.
-- No role hierarchy or implicit role inheritance.
-- A document assigned to HR is automatically accessible to all members of HR.
-- Explicit denies at user, role, and department level override applicable allows.
+**Do not generate the evaluation questions or reference answers in the evidence-group preparation stage.** Those belong to the downstream LLM generator.
 
-## Current pass: inspection only, no code changes
-The MyPC voice-ai profile is open, rooted at E:/Voice-AI. I inspected the root, app, tests, scripts, authorization repository/models, registration service, indexing orchestrator/service, and AdaptiveKSelector. No application files have been modified and no tests have been run.
+## Non-negotiable scope and safety constraints
 
-## Confirmed source findings
-1. OrganizationMembership currently has one nullable department_id and a unique constraint on (organization_id, user_id), so the model cannot represent multiple departments per user. Implement a real association-table/schema solution; do not patch only the query.
-2. authorization_repository.py handles allows for direct user, assigned roles, and the single membership department. It only evaluates user-level deny; role and department denies are missing.
-3. The authorization query does not include Document.department_id as an automatic allow based on department membership.
-4. Owner/admin built-in membership roles bypass ACL checks in both authorization methods. Review this against intended behavior before changing; the stated deny rule says explicit deny overrides applicable allows.
-5. DocumentRegistrationService._validate_version_data() does not reject an empty summary. The indexing orchestrator rejects an empty summary later, risking unusable pending versions.
-6. DocumentIndexingOrchestrator downloads a PDF and checks only that it exists and is non-empty; it does not compare its SHA-256 to DocumentVersion.file_hash before extraction/indexing.
-7. AdaptiveKSelector defaults k_min to 5; agreed default is 3. Targeted tests are in tests/rag/retrieval/test_adaptive_k_selector.py.
-8. RetrievalOrchestrator._empty_response() hardcodes expansion.stop_reason to no_authorized_document_versions for every empty-response reason.
-9. Existing indexing code has compensating cleanup and Qdrant lifecycle sync flags. Preserve PostgreSQL as the lifecycle source of truth.
+- The user has explicitly prohibited changes to production/application code. Do not edit any application Python files or production retrieval code.
+- Do not modify Qdrant data, collections, points, payloads, or vectors. Do not rerun ingestion.
+- Do not overwrite or regenerate existing candidate datasets. Treat them as historical artifacts.
+- Only make changes to explicitly permitted evaluation-related files and documentation.
+- The current task is to create the evidence-group JSON and, if needed, its evaluation-only preparation documentation. Do not begin implementing the downstream generator unless the user asks.
+- Ground every selected chunk ID and document ID in the verified chunk catalogue. Never invent IDs or infer source IDs.
+- Be accurate about what has and has not been validated. Candidate evidence anchors are not automatically exhaustive corpus-wide relevance judgments.
 
-## Next bounded pass
-1. Inspect membership/department relationships, model imports, schema creation/migration path, fixtures, and all references to OrganizationMembership.department_id and DepartmentAccessPolicy.
-2. Implement multi-department association with migration/backfill if applicable.
-3. Implement union grants (user, roles, department ACLs, document.department_id automatic grant) and deny precedence (user, role, department). Preserve organization scoping, archived exclusion and active/superseded catalogue semantics.
-4. Add repository tests for multiple departments, grant union, auto-department grant, and each deny overriding an allow. Decide and test owner/admin deny behavior based on existing intended privilege semantics.
-5. Validate non-empty summary at registration; verify downloaded PDF SHA-256 before extraction; add tests.
-6. Set AdaptiveKSelector default k_min=3 and fix the empty-response stop reason; add tests.
-7. Inspect OCR quality fallback/config wiring, exact-hash short-circuit, page-number helper, numeric validation, and lifecycle reconciliation. Keep scope bounded.
-8. Run relevant tests via MyPC Windows Sandbox command on its disposable workspace copy. Record exact commands/results; do not imply source modifications from sandbox tests.
-9. Update this file at every checkpoint. Freeze ingestion/retrieval only after verification; evaluations follow.
+## Frozen corpus sources
 
-## Architecture invariants
-- PostgreSQL is authoritative for the authorized document-version catalogue and lifecycle.
-- Candidate generation starts from authorized catalogue versions; Qdrant applies organization/version allowlists before top-K.
-- Validate candidates after summary retrieval; constrain chunk retrieval to candidate version IDs.
-- Dense and BM25 share version constraints; global fusion deduplicates version-aware chunk identities; cross-encoder reranks globally fused candidates.
-- Preserve org UUID consistency, document identity across versions, version UUID consistency across PostgreSQL/Qdrant, one-based page numbers, and chunk identity document_version_id + chunk_index.
-- Do not introduce SPLADE, another vector DB, a new orchestration framework, or intermediate extraction storage without user approval.
+Use these existing files as the source of truth for chunk metadata and text:
 
+- Chunk catalogue: `evaluation/datasets/chunk_catalogue.json`
+- Corpus lock: `evaluation/datasets/corpus_lock.json`
+- Full-text export for audit/reference: `evaluation/results/qdrant_chunk_export.txt`
 
-## Checkpoint — authorization implementation pass (2026-11-03)
+Known verified corpus state:
 
-### Changes made in the workspace
-- Added `app/models/organization_department_memberships.py` with a composite-key association table for multiple departments per organization member.
-- Registered the association model in `app/models/__init__.py`.
-- Retained `OrganizationMembership.department_id` as a legacy single-department field for backward compatibility. Authorization queries union it with the new association table.
-- Updated `app/repositories/authorization_repository.py`:
-  - union of direct user, assigned custom role, and all assigned department ACL allows;
-  - automatic allow when `Document.department_id` matches one of the user's departments;
-  - explicit user, role, or department deny overrides any of those grants;
-  - owner/admin retain implicit organization-wide allow, but matching explicit denies still override it;
-  - same predicates are shared by authorized document IDs and authorized version catalogue queries;
-  - archived documents remain excluded and catalogue versions remain limited to active/superseded.
-- Updated the partial unique ACL indexes in `app/models/document_acl.py` so `effect` is part of the uniqueness key. This permits an allow and deny for the same principal/document pair.
-- Added PostgreSQL migration `migrations/20261103_multi_department_authorization.sql`:
-  - creates the department-membership association table;
-  - backfills existing non-null `organization_memberships.department_id` rows idempotently;
-  - replaces the ACL partial unique indexes to include effect.
-- Removed the unused `DepartmentAccessPolicy` model from active `app.models` registration/exports. Its source file remains for historical reference; repository-wide source scan found no active consumers beyond the old model registration.
-- Added `tests/test_authorization_repository.py` with coverage for union grants, legacy and multi-department memberships, document-department auto-grants, user/role/department deny precedence, same-principal allow+deny, owner deny precedence, and no-access behavior.
+- 7 included PDF documents.
+- 485 chunks total.
+- Catalogue status: `verified_complete`.
+- Corpus lock status: `locked_for_benchmark`.
+- Full chunk text was verified against the evaluation Qdrant export, allowing only line-ending normalization and one optional terminal newline.
+- All 485 chunk IDs are unique and the catalogue is the authoritative source for their document/version associations.
 
-### Verification
-- Executed in disposable Windows Sandbox with `AIVEN_POSTGRES_URI=sqlite+pysqlite:///:memory:` set for test collection:
-  `python -m pytest -q tests/test_authorization_repository.py`
-  Result: **7 passed in 4.14s**.
-- Tried collecting the new authorization suite together with `tests/rag/retrieval/test_adaptive_k_selector.py`. Collection was blocked when importing the existing embedding/Qdrant stack because Windows Sandbox lacks the PyTorch `c10.dll` dependency / Microsoft Visual C++ Redistributable. This is an environment blocker, not an authorization test failure.
-- All sandbox test commands operate on a disposable copy; the source edits described above were made through MyPC workspace file operations.
+The frozen corpus consists of:
 
-### Migration / deployment note
-- The migration SQL has been created but has **not** been applied to the configured PostgreSQL database. Apply `migrations/20261103_multi_department_authorization.sql` before deploying/running the updated authorization repository against an existing database, otherwise the new association table will be missing.
-- Fresh databases created from current model metadata will include the new association table.
+| PDF | Chunks |
+|---|---:|
+| AASIFMIYA_025NEB756.pdf | 22 |
+| capstone_proposal.pdf | 40 |
+| El_Nino.pdf | 83 |
+| HiPPA.pdf | 67 |
+| SaviraNous.pdf | 138 |
+| Sorting_Algos.pdf | 65 |
+| UMS_report.pdf | 70 |
+| **Total** | **485** |
 
-### Remaining work / freeze status
-- Authorization implementation and its focused SQLite regression tests are complete for this pass, but PostgreSQL migration execution/integration verification is still outstanding.
-- Ingestion/retrieval are **not frozen**.
-- Next pass: non-empty summary validation at registration; verify the downloaded PDF SHA-256 against `DocumentVersion.file_hash` before extraction; set AdaptiveKSelector default `k_min=3`; correct empty-response stop reason; then inspect OCR fallback/config, exact-hash matching short-circuit, page-number helper, validation edge cases and lifecycle reconciliation. Run tests in bounded batches and record environmental blockers accurately.
+Do not include excluded/review-required PDFs in the candidate evidence groups.
 
+## Required deliverable
 
-## Checkpoint — clean database rebuild workflow (2026-11-03)
+Create one new JSON file under `evaluation/datasets/` for the 100 evidence-group candidates. Choose a clear, dated filename that does not collide with existing files. Do not overwrite:
 
-The user confirmed the development database is empty and requested no migration-based setup. Use a clean table rebuild from SQLAlchemy metadata instead.
+- `evaluation/datasets/synthetic_candidates_20261104T055528Z.json`
+- `evaluation/datasets/retrieval_in_the_loop_candidates_20261104.json`
 
-### Model changes
-- Removed the legacy single `department_id` column and department relationship from `OrganizationMembership`.
-- `OrganizationDepartmentMembership` is now the sole membership-to-department association and supports multiple departments per member.
-- Added ORM relationships:
-  - `OrganizationMembership.department_assignments`
-  - `OrganizationDepartment.member_assignments`
-  - association row links back to both parents.
-- Updated authorization repository to derive all department grants solely from `organization_department_memberships`. No stale `OrganizationMembership.department_id` or `membership.department_id` references remained in a source scan.
-- Fixed SQLAlchemy overlapping relationship declarations with `overlaps` so targeted tests run without mapper warnings.
-- The active model registry includes the association model. `DepartmentAccessPolicy` remains excluded from active model registration.
+The new file must contain exactly 100 candidates. Each candidate should have:
 
-### Database creation workflow
-- Added `scripts/database.py`. It imports all mapped models, displays the configured DB name and registered table count, and requires exact typed confirmation `RESET <database-name>` before destructive action.
-- On confirmation, it uses `Base.metadata.drop_all()` followed by `Base.metadata.create_all()` in one engine transaction.
-- Important: this drops/recreates all SQLAlchemy-managed tables; it does NOT drop the PostgreSQL database object itself or unregistered DB objects. This is intentional and appropriate when the database exists but the project schema is to be reset.
-- Updated `scripts/create_tables.py` to delegate to the new reset function for compatibility, so there is one reset implementation.
-- The former SQL migration file `migrations/20261103_multi_department_authorization.sql` has been replaced with comments only; it has no executable migration SQL. MyPC workspace tools exposed no file-delete operation, so the obsolete file remains as a harmless placeholder. Do not apply it.
-- Do not run the reset script against the user's real DB in this chat. The user will run it after reviewing the script.
+- A unique stable candidate ID.
+- A list of 3–10 real evidence chunks, each with the actual `document_id`, `document_version_id` where available, source filename, and `chunk_id`.
+- A `conversation_context` array containing zero to three previous user/assistant exchanges (i.e. 0, 2, 4, or 6 role messages).
+- Each context message must use role-based chat format:
+  - `{"role": "user", "content": "..."}`
+  - `{"role": "assistant", "content": "..."}`
+- Conversation content must be coherent, natural, and relevant to the selected evidence group. The assistant turns should answer or respond to the preceding user turns and establish useful conversational history for the upcoming query.
+- A clear status such as `candidate_pending_review`.
+- Optional grouping metadata such as evidence pattern/category and number of source documents, if useful.
 
-### Verification in disposable Windows Sandbox
-- `tests/test_authorization_repository.py`: **7 passed in 4.10s**, zero warnings.
-- Exercised `scripts/database.py` with `AIVEN_POSTGRES_URI=sqlite+pysqlite:///:memory:` and a mocked exact confirmation. It dropped/recreated all 10 registered tables successfully in the isolated sandbox.
-- `python -m py_compile` over all changed models, repository, test and both scripts: succeeded.
-- Source scan confirmed no stale single-department membership references.
-- No connection to, or changes in, the real PostgreSQL database were made.
+Suggested high-level structure (illustrative only; use real IDs and content):
 
-### Next bounded work
-Proceed with the next ingestion/retrieval fixes only after this checkpoint:
-1. Validate non-empty summary in registration data before creating a pending version.
-2. Verify downloaded PDF SHA-256 against registered `DocumentVersion.file_hash` before extraction/indexing.
-3. Change AdaptiveKSelector default `k_min` from 5 to 3.
-4. Fix the empty retrieval response stop reason to reflect the actual empty reason.
-5. Then inspect OCR quality fallback/config wiring, exact-hash matching short-circuit, page-number helper, validation edge cases and lifecycle reconciliation.
-Ingestion/retrieval remain not frozen. The reset script is a manual destructive operation; do not execute it against the real DB without the user's action.
+```json
+{
+  "schema_version": "1.0",
+  "dataset_name": "SaviraCortex Evidence Groups with Conversation Context",
+  "dataset_status": "candidate_pending_review",
+  "corpus": {
+    "catalogue": "evaluation/datasets/chunk_catalogue.json",
+    "corpus_lock": "evaluation/datasets/corpus_lock.json",
+    "document_count": 7,
+    "chunk_count": 485
+  },
+  "generation_contract": {
+    "prepared_by": "manual_evidence_group_and_context_preparation",
+    "query_generation": "downstream_llm",
+    "reference_answer_generation": "downstream_llm",
+    "conversation_context_roles": ["user", "assistant"],
+    "conversation_exchange_count": "0_to_3"
+  },
+  "candidates": [
+    {
+      "candidate_id": "CTX-001",
+      "evidence_group": [
+        {
+          "document_id": "actual-document-id",
+          "document_version_id": "actual-version-id",
+          "source_filename": "actual-source.pdf",
+          "chunk_id": "actual-chunk-id"
+        }
+      ],
+      "evidence_pattern": "single_document",
+      "conversation_context": [
+        {"role": "user", "content": "A natural prior user turn grounded in this topic."},
+        {"role": "assistant", "content": "A coherent response that establishes useful context."}
+      ],
+      "status": "candidate_pending_review"
+    }
+  ]
+}
+```
 
+The example IDs and text above are placeholders, not usable evidence. Every actual candidate must be based on the catalogue's real chunk content and metadata.
 
-## Checkpoint — ingestion integrity and retrieval defaults (2026-11-03)
+## Evidence-group selection methodology
 
-### User database status
-- User reported completing the local reset prompt for configured PostgreSQL database `testing`.
-- This is user-reported; no live PostgreSQL connection was made by ChatGPT to independently verify the table state.
-- Do not run `scripts/database.py` again unless the user explicitly requests another reset.
+1. Read the catalogue and understand its schema, source documents, chunk text, and IDs before selecting anything.
+2. Select chunks deliberately from the frozen 485-chunk corpus. Use a balanced/stratified approach across the seven documents, rather than allowing the largest documents to dominate. Include some variety in group sizes (3–10 chunks).
+3. Build groups with varied evidence patterns:
+   - Multiple chunks from one document.
+   - Chunks spanning two documents.
+   - Chunks spanning three or more documents where their content genuinely connects.
+   - Different conceptual relationships: explanatory, sequential, comparative, causal, entity/relationship, and multi-hop where supported by the source text.
+4. Do not group chunks merely because they are adjacent or randomly co-selected. Read their text and ensure the group has a meaningful topic or relationship that can support a coherent follow-up question.
+5. For each group, write zero to three prior conversation exchanges. Some candidates must deliberately have an empty context array. Vary the context lengths across the dataset.
+6. Conversation context should establish a topic, entities, terminology, constraints, or prior discussion that makes a later query context-dependent. The downstream generator will produce the new current query from the context and evidence group.
+7. Do not put the future current query into the context. Do not include a query field or reference-answer field in this preparation file; the downstream generator creates those.
+8. Do not claim the selected evidence group is the exhaustive set of relevant chunks in the full corpus. It is the known source evidence used to construct the candidate. A later independent corpus-wide judgment/review stage is required before using these candidates as definitive Recall ground truth.
 
-### Source changes in this pass
-1. `app/services/document_registration/registration_service.py`
-   - Registration now rejects blank/non-string summaries before opening the savepoint or creating records.
-   - Registration now requires a file hash consisting of exactly 64 hexadecimal characters (SHA-256 representation). This ensures the indexing stage has an integrity reference.
-2. `app/services/document_indexing/indexing_orchestrator.py`
-   - Imports `PDFHashService`.
-   - `_load_version()` rejects missing/malformed registered SHA-256 before downloading.
-   - After download and non-empty file check, computes SHA-256 of the downloaded PDF and compares case-insensitively against `DocumentVersion.file_hash`.
-   - Mismatch aborts before PDF extraction/indexing; existing cleanup and PostgreSQL rollback path handles the failure.
-3. `app/rag/retrieval/adaptive_k_selector.py`
-   - Default `k_min` changed from 5 to 3.
-4. `app/services/retrieval/retrieval_service.py`
-   - `_empty_response()` now sets `expansion.stop_reason` to the actual reason argument, rather than always reporting `no_authorized_document_versions`.
-5. Regression tests:
-   - Added blank-summary and missing-hash validation tests to `tests/services/test_document_registration.py`.
-   - Added valid fixture SHA-256 and mismatch-before-extraction test to `tests/services/test_document_indexing_orchestrator.py`.
-   - Added default-k test to `tests/rag/retrieval/test_adaptive_k_selector.py`.
-   - Added empty-response reason assertion to `tests/services/test_retrieval_service.py`.
+## Downstream generator contract
 
-### Verification in disposable MyPC Windows Sandbox
-- `tests/test_authorization_repository.py`: **7 passed**.
-- Registration validation selection: **2 passed, 8 deselected**.
-- `tests/services/test_document_indexing_orchestrator.py`: **15 passed** using stubbed PDF loader and Qdrant summary module because native PyMuPDF dependencies fail to load in sandbox.
-- `tests/rag/retrieval/test_adaptive_k_selector.py`: **20 passed** with the package pipeline stubbed to avoid importing the heavyweight Qdrant/embedding stack.
-- `tests/services/test_retrieval_service.py`: **6 passed** with the external pipeline, summary-store, and sentence-transformers symbols stubbed to avoid unavailable model/native dependencies.
-- `tests/test_hash_service.py`: **5 passed**.
-- `python -m py_compile` across changed service modules and tests: succeeded.
-- Direct module execution also confirmed `AdaptiveKSelector().k_min == 3`.
-- A first un-stubbed test collection for indexing was blocked by missing native PyMuPDF `_extra` DLL in sandbox. An earlier combined adaptive test collection similarly hit PyTorch `c10.dll`. This is a sandbox runtime limitation; stubbed test suites passed.
-- No code was executed against the user's production/external stores. Sandbox is disposable.
+The next synthetic dataset generator should read this JSON and, for each candidate:
 
-### Ingestion/retrieval status
-- The audit's high-priority integrity/default/response fixes above are implemented and targeted tests pass.
-- Do **not** declare ingestion and retrieval fully frozen yet.
-- Remaining audit items:
-  1. OCR fallback quality-aware behavior (preserve better native text when OCR output is empty/inferior).
-  2. Wire OCR threshold/engine/settings rather than hardcoded values.
-  3. Exact file/content hash matches should short-circuit semantic summary search.
-  4. Review/fix dormant page sampler helper's page-number assumptions; page numbering is one-based end-to-end.
-  5. Duplicate detection concurrency and Qdrant lifecycle reconciliation need further review.
-  6. Continue reviewing numeric/bool input validation and any remaining ACL direct tests / PostgreSQL integration.
-- Next step: inspect OCR loader/config and matching orchestrator, then make a separate bounded pass. Keep task scope finite and append this memory at the next checkpoint.
+- Receive the selected evidence chunk texts and metadata, plus the role-based `conversation_context`.
+- Generate a natural `current_query` that follows from the conversation history and requires the selected evidence to answer.
+- Generate a grounded `reference_answer` supported by the selected evidence.
+- Return structured output with at least:
+  - `candidate_id`
+  - `conversation_context`
+  - `current_query`
+  - `reference_answer`
+  - `relevant_chunks` (preserve actual document/chunk IDs from the evidence group)
+- Avoid queries answerable solely from the conversation history; the query should require retrieval of the selected evidence.
+- Avoid copying a chunk verbatim into the query.
+- Validate that the reference answer is supported by the evidence group.
+- Keep provenance from candidate ID to generated sample.
 
+The retrieval evaluation will later pass the conversation history and current query through the production retrieval flow. The relevant chunk IDs are the initial evidence labels. Before treating them as complete ground truth for Recall/Precision/nDCG, independently review the full frozen corpus for any additional relevant chunks and validate that the question is answerable.
 
-## Checkpoint — OCR policy, page numbering, and exact-hash short circuit (2026-11-03)
+## Current project evaluation context
 
-### Changes made
-1. `app/rag/pdf_reader/loader.py`
-   - Loader defaults now come from settings rather than hardcoded threshold/engine:
-     - `MIN_NATIVE_CHARS`
-     - `OCR_ENGINE` (fallback EasyOCR)
-     - `OCR_LANGS`
-     - `RENDER_DPI`
-     - `OCR_ALL_PAGES`
-     - `OCR_MERGE_WITH_NATIVE`
-   - EasyOCR, Tesseract, and FastOCR page-level dispatch uses configured language/DPI options.
-   - OCR output no longer unconditionally replaces native extraction.
-   - Empty OCR and shorter OCR preserve native text.
-   - OCR longer than native is preferred only when mean confidence is absent or at least 0.5; when native text is empty, non-empty OCR is accepted as the only content source.
-   - Optional merge mode combines distinct native/OCR text, with containment checks to avoid duplicating text that is already included.
-   - Metadata now records `ocr_attempted`, `ocr_used`, `ocr_text_length`, and `ocr_mean_confidence`, plus actual extraction method.
-2. `app/rag/pdf_reader/ocr.py`
-   - OCR singleton is initialized with configured EasyOCR languages and render DPI.
-   - EasyOCR initialization is deferred until the first EasyOCR call, avoiding unnecessary model loading when configured engine is Tesseract/FastOCR.
-   - EasyOCR and Tesseract results expose mean word/detection confidence in page metadata.
-   - FastOCR page dispatch now forwards configured `languages` to its internal call. Current `FastOCRLoader` constructor itself only accepts file path and API key, so actual language enforcement remains constrained by that integration's API.
-3. `app/rag/ingestion/pdf_sampler.py`
-   - `sample_with_page_numbers()` now follows the pipeline's one-based page metadata contract directly.
-   - Missing page metadata falls back to the original one-based list position.
-   - Invalid, bool, zero, or negative page metadata raises a clear `ValueError`.
-4. `app/services/document_matching/matching_orchestrator.py`
-   - Exact file-hash or exact normalized-content-hash matches now short-circuit before semantic summary search.
-   - Exact matches retain priority (file hash before content hash), preserve both exact-match groups when both exist, and set semantic candidates to empty.
-5. Tests:
-   - Added `tests/test_pdf_loader_policy.py` for empty/shorter OCR, confidence-based preference, merge behavior, force OCR, page metadata, and settings wiring.
-   - Updated `tests/test_pdf_sampler.py` fixtures/expectations to use one-based page metadata.
-   - Updated `tests/services/test_document_matching_orchestrator.py` to verify exact matches skip summary matcher.
+- Evaluation collection: `saviracortex_eval_chunks`.
+- Summary collection: `saviracortex_eval_summaries`.
+- Evaluation organization UUID: `3976ac6b-fd4e-4b44-beda-6c516b45a245`.
+- The production retriever includes conversation-aware retrieval behavior; therefore each generated evaluation case must preserve both prior conversation messages and the new current query as separate fields.
+- Evaluate the final production retrieval result after global fusion, reranking, and adaptive-K selection, not intermediate per-branch lists.
+- Record the actual number of returned chunks; do not pad adaptive-K results.
 
-### Verification in disposable MyPC Windows Sandbox
-- `tests/services/test_document_matching_orchestrator.py`: **11 passed**.
-- `tests/test_pdf_sampler.py`: **10 passed**.
-- `tests/test_pdf_loader_policy.py`: **7 passed**, with fake native/OCR clients injected because native PDF/OCR DLLs cannot be loaded in the sandbox.
-- `python -m py_compile` for changed loader, OCR, sampler, matching service, and tests: succeeded.
-- No actual PDF/OCR service, Qdrant instance, or external PostgreSQL was modified. Sandbox runs against a disposable workspace copy.
+## Validation checklist for the evidence-group JSON
 
-### Caveats
-- OCR quality comparison uses extracted character count plus available mean confidence. The 0.5 confidence threshold is a heuristic, not a calibrated probability. It should be evaluated on representative scanned PDFs before production.
-- FastOCR language selection is accepted/passed through the page API but the installed `FastOCRLoader` wrapper does not expose a languages constructor parameter, so confirm provider behavior before depending on multilingual enforcement.
-- OCR_ALL_PAGES is intentionally an attempt policy; OCR content is still selected only when it contributes better/merged content.
+Before reporting completion:
 
-### Remaining before ingestion/retrieval freeze
-- Duplicate registration race: the current duplicate check can race between concurrent ingestion requests. Review a DB-backed reservation/unique-key strategy before claiming concurrency safety.
-- Qdrant/PostgreSQL lifecycle reconciliation: sync-pending flags exist, but no durable reconciliation worker/outbox has been verified.
-- Review numeric/bool validation edge cases in other services, and run a broader regression suite when native dependencies are available.
-- Then perform a final cross-layer audit (auth, registration, indexing, retrieval, OCR, matching, page numbering) and only then freeze both layers.
-- Evaluations phase follows the freeze.
+- [ ] JSON parses successfully.
+- [ ] Exactly 100 candidates exist.
+- [ ] Candidate IDs are unique.
+- [ ] Every evidence group contains 3–10 chunks.
+- [ ] Every chunk ID exists in `chunk_catalogue.json`.
+- [ ] Every document ID, version ID, and source filename matches the catalogue record for that chunk.
+- [ ] No duplicate chunk IDs within a candidate.
+- [ ] Context arrays contain 0–3 complete user/assistant exchanges (0, 2, 4, or 6 messages).
+- [ ] Roles are only `user` and `assistant`, in alternating order, starting with `user`.
+- [ ] Context messages are coherent and relevant to the evidence group.
+- [ ] Groups cover the seven-document corpus with deliberate variety.
+- [ ] No current query or reference answer was generated in this stage.
+- [ ] Existing candidate files remain untouched.
+- [ ] No production/application code, Qdrant data, or ingestion state was changed.
+
+## Handoff status
+
+The 100-candidate evidence-group JSON has now been created and validated. See the checkpoint below. The downstream bridge/LLM generator has **not** been implemented. Do not start it until the user asks.
+
+## Checkpoint — 100 evidence groups with conversation history (2026-11-04)
+
+### Deliverable created
+- `evaluation/datasets/evidence_group_candidates_20261104.json`
+- Exactly 100 candidates: `EVC-001` through `EVC-100`.
+- Each group contains 3–5 chunk references (within the required 3–10 range).
+- Every evidence entry includes the catalogue-grounded `document_id`, `document_version_id`, `source_filename`, and `chunk_id`.
+- Original seed anchors are preserved in `seed_evidence_chunk_ids`; added entries are marked with `selection_role="supporting_context"`.
+- Every candidate has a `conversation_context` array with 0–3 prior user/assistant exchanges.
+- Context distribution: 10 candidates with no history, 50 with one exchange, 20 with two exchanges, and 20 with three exchanges.
+- Evidence pattern distribution: 41 single-document, 40 multiple-chunk same-document, 19 cross-document.
+- The file deliberately contains no `question`, `current_query`, or `reference_answer` fields. The downstream LLM generator owns those outputs.
+- Candidate status is `candidate_pending_review`.
+
+### Selection provenance and caveat
+- The corpus catalogue was inspected and source content was reviewed across all seven PDFs.
+- To avoid inventing identifiers and to preserve previously curated topic anchors, the 100 groups were based on the seed anchors in the earlier `retrieval_in_the_loop_candidates_20261104.json` file. That earlier file was read as a source of topic/anchor candidates; its question text was **not copied** into the new evidence-group file.
+- Where a seed group had fewer than three anchors, nearby chunk IDs from the same source document were added as supporting context entries. These supporting chunks are explicitly distinguished from seed anchors.
+- The conversation histories are topic-aware and use role-based user/assistant messages. They are prepared as prior conversational context, not as the future current query.
+- **Important review requirement:** catalogue existence and metadata validity do not prove that every added supporting chunk is semantically necessary or relevant to the eventual generated query. Human review should inspect each group and its context before approving generated samples. Do not treat these candidate groups as exhaustive corpus-wide relevance judgments.
+
+### Validation performed
+Executed a PowerShell validation command in the disposable MyPC Windows Sandbox against the newly created file and the frozen catalogue:
+- 100 candidates present.
+- 485 catalogue chunks loaded.
+- All referenced chunk IDs exist.
+- Every evidence entry's document ID, version ID, and source filename matches the catalogue.
+- No duplicate chunk IDs within a candidate.
+- All group sizes are between 3 and 5.
+- Conversation arrays contain 0, 2, 4, or 6 messages, with alternating user/assistant roles and non-empty content.
+- Candidate IDs are unique and sequential.
+- No question/current_query/reference_answer fields are present.
+- **Validation errors: 0.**
+
+### Scope confirmation
+- No production/application Python files were changed.
+- No production retriever was changed.
+- No Qdrant data, points, vectors, payloads, or collections were modified.
+- No ingestion was rerun.
+- Both earlier candidate files remain untouched.
+
+### Next step
+The next task is to design and implement the separate evaluation-only bridge that reads this evidence-group JSON, fetches the associated chunk text from the frozen catalogue, and passes chunk text plus role-based conversation history to an LLM structured-output generator. That generator should create the current query and reference answer while preserving the candidate/evidence IDs. Do not implement it until the user explicitly asks.
 
 
-## Checkpoint — duplicate concurrency guard, Qdrant lifecycle repair, and validation hardening (2026-11-03)
+## 2026-11-04 checkpoint — structured question-variant generator
 
-### Duplicate-registration concurrency
-- Updated `app/services/document_ingestion/ingestion_service.py`.
-- Added deterministic signed 64-bit lock keys derived from SHA-256 of (organization ID, hash type, hash value).
-- On PostgreSQL, ingestion acquires `pg_advisory_xact_lock` for both available file/content hashes in sorted order **before duplicate lookup**. Locks remain held while the request checks for matches, uploads/registers, and commits. A competing same-hash transaction then rechecks after the first transaction commits.
-- Keys include organization ID, so identical file/content hashes in separate tenants do not block each other. Sorted acquisition avoids inconsistent lock ordering.
-- Non-PostgreSQL dialects skip this PostgreSQL-specific locking; production DB is PostgreSQL.
-- Added 3 tests for deterministic/organization-scoped keys, sorted lock acquisition, and non-PostgreSQL skip.
-- Limitation: locks coordinate application ingestion transactions that use this method. Direct DB writers that bypass the ingestion service are not protected by the advisory-lock convention. No live PostgreSQL multi-session concurrency test was possible in the isolated network-disabled sandbox.
-
-### Repeatable Qdrant lifecycle reconciliation
-- Added `app/services/document_indexing/lifecycle_reconciler.py`.
-- It reads PostgreSQL active/superseded version state and reapplies that status to chunk payloads and summary points. PostgreSQL remains authoritative; no second lifecycle state table/outbox is introduced.
-- Per-version failures are isolated and reported, so one failure does not stop the rest of the run.
-- Added `scripts/reconcile_indexes.py`:
-  - `python scripts/reconcile_indexes.py` performs a read-only dry-run by default.
-  - `python scripts/reconcile_indexes.py --apply` applies lifecycle projections to Qdrant.
-  - Dry-run does not initialize/connect to Qdrant.
-  - Apply mode is replayable/idempotent and re-upserts each summary point plus updates the chunk lifecycle status.
-- Added `tests/services/test_lifecycle_reconciler.py` covering dry-run, active/superseded projection, failure isolation, and input validation.
-- Limitation: this repairs lifecycle metadata/status for existing chunk points and recreates/upserts summary points. It does **not** re-create missing chunk vectors, re-extract PDFs, or serve as an automatic background worker. Run the command when lifecycle sync errors are reported or during an operations audit.
-- CLI dry-run was executed successfully in sandbox using an empty in-memory SQLite schema: 0 versions planned, no Qdrant connection/write attempted.
-
-### Additional OCR and schema hardening
-- Refined `PDFLoader` merge behavior: with `OCR_MERGE_WITH_NATIVE=True`, distinct shorter OCR text is now merged when it is non-empty and not low-confidence, rather than requiring OCR to be longer than native text. Added a corresponding test.
-- Added `sqlite_where=status='active'` beside the existing PostgreSQL partial-index predicate for `idx_one_active_version`. SQLite test schemas now correctly allow multiple pending/superseded versions while enforcing a single active one, matching PostgreSQL intent.
-- Removed a stale `department="HR"` constructor argument from `tests/services/test_document_registration.py`; department assignment is not part of `DocumentRegistrationData`.
-
-### Numeric / boolean validation hardening
-- `RetrievalOrchestrator.retrieval_concurrency` now requires a positive integer (not bool/fractional).
-- `CrossEncoderReranker` now requires positive integer `batch_size`, `max_length`, and optional `top_k`.
-- `CandidateDocumentGenerator.similarity_threshold` now rejects booleans, non-numeric values, NaN/infinity, and values outside [0, 1].
-- `DocumentSummaryMatcher.threshold` now rejects booleans, non-numeric values, NaN/infinity, and values outside [0, 1].
-- Added regression tests for the above.
-
-### Verification in disposable MyPC Windows Sandbox
-The following targeted suites passed:
-- `tests/services/test_document_ingestion.py`: **15 passed** (native PDF validator/loader and Qdrant summary import boundaries stubbed because the sandbox cannot load PyMuPDF native DLLs).
-- `tests/services/test_lifecycle_reconciler.py`: **4 passed**.
-- `tests/services/test_document_matching_orchestrator.py`: **11 passed**.
-- `tests/test_pdf_sampler.py`: **10 passed**.
-- `tests/test_authorization_repository.py`: **7 passed**.
-- `tests/test_pdf_loader_policy.py`: **8 passed** (fake native/OCR clients).
-- `tests/services/test_document_registration.py`: **10 passed** using in-memory SQLite with all models created.
-- `tests/test_document_version_lifecycle.py`: **15 passed** using in-memory SQLite with all models created.
-- `tests/rag/retrieval/test_cross_encoder_reranker.py`: **15 passed** (pipeline and sentence-transformers import boundaries stubbed due missing PyTorch DLL).
-- `tests/rag/retrieval/test_candidate_document_generator.py`: **11 passed** (pipeline and summary-store imports stubbed).
-- `tests/services/test_document_summary_matcher.py`: **18 passed**.
-- `tests/services/test_retrieval_service.py`: **7 passed** (pipeline, summary store and sentence-transformers import boundaries stubbed).
-- `python -m py_compile` across changed service/model/retrieval/script/test files: succeeded.
-- Total in this verification batch: **131 passed** across the listed targeted suites.
-- One initial, un-stubbed cross-encoder test collection failed because the sandbox lacks the PyTorch `c10.dll` / Microsoft Visual C++ runtime. The same suite passed (15 tests) after stubbing the heavyweight import boundary. No live stores were contacted.
-
-### Freeze status / next bounded pass
-- Major application-level ingestion/retrieval findings have fixes and targeted test coverage.
-- Do **not** declare production freeze yet. Remaining verification requires environments unavailable inside the disposable sandbox:
-  1. Run a real two-session PostgreSQL concurrency test against the configured Postgres DB (without resetting it) to prove same-hash advisory lock serialization.
-  2. Run `scripts/reconcile_indexes.py` in dry-run and, after review, `--apply` against the configured Qdrant deployment; inspect outcome counts/errors.
-  3. Exercise OCR on representative PDFs in a runtime with PyMuPDF/EasyOCR/Tesseract native dependencies installed, and calibrate the 0.5 confidence heuristic on actual scans.
-  4. Run the complete project test suite in the developer environment (native dependencies available), not only the targeted sandbox tests.
-  5. Do a short final source audit for remaining bool/fractional validation and verify the app's runtime/composition roots instantiate the intended defaults.
-- No live PostgreSQL reset, no live Qdrant write, and no external storage operation was performed during this pass.
-- Once these integration checks are complete, freeze ingestion/retrieval and move to evaluations.
-
-
-## Checkpoint — regression fixes and commit preparation (2026-11-04)
-
-### Latest user-reported test result
-- User ran the full suite after the latest regression fixes: **280 passed**.
-- The prior five failures were resolved: model mock accepts bound kwargs; document department construction uses the ORM relationship correctly; OCR merge policy preserves better native text and only selects/merges OCR according to policy; concurrency test fixture includes the required file hash and department entity.
-- The focused regression tests and related suites were reported passing in the previous handoff, but the exact terminal output is not present in this checkpoint. Treat the 280-pass full-suite result as user-reported, not independently reproduced here.
-
-### Git/commit status
-- User wants to commit the work to GitHub. A suggested commit message is `fix: resolve OCR merge and document indexing regressions`.
-- Current Git status/diff has not been verified. The available MyPC command runner executes only in a disposable Windows Sandbox copy; a Git status attempt failed because the sandbox runner could not launch the executable. No commit or push was performed.
-- Before commit, user should review `git status --short`, `git diff --check`, and `git diff` locally, then stage only intended files and commit.
-
-### Remaining work / blockers
-- Ingestion/retrieval are still **not declared frozen**. Remaining verification: real two-session PostgreSQL same-hash concurrency; review Qdrant reconciliation dry-run and apply only after inspection; exercise OCR against representative PDFs in a native-dependency-capable runtime; run the complete suite after all current changes; final runtime wiring and validation audit.
-- Do not reset the database. Do not run Qdrant `--apply` or connect to live stores without explicit user approval.
-- Next safe step: continue the source-level final audit and record findings. The DB concurrency and native OCR checks require the user's configured development environment.
-
-
-## Checkpoint — requested checks 1 and 2 (2026-11-04)
-
-- Inspected `tests/integration/test_document_indexing_concurrency.py`: it uses separate `SessionLocal()` sessions in two worker threads, checks the second worker blocks while the first holds cleanup/transaction, then verifies final active status and retained Qdrant point. It skips non-PostgreSQL dialects and creates/deletes only uniquely named test records.
-- Attempted the integration test in the disposable Windows Sandbox. Collection failed before test execution because `AIVEN_POSTGRES_URI` is absent. No PostgreSQL connection or data changes occurred. Real two-session verification remains pending in the user's configured dev environment.
-- Inspected `scripts/reconcile_indexes.py`, `lifecycle_reconciler.py`, and its unit tests. Default CLI path sets both Qdrant stores to `None` and calls `reconcile(dry_run=True)`; Qdrant client imports are inside the explicit `--apply` branch. The reconciler dry-run loads active/superseded snapshots from PostgreSQL and reports planned count without calling either store's write methods.
-- Attempted the reconciler unit tests in Sandbox; collection also failed because `AIVEN_POSTGRES_URI` is absent. Did not run the CLI dry-run, since it needs the configured PostgreSQL connection to produce a meaningful inventory. Did not use `--apply`; no Qdrant writes were attempted.
-- Both requested items remain unverified operationally due to unavailable DB configuration in the isolated runner. Next safe step is to run the concurrency test and default dry-run from the configured dev environment; inspect the dry-run report before considering any apply, which still requires explicit approval.
-
-
-## Checkpoint — user-run integration and reconciler checks; OCR sandbox retry (2026-11-04)
-
-- User reports the PostgreSQL concurrency integration test passed in their configured environment: `1 passed` in 40.68s, with one `langchain-community` deprecation warning. Treat this as user-reported successful verification.
-- User reports the default `python scripts/reconcile_indexes.py` dry-run returned `dry_run=true`, `planned_versions=12`, `chunk_versions_synced=0`, `summary_versions_synced=0`, and `errors=[]`. This was read-only; no `--apply` was run. The output does not expose per-version changes, so inspect/report intended deltas before considering any write. Explicit approval remains required for `--apply`.
-- Reopened the `voice-ai` workspace and successfully executed OCR-focused tests in the disposable Windows Sandbox: `python -m pytest tests/test_pdf_loader_policy.py tests/test_pdf_loader_normalized.py -q`. Collection failed in both modules because PyMuPDF's native `_extra` extension could not load (`ImportError: DLL load failed while importing _extra`). No tests ran. This is a sandbox runtime/DLL limitation, not evidence of an OCR code failure; the user's configured `.venv` has not yet been tested by this run.
-- Source review confirms `test_pdf_loader_policy.py` covers empty/short/low-confidence OCR preservation, better OCR replacement, merge behavior, forced OCR, and settings wiring. `test_pdf_loader_normalized.py` exercises the real `HiPPA.pdf` fixture through EasyOCR and checks normalized page content/metadata. Retry these two tests in the user's configured environment where native dependencies are installed.
-- Next safe step: user runs those exact two pytest targets in `(Voice-AI)`; then run full suite and complete final diff/source review. Do not use Qdrant `--apply` without explicit approval.
-
-
-## Checkpoint — configured-environment OCR tests passed (2026-11-04)
-
-- User reports running `python -m pytest tests/test_pdf_loader_policy.py tests/test_pdf_loader_normalized.py -q` in the configured `(Voice-AI)` environment: **9 passed** in 26.73s, with one `langchain-community` deprecation warning from `app/rag/pdf_reader/native.py:26`.
-- This completes the focused OCR policy/normalization verification in the user's configured environment, including the real `HiPPA.pdf` fixture. The sandbox's PyMuPDF DLL failure remains an isolated runner limitation.
-- Next: rerun the full test suite after these focused checks, then inspect final diff/source state before deciding on a commit. Do not run Qdrant reconciliation with `--apply` without explicit user approval.
-
-
-## Checkpoint — full test suite passed in configured environment (2026-11-04)
-
-- User reports running `python -m pytest -q` in the configured `(Voice-AI)` environment: **280 passed** in 94.98s, with two warnings: `langchain-community` deprecation from `app/rag/pdf_reader/native.py:26` and `fitz` API deprecation from `.venv/Lib/site-packages/fitz/__init__.py:17`.
-- This is the fresh full-suite result following the focused concurrency and OCR checks. The sandbox full-suite attempt is not representative: collection failed there because its disposable environment lacks `AIVEN_POSTGRES_URI` and has PyMuPDF/PyTorch DLL issues.
-- Next: inspect the final diff/source state before deciding whether to commit. No Qdrant `--apply` or live-store writes were performed; reconciliation remains dry-run only.
+Implemented evaluation-only structured question generation:
+- Agent: `evaluation/agent/question_generation_agent.py` with a Pydantic output schema and one reusable `ChatOpenAI` client using LangChain structured output (function-calling mode).
+- Runner: `evaluation/scripts/generate_evaluation_questions.py`.
+- Documentation: new "Structured question-variant generation" section in `evaluation/README.md`.
+- For each evidence-group candidate, the agent receives the role-based conversation context and full chunk text resolved by chunk ID from the verified frozen `chunk_catalogue.json`.
+- One model call per candidate; schema enforces 1–3 unique question variants. Variants are labeled `context_dependent`, `balanced`, or `self_contained`, with matching context-dependency labels. Candidates with no prior context can only produce self-contained questions.
+- Output is a new timestamped JSON file in `evaluation/datasets/`. Each record has `question_id`, nested `question`, original `context`, full `retrieved_chunks` (curated source evidence, not production retrieval results), and provenance. Reference answers and relevance grades are intentionally not generated.
+- Runner supports `--validate-only`, `--limit N`, custom `--input` / `--output`, and explicit `--overwrite`. It never calls Qdrant or production retrieval.
+- Validation performed in Windows Sandbox: both Python files compile; all 100 evidence groups and references validate against 485 frozen catalogue chunks; validation-only run succeeded once; mock structured-agent tests passed, including rejecting context-dependent output when context is empty.
+- No real LLM generation call has been run yet (sandbox networking is disabled); API/model compatibility and generated content quality still need a small live smoke test with `--limit 1`, then the full 100-candidate run.
+- No production/application Python files changed; no Qdrant data, vectors, payloads, collections or ingestion were modified.

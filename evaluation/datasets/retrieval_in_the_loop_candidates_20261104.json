@@ -1,0 +1,2031 @@
+{
+  "schema_version": "1.0",
+  "dataset_name": "SaviraCortex Layer 1 Retrieval-in-the-Loop Candidate Questions",
+  "dataset_status": "candidate_pending_human_review",
+  "created_at": "2026-11-04",
+  "creation_method": "Questions authored directly from the verified frozen chunk catalogue by the assistant. No OpenAPI schema, LLM client, or production retriever was invoked to create this candidate file.",
+  "corpus_lock": "evaluation/datasets/corpus_lock.json",
+  "corpus_catalogue": "evaluation/datasets/chunk_catalogue.json",
+  "corpus_scope": {
+    "qdrant_collection": "saviracortex_eval_chunks",
+    "organization_id": "3976ac6b-fd4e-4b44-beda-6c516b45a245",
+    "document_count": 7,
+    "chunk_count": 485
+  },
+  "question_type_definitions": {
+    "single_chunk": "One chunk should fully support the answer.",
+    "multiple_chunks_same_document": "Multiple chunks from one document are required.",
+    "dual_document": "Evidence from at least two different documents is required."
+  },
+  "candidate_counts": {
+    "single_chunk": 41,
+    "multiple_chunks_same_document": 40,
+    "dual_document": 20
+  },
+  "evaluation_contract": {
+    "scored_stage": "Only the final global-fusion output after reranking and adaptive-K selection from the production retrieval orchestrator.",
+    "not_scored": [
+      "Individual generated-query branches",
+      "Individual local hybrid-search result lists",
+      "Pre-global-fusion rankings"
+    ],
+    "result_capture": "Store the actual ranked final result list and actual returned count (up to the adaptive maximum). Do not pad results when adaptive-K returns fewer than K.",
+    "ground_truth_rule": "Proposed evidence anchors are generation provenance only, not relevance labels. Human review must inspect the entire frozen 485-chunk corpus and add all relevant chunks, including relevant chunks not returned by the retriever.",
+    "benchmark_metrics": [
+      "Recall@K",
+      "Precision@K",
+      "MRR@K",
+      "nDCG@K"
+    ],
+    "lifecycle": "Candidates -> human question validation -> production retrieval snapshot -> corpus-wide relevance judgments -> frozen benchmark -> repeated retrieval runs and metric comparison."
+  },
+  "candidates": [
+    {
+      "candidate_id": "RICL-001",
+      "question_type": "single_chunk",
+      "question": "What assumptions about horizontal and vertical acceleration define the projectile-motion model?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "AASIFMIYA_025NEB756.pdf",
+          "chunk_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c:9"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-002",
+      "question_type": "single_chunk",
+      "question": "How are a projectile's initial horizontal and vertical velocity components expressed?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "AASIFMIYA_025NEB756.pdf",
+          "chunk_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c:9"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-003",
+      "question_type": "single_chunk",
+      "question": "How is the vertical velocity component expressed after time t?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "AASIFMIYA_025NEB756.pdf",
+          "chunk_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c:9"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-004",
+      "question_type": "single_chunk",
+      "question": "What equations describe horizontal and vertical displacement in the projectile-motion report?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "AASIFMIYA_025NEB756.pdf",
+          "chunk_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c:9"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-005",
+      "question_type": "single_chunk",
+      "question": "At which projection angle was the maximum measured range observed, and what was its value?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "AASIFMIYA_025NEB756.pdf",
+          "chunk_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c:13"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-006",
+      "question_type": "single_chunk",
+      "question": "Which real-life activities are identified as applications of projectile motion?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "AASIFMIYA_025NEB756.pdf",
+          "chunk_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c:18"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-007",
+      "question_type": "single_chunk",
+      "question": "What limitation of ChatGPT for student learning is highlighted in the capstone proposal?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:17"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-008",
+      "question_type": "single_chunk",
+      "question": "Which adaptive memory modes are proposed for the tutoring system?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:29"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-009",
+      "question_type": "single_chunk",
+      "question": "Which learning analytics features are proposed for tracking student progress?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:29"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-010",
+      "question_type": "single_chunk",
+      "question": "Which subjects are identified as supporting conversational AI and NLP in the capstone proposal?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:32"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-011",
+      "question_type": "single_chunk",
+      "question": "What role does Numerical Linear Algebra play in the proposed AI tutor?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:35"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-012",
+      "question_type": "single_chunk",
+      "question": "What is the stated six-month forecasting target of the El Niño project?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:18"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-013",
+      "question_type": "single_chunk",
+      "question": "Which geographic domain is specified for the regional climate impact assessment?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:18"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-014",
+      "question_type": "single_chunk",
+      "question": "Which climate drivers are explicitly outside the proposed model's scope?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:19"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-015",
+      "question_type": "single_chunk",
+      "question": "What is the spring predictability barrier in ENSO forecasting?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:14"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-016",
+      "question_type": "single_chunk",
+      "question": "What forecasting skill did the reviewed CNN-based ENSO approach report at a 17-month lead time?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:23"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-017",
+      "question_type": "single_chunk",
+      "question": "What is the core innovation of the physics-guided deep echo state network?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:26"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-018",
+      "question_type": "single_chunk",
+      "question": "What mechanism does ResoNet use to identify physically meaningful ENSO precursor regions?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:28"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-019",
+      "question_type": "single_chunk",
+      "question": "Which dataset is used to evaluate HiPPA, and approximately how many utterances and speakers does it contain?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:20"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-020",
+      "question_type": "single_chunk",
+      "question": "Which pretrained acoustic encoder forms the backbone of HiPPA?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:21"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-021",
+      "question_type": "single_chunk",
+      "question": "How does HiPPA represent canonical phonemes before alignment?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:23"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-022",
+      "question_type": "single_chunk",
+      "question": "What is the purpose of HiPPA's cross-attention module?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:26"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-023",
+      "question_type": "single_chunk",
+      "question": "In what order does HiPPA aggregate representations across linguistic levels?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:27"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-024",
+      "question_type": "single_chunk",
+      "question": "Which global prosodic features are used before sentence-level scoring in HiPPA?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:29"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-025",
+      "question_type": "single_chunk",
+      "question": "Which evaluation metrics are reported for HiPPA?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:38"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-026",
+      "question_type": "single_chunk",
+      "question": "What four memory layers are described in SaviraNous?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:1"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-027",
+      "question_type": "single_chunk",
+      "question": "What is the role of the learner profile in SaviraNous?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:13"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-028",
+      "question_type": "single_chunk",
+      "question": "What decision does the Path Judger make in SaviraNous?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:14"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-029",
+      "question_type": "single_chunk",
+      "question": "How does SaviraNous restrict the candidate set before detailed chunk retrieval?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:51"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-030",
+      "question_type": "single_chunk",
+      "question": "What does the retrieval planner allocate dynamically?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:52"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-031",
+      "question_type": "single_chunk",
+      "question": "What happens to reranked documents that fall below the relevance threshold?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:53"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-032",
+      "question_type": "single_chunk",
+      "question": "Which benchmark datasets are used in the static retrieval evaluation described in SaviraNous?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:107"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-033",
+      "question_type": "single_chunk",
+      "question": "Which reranker is used in the static-k retrieval evaluation?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:110"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-034",
+      "question_type": "single_chunk",
+      "question": "What is the purpose of generating benchmark goldens from full documents?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:119"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-035",
+      "question_type": "single_chunk",
+      "question": "Which input distributions are used in the sorting-algorithm benchmark?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:24"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-036",
+      "question_type": "single_chunk",
+      "question": "What auxiliary measurements are recorded by the sorting benchmark besides wall-clock time?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:25"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-037",
+      "question_type": "single_chunk",
+      "question": "Why can insertion sort perform especially well on already-sorted input?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:32"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-038",
+      "question_type": "single_chunk",
+      "question": "What worst-case time-complexity guarantee does the described introsort design provide?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:49"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-039",
+      "question_type": "single_chunk",
+      "question": "Which roles are covered by the University Management System's role-based access control?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:18"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-040",
+      "question_type": "single_chunk",
+      "question": "Which web and backend technologies are specified for the University Management System?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:20"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-041",
+      "question_type": "single_chunk",
+      "question": "Which relationship is represented through the UMS takes_exams junction table?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:24"
+        }
+      ],
+      "evidence_requirement": "One chunk should fully support the answer.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-042",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the projectile-motion report connect its velocity and displacement equations to the measured range results?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "AASIFMIYA_025NEB756.pdf",
+          "chunk_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c:9"
+        },
+        {
+          "source_filename": "AASIFMIYA_025NEB756.pdf",
+          "chunk_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c:13"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-043",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the experiment's maximum-range observation relate to the report's stated real-world projectile applications?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "AASIFMIYA_025NEB756.pdf",
+          "chunk_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c:13"
+        },
+        {
+          "source_filename": "AASIFMIYA_025NEB756.pdf",
+          "chunk_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c:18"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-044",
+      "question_type": "multiple_chunks_same_document",
+      "question": "Explain how the report's projectile model treats horizontal and vertical motion differently, and connect that distinction to a practical example.",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "AASIFMIYA_025NEB756.pdf",
+          "chunk_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c:9"
+        },
+        {
+          "source_filename": "AASIFMIYA_025NEB756.pdf",
+          "chunk_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c:18"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-045",
+      "question_type": "multiple_chunks_same_document",
+      "question": "What evidence links the measured maximum-range angle to the report's examples of throwing sports equipment?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "AASIFMIYA_025NEB756.pdf",
+          "chunk_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c:13"
+        },
+        {
+          "source_filename": "AASIFMIYA_025NEB756.pdf",
+          "chunk_id": "7d0b764f-bdc2-4a66-ae88-580ab92fab8c:19"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-046",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the capstone proposal connect adaptive memory with student evaluation and learning analytics?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:29"
+        },
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:32"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-047",
+      "question_type": "multiple_chunks_same_document",
+      "question": "Which technical subjects support both natural-language interaction and the data/retrieval layer in the capstone proposal?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:32"
+        },
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:35"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-048",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the capstone proposal's description of ChatGPT's limitations motivate its proposed learning-progress features?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:17"
+        },
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:29"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-049",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How do browser context capture and adaptive memory support continuity across learning materials and sessions?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:29"
+        },
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:30"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-050",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the El Niño project move from forecasting an ENSO index to producing regional climate-impact assessments?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:18"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:20"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-051",
+      "question_type": "multiple_chunks_same_document",
+      "question": "Why does the proposal combine a six-month Niño 3.4 forecast with a South Asian precipitation and temperature impact module?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:17"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:18"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-052",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How do limitations of dynamical ENSO models motivate the deep-learning approaches reviewed in the proposal?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:14"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:22"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-053",
+      "question_type": "multiple_chunks_same_document",
+      "question": "Compare the CNN-based ENSO approach and the autoencoder-LSTM approach in terms of method and reported forecasting strengths.",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:22"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:24"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:25"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-054",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the physics-guided deep echo state network incorporate ENSO dynamics, and what benefit is reported?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:26"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:27"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-055",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the proposal's data-to-model workflow connect climate preprocessing with the final forecasting tasks?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:32"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:34"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-056",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the proposal combine the Niño 3.4 forecast, South Asian domain, and intended monsoon applications?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:18"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:19"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:20"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-057",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does HiPPA combine acoustic features and reference phoneme information before hierarchical scoring?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:21"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:22"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:26"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-058",
+      "question_type": "multiple_chunks_same_document",
+      "question": "Describe how HiPPA turns phoneme-level information into sentence-level assessment and which global features supplement it.",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:27"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:29"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-059",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How are HiPPA's auxiliary CTC branch and multi-task prediction heads used to support pronunciation scoring?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:30"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:31"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:32"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-060",
+      "question_type": "multiple_chunks_same_document",
+      "question": "What trade-off is visible in HiPPA's reported performance between phoneme-level and sentence-level assessment?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:38"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:39"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:40"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-061",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does HiPPA's reference-conditioned approach differ from earlier GOP-based scoring, based on its motivation and method?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:11"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:18"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:22"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-062",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does SaviraNous's four-tier memory design separate temporary conversational context from persistent learner information?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:12"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:13"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:33"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-063",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the Path Judger's routing decision influence which retrieval stages are executed?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:44"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:45"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:47"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-064",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does SaviraNous select resources first and then constrain chunk retrieval to those resources?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:48"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:49"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:51"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-065",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the retrieval planner replace a fixed global retrieval budget with resource-specific allocation?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:51"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:52"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-066",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does SaviraNous use reranking to prevent irrelevant evidence from entering response context?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:52"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:53"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-067",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How do the static-k and dynamic-k evaluations differ in system-under-test scope and metrics?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:110"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:111"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:117"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:121"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-068",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the SaviraNous evaluation distinguish document-based from context-based question generation?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:119"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:120"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-069",
+      "question_type": "multiple_chunks_same_document",
+      "question": "What do the multi-hop benchmark results suggest about reranking, and how does the paper interpret them?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:113"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:114"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:116"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-070",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the paper distinguish retrieval-side evaluation from answer-generation evaluation?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:111"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:123"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:124"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-071",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the sorting benchmark ensure comparable inputs, and what limitations remain in its timing analysis?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:24"
+        },
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:26"
+        },
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:29"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-072",
+      "question_type": "multiple_chunks_same_document",
+      "question": "Why does the benchmark report different sorting behavior for random, sorted, and reverse-sorted inputs?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:30"
+        },
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:32"
+        },
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:34"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-073",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How do merge sort's auxiliary-memory requirements and write behavior help explain its measured performance?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:37"
+        },
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:38"
+        },
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:45"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-074",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does introsort combine quicksort, heapsort, and insertion sort, and what problem does each fallback address?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:47"
+        },
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:48"
+        },
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:49"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-075",
+      "question_type": "multiple_chunks_same_document",
+      "question": "What sorting choices does the report recommend for small arrays, random data, partially sorted data, and small integer ranges?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:53"
+        },
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:54"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-076",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the UMS database design represent relationships among students, courses, and exams?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:22"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:23"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:24"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-077",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How are fee records connected to students, courses, and exams in the UMS schema?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:25"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:26"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:59"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-078",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the UMS report combine role-based access, email notifications, and its technical stack to describe system scope?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:15"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:18"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:20"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-079",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How do the UMS audit triggers and stored procedure features support database operations?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:33"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:35"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:38"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-080",
+      "question_type": "multiple_chunks_same_document",
+      "question": "What does the UMS schema say about exam participation, student results, and fee relationships?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:24"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:25"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:28"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-081",
+      "question_type": "multiple_chunks_same_document",
+      "question": "How does the UMS report's out-of-scope functionality differ from the core student, course, and examination features?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:15"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:16"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:19"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from multiple chunks of one source document.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-082",
+      "question_type": "dual_document",
+      "question": "Compare how the capstone proposal and SaviraNous describe learner personalization: what learning context or progress information does each retain?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:29"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:12"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:13"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-083",
+      "question_type": "dual_document",
+      "question": "How does the capstone proposal's browser context capture relate to SaviraNous's resource ingestion and resource-level retrieval design?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:29"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:48"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:49"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-084",
+      "question_type": "dual_document",
+      "question": "What limitations of generic ChatGPT for learning are identified in the capstone proposal, and how does SaviraNous address comparable needs?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:17"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:11"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:12"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:14"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-085",
+      "question_type": "dual_document",
+      "question": "Compare the capstone proposal's student-evaluation features with the evaluation mechanisms described for HiPPA's pronunciation-assessment model.",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:29"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:31"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:32"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-086",
+      "question_type": "dual_document",
+      "question": "How could the speech-processing subject in the capstone proposal connect to the phoneme-, word-, and sentence-level tasks implemented by HiPPA?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:32"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:7"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:27"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-087",
+      "question_type": "dual_document",
+      "question": "Compare the capstone proposal's technical learning foundations with the acoustic representation and transformer approach used by HiPPA.",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:32"
+        },
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:35"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:21"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:26"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-088",
+      "question_type": "dual_document",
+      "question": "How do SaviraNous and HiPPA use hierarchical processing, and what information passes from earlier stages to later stages?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:51"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:52"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:27"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:30"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-089",
+      "question_type": "dual_document",
+      "question": "Compare the role of reranking in SaviraNous with the role of cross-attention alignment in HiPPA.",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:53"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:26"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:27"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-090",
+      "question_type": "dual_document",
+      "question": "How do the two projects use evaluation metrics differently: retrieval-ranking metrics in SaviraNous versus prediction-agreement metrics in HiPPA?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:111"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:114"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:38"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-091",
+      "question_type": "dual_document",
+      "question": "Compare the role of model architecture in the El Niño proposal and HiPPA: what does each model process, and what structure does it learn?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:4"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:34"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:21"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:27"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-092",
+      "question_type": "dual_document",
+      "question": "How do the El Niño proposal and HiPPA differ in their input data and target predictions?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:18"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:34"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:20"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:21"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-093",
+      "question_type": "dual_document",
+      "question": "Compare how the El Niño proposal and HiPPA define evaluation objectives and report model performance.",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:32"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:75"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:36"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:38"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:39"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-094",
+      "question_type": "dual_document",
+      "question": "What common role do deep-learning architectures play in the El Niño proposal and HiPPA despite their different application domains?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:22"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:34"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:19"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:21"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-095",
+      "question_type": "dual_document",
+      "question": "How does the capstone proposal's database and retrieval coursework relate to the database-backed UMS design?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:35"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:20"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:22"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:27"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-096",
+      "question_type": "dual_document",
+      "question": "Compare the capstone proposal's vision for a learning platform with the UMS report's academic-management functions. Which needs overlap and which differ?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:29"
+        },
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:32"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:15"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:16"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:19"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-097",
+      "question_type": "dual_document",
+      "question": "How do the UMS report and capstone proposal describe student-progress information, and what system features are associated with it?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:15"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:16"
+        },
+        {
+          "source_filename": "capstone_proposal.pdf",
+          "chunk_id": "57ca5e8f-fa9d-4ebf-bf12-1f1440c2626d:29"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-098",
+      "question_type": "dual_document",
+      "question": "Compare data-processing concerns in the sorting benchmark and El Niño workflow. What input-preparation or fairness constraints does each describe?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:24"
+        },
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:26"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:34"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:36"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-099",
+      "question_type": "dual_document",
+      "question": "How do the sorting benchmark and HiPPA differ in the metrics used to evaluate algorithmic or model performance?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:25"
+        },
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:28"
+        },
+        {
+          "source_filename": "HiPPA.pdf",
+          "chunk_id": "859dbd98-2a0d-4816-bfcb-d3a1253f7a4c:38"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-100",
+      "question_type": "dual_document",
+      "question": "Compare hybrid design ideas in the sorting report's production-sort discussion and the El Niño proposal's CNN-TCN architecture.",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:48"
+        },
+        {
+          "source_filename": "Sorting_Algos.pdf",
+          "chunk_id": "f17b5440-0f9d-4689-a0b7-a41ba732d39d:49"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:4"
+        },
+        {
+          "source_filename": "El_Nino.pdf",
+          "chunk_id": "d789cedf-9ba5-4eb5-b84f-9d07b6cbab3b:34"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    },
+    {
+      "candidate_id": "RICL-101",
+      "question_type": "dual_document",
+      "question": "How do SaviraNous and the UMS project separate system responsibilities across components or tiers, and what persistence technologies or data structures are described?",
+      "proposed_evidence_anchors": [
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:42"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:54"
+        },
+        {
+          "source_filename": "SaviraNous.pdf",
+          "chunk_id": "2d7e4568-f658-44c6-a75b-f04f966d462f:56"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:20"
+        },
+        {
+          "source_filename": "UMS_report.pdf",
+          "chunk_id": "0b6f0efa-5eb7-41cd-84c9-e717732cdedd:22"
+        }
+      ],
+      "evidence_requirement": "Combine evidence from at least two distinct source documents.",
+      "status": "candidate_pending_human_review",
+      "reference_answer": null,
+      "corpus_wide_relevance_judgments": null
+    }
+  ]
+}

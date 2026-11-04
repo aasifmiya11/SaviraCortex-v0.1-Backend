@@ -1,7 +1,7 @@
 # Layer 1 Evaluation — Retrieval-Only Evaluation
 
 **Project:** SaviraCortex  
-**Status:** Scope agreed; implementation and benchmark creation are the next steps  
+**Status:** Scope agreed; frozen corpus verified; synthetic candidate generator implemented; benchmark review and evaluator implementation remain  
 **Evaluation layer:** Layer 1 — retrieval pipeline  
 **Document purpose:** Preserve the evaluation decisions and architecture so future work can continue from the same agreed plan.
 
@@ -426,17 +426,20 @@ Layer 2 does not replace Layer 1. Keep the retrieval-only benchmark and metrics 
 
 ## 11. Agreed next steps
 
-The next work is to build the synthetic benchmark, not to build the generator.
+The frozen corpus and the first candidate-generation utility are now in place.
 
-1. Inspect ingestion/index metadata and confirm stable chunk identity.
-2. Finalize the benchmark corpus snapshot and accessible evaluation scope.
-3. Finalize the 100-query category distribution based on the corpus.
-4. Create the canonical JSON/JSONL dataset with independently judged relevant documents/chunks and reference contexts.
-5. Implement dataset validation and loading.
-6. Implement the retrieval runner and per-experiment result storage.
-7. Implement and unit-test the deterministic retrieval metrics.
-8. Verify and integrate DeepEval Contextual Relevancy and RAGAS non-LLM context metrics with pinned versions.
-9. Run E1–E6 and compare results.
-10. Review Layer 1 findings before designing the answer generator and Layer 2.
+1. Run `evaluation/scripts/generate_synthetic_dataset.py` against the locked 485-chunk corpus.
+2. Review whether the proposed 100-query category distribution is actually supported by the seven source documents.
+3. Independently review every generated question and candidate source passage; reject unsupported or ambiguous questions and identify all relevant chunks.
+4. Assign relevance grades only after human judgment. Keep reference answers null for Layer 1.
+5. Promote the approved candidates into the canonical versioned JSON/JSONL benchmark.
+6. Implement dataset validation and loading.
+7. Implement the retrieval runner and per-experiment result storage.
+8. Implement and unit-test the deterministic retrieval metrics.
+9. Verify and integrate DeepEval Contextual Relevancy and RAGAS non-LLM context metrics with pinned versions.
+10. Run E1–E6 and compare results.
+11. Review Layer 1 findings before designing the answer generator and Layer 2.
 
-**Current decision:** Layer 1 evaluation scope is agreed. The 100 synthetic questions have not yet been generated, no evaluator has been implemented, and no benchmark run has been performed. This document records the plan and decisions; it does not claim that implementation or evaluation is complete.
+The candidate generator reads and validates the exact locked Qdrant corpus before calling the configured LLM. It writes candidate questions and proposed source-chunk links only. It does not generate reference answers, assign relevance grades, modify Qdrant, or implement the retrieval evaluator.
+
+**Current decision:** Layer 1 evaluation scope is agreed and the seven-document, 485-chunk corpus is locked and full-text verified. The candidate-generation script is implemented, but the 100 questions have not yet been generated or independently reviewed. No canonical benchmark, retrieval evaluator, or benchmark run is complete.

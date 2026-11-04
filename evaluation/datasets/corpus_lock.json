@@ -74,7 +74,7 @@
     "metadata_or_chunk_index_mismatches": 0,
     "chunk_indexes_contiguous_per_document": true
   },
-  "caveat": "This locks corpus membership and chunk identities. Full chunk text is not yet present in the catalogue because the audit export used --content-limit 0. Do not start relevance labelling until chunk text has been exported and populated.",
+  "caveat": "Corpus membership, chunk identities, and full chunk text have been verified against all 485 live Qdrant points. Candidate source passages still require independent human relevance review before becoming ground truth.",
   "full_text_status": "verified_complete",
   "full_text_verification": {
     "source": "evaluation/results/qdrant_chunk_export.txt",
