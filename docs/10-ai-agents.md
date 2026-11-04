@@ -1,6 +1,6 @@
 # 10. AI Agents and LLM Workflows
 
-Four LLM agents are present under `app/agents/`. They are independently implemented components with explicit inputs and structured outputs. The multi-query generator uses LangGraph internally; the document summarizer, Evidence Evaluator, and Generation Agent use direct prompt/model/parser chains.
+Five LLM agents are present under `app/agents/`. They are independently implemented components with explicit inputs and structured outputs. The multi-query generator uses LangGraph internally; the document summarizer, Evidence Evaluator, Retrieval Expansion Agent, and Generation Agent use direct prompt/model/parser chains.
 
 ## Document summarizer
 
@@ -27,6 +27,19 @@ Conversation history helps resolve references but is not treated as factual comp
 
 The workflow wrapper in `app/workflows/rag/nodes/evidence_evaluator.py` receives an injected agent, passes the original query, accumulated documents, and optional history to `aevaluate()`, and maps the result to `is_sufficient`, `missing_information`, and `retry` graph-state updates. Retry-limit routing remains a workflow responsibility; the agent does not know or manage the retrieval-attempt limit.
 
+## Retrieval Expansion Agent
+
+`app/agents/Retrieval_expansion/agent.py` implements a stateless `RetrievalExpansionAgent`. It accepts the original user query, the current retrieval query, the evaluator's missing-information requirements, accumulated retrieved candidates, and optional chronological LangChain conversation messages. It prepares prompt-safe evidence from candidate text and selected descriptive metadata, then invokes a structured prompt/model/Pydantic-parser chain.
+
+The output schema, `RetrievalExpansionOutput`, contains:
+
+- `rewritten_query`: a standalone retrieval query focused on the specific missing requirements, preserving the original question's intent and constraints.
+- `hypothetical_answer`: a concise hypothetical answer-shaped passage that supplies additional semantic language for retrieval.
+
+The hypothetical answer is retrieval guidance only. It is not verified evidence, must not be cited, and must never be passed to Generation as factual support. The prompt directs the agent to avoid inventing company-specific values, dates, names, or procedures. Previously retrieved content is included to reduce redundant searches; internal IDs, scores, storage details, and permissions are excluded. The agent supports synchronous `expand()` and asynchronous `aexpand()`.
+
+The workflow wrapper in `app/workflows/rag/nodes/retrieval_expansion.py` receives an injected agent, passes the original query, previous rewritten query (or original query on the first expansion), missing requirements, accumulated documents, and optional history, then writes the two outputs into graph state. The wrapper does not enforce the retry limit: graph routing must check the maximum of three total retrieval attempts before invoking this node. The dedicated `RetrievalExpansionLLMClient` defaults to temperature 0.2 and 1,800 output tokens.
+
 ## Generation agent
 
 `app/agents/Generation/agent.py` implements a stateless company-grounded `GenerationAgent` as a direct LangChain prompt/model/Pydantic-parser chain. It accepts the current query, optional chronological LangChain conversation messages, and the retrieval service's final `selected_candidates` list. It preserves candidate order, skips candidates without usable text, assigns request-scoped evidence IDs (`E1`, `E2`, ...), and exposes only chunk text plus selected descriptive metadata to the prompt. Internal IDs, retrieval scores, storage details and permissions are excluded.
@@ -42,6 +55,7 @@ The prompt treats retrieved company evidence as the factual basis for company-sp
 | Summarizer | 0.2 | 2000 |
 | Multi-query | 0.2 | 1500 |
 | Evidence evaluator | 0.0 | 1500 |
+| Retrieval expansion | 0.2 | 1800 |
 | Retrieval | 0.0 | 1500 |
 | Generator | 0.1 | 5000 |
 | General `LLMClient` | Provider default | Not set here |
