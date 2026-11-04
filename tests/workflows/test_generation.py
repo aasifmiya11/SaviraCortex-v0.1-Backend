@@ -117,3 +117,25 @@ async def test_generation_node_preserves_partial_output_status():
     )
 
     assert updates["generation_output"].status == GenerationStatus.PARTIAL
+
+
+@pytest.mark.asyncio
+async def test_generation_prefers_compressed_context_view():
+    original = [{"chunk_id": "doc:0", "page_content": "Long original passage."}]
+    compressed = [{"chunk_id": "doc:0", "page_content": "Short compressed passage."}]
+    agent = FakeGenerationAgent(
+        GenerationOutput(
+            status=GenerationStatus.ANSWERED,
+            segments=[AnswerSegment(text="Answer.", citations=["E1"])],
+        )
+    )
+    node = create_generation_node(agent)
+
+    await node({
+        "query": "Question?",
+        "retrieved_documents": original,
+        "context_documents": compressed,
+    })
+
+    assert agent.received["retrieved_documents"] is compressed
+    assert original[0]["page_content"] == "Long original passage."

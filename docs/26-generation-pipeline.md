@@ -235,7 +235,7 @@ The broader post-generation validator requires the same ordered retrieval candid
 - `state.get("retrieved_documents") or []` as the accumulated retrieval candidates, preserving their existing order;
 - `state.get("context")` as optional conversation history.
 
-The node returns only `{"generation_output": output}`. It does not rerun retrieval, alter evidence ordering, perform citation metadata mapping, or invoke the Static Validation Layer. The next workflow step is responsible for deterministic post-generation validation using the same ordered retrieved candidates. The node's focused adapter tests are in `tests/workflows/test_generation.py`.
+The node passes `context_documents` when the Context Compression node has populated that field; otherwise it falls back to `retrieved_documents`. It does not rerun retrieval or alter evidence ordering. The Static Validation adapter uses the same selected evidence view, preserving the request-scoped citation registry. The Context Compression node retains original retrieval candidates separately and only changes `page_content` in its one-to-one compressed view. Static Validation stores its `GenerationValidationResult` in `validation_result`.
 
 ## 26.12 Tests
 

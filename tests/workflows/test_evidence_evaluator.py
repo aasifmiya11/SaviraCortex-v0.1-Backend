@@ -106,3 +106,31 @@ async def test_evaluator_node_defaults_missing_documents_and_context_to_empty():
 
     assert evaluator.received["retrieved_documents"] == []
     assert evaluator.received["conversation_history"] is None
+
+
+@pytest.mark.asyncio
+async def test_evidence_evaluator_prefers_compressed_context_view():
+    original = [{"chunk_id": "doc:0", "page_content": "Original passage."}]
+    compressed = [{"chunk_id": "doc:0", "page_content": "Compressed passage."}]
+    expected = EvidenceEvaluation(
+        is_sufficient=True,
+        missing_information=[],
+    )
+
+    class FakeEvaluator:
+        received = None
+
+        async def aevaluate(self, current_query, retrieved_documents, conversation_history=None):
+            self.received = retrieved_documents
+            return expected
+
+    evaluator = FakeEvaluator()
+    node = create_evidence_evaluator_node(evaluator)
+
+    await node({
+        "query": "Question?",
+        "retrieved_documents": original,
+        "context_documents": compressed,
+    })
+
+    assert evaluator.received is compressed

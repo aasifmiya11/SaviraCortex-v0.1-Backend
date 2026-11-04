@@ -1,6 +1,6 @@
 # 10. AI Agents and LLM Workflows
 
-Five LLM agents are present under `app/agents/`. They are independently implemented components with explicit inputs and structured outputs. The multi-query generator uses LangGraph internally; the document summarizer, Evidence Evaluator, Retrieval Expansion Agent, and Generation Agent use direct prompt/model/parser chains.
+Six LLM agents are present under `app/agents/`. They are independently implemented components with explicit inputs and structured outputs. The multi-query generator uses LangGraph internally; the document summarizer, Evidence Evaluator, Retrieval Expansion Agent, Context Compression Agent, and Generation Agent use direct prompt/model/parser chains.
 
 ## Document summarizer
 
@@ -40,13 +40,21 @@ The hypothetical answer is retrieval guidance only. It is not verified evidence,
 
 The workflow wrapper in `app/workflows/rag/nodes/retrieval_expansion.py` receives an injected agent, passes the original query, previous rewritten query (or original query on the first expansion), missing requirements, accumulated documents, and optional history, then writes the two outputs into graph state. The wrapper does not enforce the retry limit: graph routing must check the maximum of three total retrieval attempts before invoking this node. The dedicated `RetrievalExpansionLLMClient` defaults to temperature 0.2 and 1,800 output tokens.
 
+## Context Compression Agent
+
+`app/agents/Context_compression/` implements a stateless `ContextCompressionAgent`. It receives the current query and all accumulated retrieval candidates in their existing order. When the estimated context size exceeds the configured threshold, it sends every candidate's content and a one-based index in a single structured model request.
+
+The output schema contains one compressed passage per input index. The agent rejects missing, duplicate, extra, or reordered indexes. It copies each original candidate and replaces only `page_content`; metadata, chunk identity, other retrieval fields, count, and order remain unchanged. The original candidates are never mutated. The model is not given backend metadata, internal IDs, retrieval scores, storage locations, or authorization data.
+
+The default threshold is 12,000 estimated tokens. The current deterministic estimate is `ceil((query and page-content character count) / 4)`; this is a routing estimate, not provider tokenizer accounting. The threshold and characters-per-token factor are configurable. The workflow adapter in `app/workflows/rag/nodes/context_compression.py` skips the model call below the threshold and writes the selected evidence view to `context_documents`. Original `retrieved_documents` remains available to Retrieval Expansion. Evidence Evaluation, Generation, and Static Validation use `context_documents` when present, with fallback to the original list, so Generation and Static Validation share the exact same evidence order and metadata registry. See [Context Compression](29-context-compression.md).
+
 ## Generation agent
 
 `app/agents/Generation/agent.py` implements a stateless company-grounded `GenerationAgent` as a direct LangChain prompt/model/Pydantic-parser chain. It accepts the current query, optional chronological LangChain conversation messages, and the retrieval service's final `selected_candidates` list. It preserves candidate order, skips candidates without usable text, assigns request-scoped evidence IDs (`E1`, `E2`, ...), and exposes only chunk text plus selected descriptive metadata to the prompt. Internal IDs, retrieval scores, storage details and permissions are excluded.
 
 The prompt treats retrieved company evidence as the factual basis for company-specific answers. Conversation history may resolve references but is not authoritative evidence. The output uses `GenerationStatus` (`answered`, `partial`, or `insufficient_evidence`) and ordered `AnswerSegment` objects containing text and evidence-ID citations. Both synchronous `generate()` and asynchronous `agenerate()` are available. If no usable evidence remains after preparation, the agent returns a deterministic insufficient-evidence response without invoking the model.
 
-`GenerationConfig` defaults to temperature 0.1 and 5,000 output tokens. `GeneratorLLMClient` uses the existing `OPENAI_MODEL`, `OPENAI_BASE_URL`, and `OPENAI_API_KEY` settings. The agent delegates request-scoped citation-ID existence checks to `app.validation`. The separate Static Validation Layer can validate a complete output and map cited IDs to allowlisted document/version/page metadata when given the original ordered retrieval candidates. Neither component performs semantic claim-to-source verification, resolves viewer URLs, opens documents, or orchestrates other components. The injected LangGraph adapter in `app/workflows/rag/nodes/generation.py` calls `agenerate()` and stores the result in `generation_output`; deterministic post-generation validation remains a separate workflow step. See [Generation pipeline](26-generation-pipeline.md) and [Static validation](27-static-validation.md).
+`GenerationConfig` defaults to temperature 0.1 and 5,000 output tokens. `GeneratorLLMClient` uses the existing `OPENAI_MODEL`, `OPENAI_BASE_URL`, and `OPENAI_API_KEY` settings. The agent delegates request-scoped citation-ID existence checks to `app.validation`. The separate Static Validation Layer can validate a complete output and map cited IDs to allowlisted document/version/page metadata when given the original ordered retrieval candidates. Neither component performs semantic claim-to-source verification, resolves viewer URLs, opens documents, or orchestrates other components. The injected LangGraph adapter in `app/workflows/rag/nodes/generation.py` calls `agenerate()` and stores the result in `generation_output`. The separate `create_static_validation_node()` adapter wraps the existing `StaticValidationLayer`, passing the same ordered retrieved candidates and storing its result in `validation_result`. See [Generation pipeline](26-generation-pipeline.md) and [Static validation](27-static-validation.md).
 
 ## LLM client defaults
 

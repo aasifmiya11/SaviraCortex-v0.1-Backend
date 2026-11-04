@@ -36,6 +36,7 @@ This documentation describes the implementation present in the repository at the
 26. [Generation pipeline](26-generation-pipeline.md)
 27. [Static validation and citation mapping](27-static-validation.md)
 28. [Remaining implementation roadmap](28-remaining-implementation-roadmap.md)
+29. [Context compression](29-context-compression.md)
 
 Architecture diagrams are collected in [diagrams/](diagrams/).
 
@@ -47,15 +48,15 @@ Architecture diagrams are collected in [diagrams/](diagrams/).
 - `migrations/` is empty. The current `scripts/create_tables.py` name is misleading: it invokes a destructive reset that drops and recreates registered SQLAlchemy tables after confirmation.
 - The `DepartmentAccessPolicy` model is defined but is not imported by `app.models`' package initializer; it is therefore not registered by the current package import alone.
 - Retrieval currently calls `AuthorizationService` directly; the separate Redis-backed `AuthorizationCacheService` is not wired into the retrieval orchestrator.
-- Five independently implemented agents currently live under `app/agents/`: Document Summarizer, Multi-query Generator, Evidence Sufficiency Evaluator, Retrieval Expansion, and Generation. The Evidence Evaluator is injected into its RAG workflow node; it evaluates evidence sufficiency and reports missing requirements but does not perform retrieval or answer generation. The Retrieval Expansion Agent is injected into its workflow node; it produces a targeted rewritten query and a hypothetical answer for retrieval guidance only, not factual evidence. The Generation Agent is injected into its workflow node; it creates a structured, company-grounded answer from the original query, accumulated retrieved evidence, and optional conversation history.
-- The summarizer, Evidence Evaluator, Retrieval Expansion Agent, and Generation Agent are prompt/model/parser chains; the multi-query generator is the LangGraph workflow.
+- Six independently implemented agents currently live under `app/agents/`: Document Summarizer, Multi-query Generator, Evidence Sufficiency Evaluator, Retrieval Expansion, Context Compression, and Generation. The Evidence Evaluator is injected into its RAG workflow node; it evaluates evidence sufficiency and reports missing requirements but does not perform retrieval or answer generation. The Retrieval Expansion Agent is injected into its workflow node; it produces a targeted rewritten query and a hypothetical answer for retrieval guidance only, not factual evidence. The Context Compression Agent performs query-focused, one-to-one compression of accumulated retrieved candidates only when the configured estimated-token threshold is exceeded; it preserves candidate order and metadata while changing only `page_content`. The Generation Agent is injected into its workflow node; it creates a structured, company-grounded answer from the original query, the compressed context view when available, and optional conversation history.
+- The summarizer, Evidence Evaluator, Retrieval Expansion Agent, Context Compression Agent, and Generation Agent are prompt/model/parser chains; the multi-query generator is the LangGraph workflow.
 - The project contains sample PDFs and local data artifacts under `data/`; treat these as fixtures or local artifacts, not production data.
 
 ## Audit scope and verification limits
 
 The audit compared the documentation set against the repository structure and source for the main configuration, database, authorization, PDF, agent, ingestion, registration, indexing, retrieval, storage and operational-script paths. The relevant documentation pages and diagrams were corrected where source behavior differed or required more precise explanation.
 
-The focused Generation and Static Validation test modules were run on 4 November 2026 and reported 17 passing tests. The Evidence Evaluator unit and workflow tests were run on 5 November 2026 and reported 11 passing tests. Retrieval Expansion unit and workflow tests were run on 5 November 2026 and reported 14 passing tests. Generation workflow adapter tests have been added; their execution status is not asserted here. The full test suite was not executed, external services were not contacted, and no production deployment/recovery was performed. Runtime behavior that depends on external providers is documented from source and tests, not claimed as live-verified.
+The focused Generation and Static Validation test modules were run on 4 November 2026 and reported 17 passing tests. The Evidence Evaluator unit and workflow tests were run on 5 November 2026 and reported 11 passing tests. Retrieval Expansion unit and workflow tests were run on 5 November 2026 and reported 14 passing tests. Generation workflow adapter tests have been run on 5 November 2026 and reported 3 passing tests. Static Validation workflow adapter tests have been added; their execution status is not asserted here. The full test suite was not executed, external services were not contacted, and no production deployment/recovery was performed. Runtime behavior that depends on external providers is documented from source and tests, not claimed as live-verified.
 
 ## Source-of-truth policy
 

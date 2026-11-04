@@ -15,7 +15,9 @@ It does not perform retrieval, reranking, answer generation, semantic claim-to-s
 | `app/validation/__init__.py` | Public exports |
 | `app/validation/schemas.py` | `CitationReference` and `GenerationValidationResult` |
 | `app/validation/generation_validator.py` | Validation and citation registry logic |
+| `app/workflows/rag/nodes/static_validation.py` | Injected LangGraph node adapter |
 | `tests/agent/test_generation_validation.py` | Validation unit tests |
+| `tests/workflows/test_static_validation.py` | Workflow adapter tests |
 
 ## Input contract
 
@@ -79,6 +81,8 @@ Generation Agent remains responsible for prompt evidence preparation, model invo
 
 `validate_generation_output()` is the broader post-generation operation. The caller must pass the original ordered candidate list used for generation.
 
+The workflow adapter `create_static_validation_node(validator)` in `app/workflows/rag/nodes/static_validation.py` receives an application-configured `StaticValidationLayer`. Its synchronous node reads `generation_output` and the original `retrieved_documents` from graph state, calls `validate_generation_output()`, and stores the returned `GenerationValidationResult` in `validation_result`. It raises a clear `ValueError` if Generation has not populated its output. It does not duplicate validation logic, modify the Generation output, or reconstruct/reorder evidence. The graph's routing/final-response handling can inspect `validation_result.is_valid`, `errors`, `warnings`, and `citations`.
+
 ## Clickable citations: future responsibility split
 
 1. Generation Agent emits answer segments containing IDs such as `E1`.
@@ -94,7 +98,7 @@ At the time of this documentation, `app/api/v1/endpoints` has no endpoint implem
 
 ## Tests and verification
 
-`tests/agent/test_generation_validation.py` covers successful metadata mapping, unknown citation rejection, malformed output, citations on insufficient-evidence output, missing-citation warnings, and evidence ordering when blank chunks are skipped.
+`tests/agent/test_generation_validation.py` covers successful metadata mapping, unknown citation rejection, malformed output, citations on insufficient-evidence output, missing-citation warnings, and evidence ordering when blank chunks are skipped. `tests/workflows/test_static_validation.py` covers dependency injection, state mapping, empty-document defaults, and the required Generation output.
 
 The user ran the combined command on 4 November 2026:
 

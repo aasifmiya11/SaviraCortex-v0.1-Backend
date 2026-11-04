@@ -12,15 +12,19 @@ def create_generation_node(
 ) -> Callable[[RAGWorkflowState], Any]:
     """Create a Generation node using an injected application agent.
 
-    The node passes the original validated query, accumulated ranked evidence,
-    and optional conversation history to the existing Generation Agent.
-    Retrieval and static post-generation validation remain separate nodes.
+    Uses the compressed context view when the compression node has produced
+    one; otherwise falls back to the original ordered retrieval candidates.
     """
 
     async def generation_node(state: RAGWorkflowState) -> dict[str, Any]:
+        documents = (
+            state.get("context_documents")
+            if state.get("context_documents") is not None
+            else state.get("retrieved_documents") or []
+        )
         output = await agent.agenerate(
             current_query=state["query"],
-            retrieved_documents=state.get("retrieved_documents") or [],
+            retrieved_documents=documents,
             conversation_history=state.get("context"),
         )
         return {"generation_output": output}
