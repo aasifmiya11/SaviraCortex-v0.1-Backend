@@ -8,7 +8,9 @@ The implementation described here is present in:
 
 - `app/agents/Generation/`
 - `app/llm/generator_client.py`
+- `app/workflows/rag/nodes/generation.py`
 - `tests/agent/test_generation.py`
+- `tests/workflows/test_generation.py`
 
 This page documents the current code, not planned functionality. Request-scoped citation-ID existence checks and Generation streaming are implemented. Semantic claim-to-source verification, citation-to-document resolution, document viewing, and end-to-end orchestration remain outside the current implementation.
 
@@ -225,7 +227,17 @@ The Generation Agent now validates citation-ID existence against the evidence pr
 
 The broader post-generation validator requires the same ordered retrieval candidates used during generation, because evidence IDs are assigned in order after blank chunks are skipped. It returns trusted metadata for cited IDs but does not return viewer URLs. Do not treat an evidence ID as a canonical document identifier or as permission to open a document. See [Static validation and citation mapping](27-static-validation.md).
 
-## 26.11 Tests
+## 26.11 LangGraph workflow adapter
+
+`app/workflows/rag/nodes/generation.py` exposes `create_generation_node(agent)`. The factory receives an application-configured `GenerationAgent` rather than constructing model dependencies inside the node. Its asynchronous node calls `agent.agenerate()` with:
+
+- `state["query"]` as the original validated user query;
+- `state.get("retrieved_documents") or []` as the accumulated retrieval candidates, preserving their existing order;
+- `state.get("context")` as optional conversation history.
+
+The node returns only `{"generation_output": output}`. It does not rerun retrieval, alter evidence ordering, perform citation metadata mapping, or invoke the Static Validation Layer. The next workflow step is responsible for deterministic post-generation validation using the same ordered retrieved candidates. The node's focused adapter tests are in `tests/workflows/test_generation.py`.
+
+## 26.12 Tests
 
 `tests/agent/test_generation.py` covers:
 
@@ -240,7 +252,7 @@ The broader post-generation validator requires the same ordered retrieval candid
 
 The user ran `uv run pytest tests/agent/test_generation.py -v` on 4 November 2026 and reported **11 passed in 6.68 seconds**. The tests use injected `RunnableLambda` components rather than making live model calls.
 
-## 26.12 Current implementation status
+## 26.13 Current implementation status
 
 | Capability | Status |
 |---|---|
