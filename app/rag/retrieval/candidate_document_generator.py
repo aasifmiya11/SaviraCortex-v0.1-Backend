@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from numbers import Real
 from typing import Any, Sequence
 from uuid import UUID
 
@@ -56,9 +57,12 @@ class CandidateDocumentGenerator:
     """
     Generate authorized document-version candidates for each query.
 
-    Each query performs an independent summary similarity search.
-    Searches execute concurrently, while filtering uses the
-    PostgreSQL-backed authorized catalogue supplied by the caller.
+    Each query performs an independent summary similarity search constrained
+    by the exact authorized document-version IDs and requested lifecycle scope.
+    PostgreSQL remains the authority for authorization and version metadata;
+    Qdrant applies the allowlist before top-K ranking to avoid crowding by
+    unauthorized or out-of-scope summaries. Results are still validated
+    against the authorized catalogue after retrieval.
     """
 
     def __init__(
@@ -66,22 +70,35 @@ class CandidateDocumentGenerator:
         summary_store: QdrantSummaryStore,
         similarity_threshold: float = 0.40,
         search_limit: int = 20,
+        max_search_limit: int = 200,
+        target_candidate_count: int = 20,
         max_concurrency: int = 6,
     ) -> None:
-        if not 0.0 <= similarity_threshold <= 1.0:
+        if (
+            isinstance(similarity_threshold, bool)
+            or not isinstance(similarity_threshold, Real)
+            or not math.isfinite(float(similarity_threshold))
+            or not 0.0 <= float(similarity_threshold) <= 1.0
+        ):
             raise ValueError(
-                "similarity_threshold must be between 0 and 1."
+                "similarity_threshold must be a finite number between 0 and 1."
             )
 
-        if isinstance(search_limit, bool) or search_limit < 1:
-            raise ValueError("search_limit must be positive.")
+        if isinstance(search_limit, bool) or not isinstance(search_limit, int) or search_limit < 1:
+            raise ValueError("search_limit must be a positive integer.")
 
-        if isinstance(max_concurrency, bool) or max_concurrency < 1:
-            raise ValueError("max_concurrency must be positive.")
+        if isinstance(max_search_limit, bool) or not isinstance(max_search_limit, int) or max_search_limit < search_limit:
+            raise ValueError("max_search_limit must be an integer at least search_limit.")
+        if isinstance(target_candidate_count, bool) or not isinstance(target_candidate_count, int) or target_candidate_count < 1:
+            raise ValueError("target_candidate_count must be a positive integer.")
+        if isinstance(max_concurrency, bool) or not isinstance(max_concurrency, int) or max_concurrency < 1:
+            raise ValueError("max_concurrency must be a positive integer.")
 
         self.summary_store = summary_store
         self.similarity_threshold = similarity_threshold
         self.search_limit = search_limit
+        self.max_search_limit = max_search_limit
+        self.target_candidate_count = target_candidate_count
         self.max_concurrency = max_concurrency
 
     async def generate_candidates(
@@ -153,12 +170,11 @@ class CandidateDocumentGenerator:
 
         async with semaphore:
             try:
-                # QdrantSummaryStore currently uses synchronous QdrantClient.
-                # Run its embedding + network operation outside the event loop.
-                search_results = await asyncio.to_thread(
-                    self.summary_store.search_similar_summaries,
-                    query.query,
-                    self.search_limit,
+                # Fetch ranked pages until enough eligible versions are found
+                # or the configured Qdrant search budget is exhausted.
+                search_results = await self._search_until_enough_candidates(
+                    query=query,
+                    catalogue_by_version=catalogue_by_version,
                     organization_id=organization_id,
                 )
 
@@ -187,6 +203,93 @@ class CandidateDocumentGenerator:
             target_versions=query.target_versions,
             candidates=candidates,
         )
+
+    async def _search_until_enough_candidates(
+        self,
+        *,
+        query: GeneratedQuery,
+        catalogue_by_version: dict[str, dict[str, Any]],
+        organization_id: str,
+    ) -> list[dict[str, Any]]:
+        """Search only authorized, in-scope versions and page if needed.
+
+        PostgreSQL remains the authorization and lifecycle authority. The
+        exact version allowlist is pushed into Qdrant before top-K truncation;
+        returned hits are still checked against the catalogue afterward.
+        """
+        eligible_by_version: dict[str, CandidateDocument] = {}
+        eligible_version_ids = [
+            version_id
+            for version_id, catalogue_entry in catalogue_by_version.items()
+            if self._matches_version_scope(
+                catalogue_entry=catalogue_entry,
+                query=query,
+            )
+        ]
+
+        # Push the authoritative user/scope allowlist into Qdrant so
+        # unauthorized and out-of-scope summaries never consume top-K slots.
+        if not eligible_version_ids:
+            return []
+
+        offset = 0
+
+        while offset < self.max_search_limit:
+            page_limit = min(
+                self.search_limit,
+                self.max_search_limit - offset,
+            )
+            page = await asyncio.to_thread(
+                self.summary_store.search_similar_summaries,
+                query.query,
+                page_limit,
+                organization_id=organization_id,
+                offset=offset,
+                document_version_ids=eligible_version_ids,
+            )
+            if not page:
+                break
+
+            eligible = self._filter_and_build_candidates(
+                search_results=page,
+                query=query,
+                catalogue_by_version=catalogue_by_version,
+            )
+            for candidate in eligible:
+                existing = eligible_by_version.get(candidate.document_version_id)
+                if existing is None or candidate.similarity_score > existing.similarity_score:
+                    eligible_by_version[candidate.document_version_id] = candidate
+
+            # Qdrant returns descending similarity. Once the page's final
+            # score is below threshold, later pages cannot qualify either.
+            last_score = page[-1].get("similarity_score")
+            if (
+                isinstance(last_score, (int, float))
+                and not isinstance(last_score, bool)
+                and math.isfinite(float(last_score))
+                and float(last_score) < self.similarity_threshold
+            ):
+                break
+
+            offset += len(page)
+            if len(eligible_by_version) >= self.target_candidate_count:
+                break
+            if len(page) < page_limit:
+                break
+
+        # Keep the highest-scoring eligible versions, bounded to the target.
+        ranked = sorted(
+            eligible_by_version.values(),
+            key=lambda item: (-item.similarity_score, item.document_version_id),
+        )
+        return [
+            {
+                "document_id": item.document_id,
+                "document_version_id": item.document_version_id,
+                "similarity_score": item.similarity_score,
+            }
+            for item in ranked[: self.target_candidate_count]
+        ]
 
     def _filter_and_build_candidates(
         self,

@@ -15,7 +15,7 @@ class AdaptiveKSelector:
 
     def __init__(
         self,
-        k_min: int = 5,
+        k_min: int = 3,
         k_max: int = 10,
         score_threshold: float = 0.6,
         max_expansion_rounds: int = 2,

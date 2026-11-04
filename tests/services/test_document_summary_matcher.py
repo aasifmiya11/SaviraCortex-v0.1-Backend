@@ -188,3 +188,14 @@ def test_search_limit_is_passed_to_store(matcher, summary_store):
         limit=20,
         organization_id=ORGANIZATION_ID,
     )
+
+@pytest.mark.parametrize(
+    "threshold",
+    [True, False, float("nan"), float("inf"), 1.5, "0.8"],
+)
+def test_summary_matcher_rejects_invalid_threshold_values(
+    summary_store,
+    threshold,
+):
+    with pytest.raises(ValueError, match="threshold"):
+        DocumentSummaryMatcher(summary_store, threshold=threshold)

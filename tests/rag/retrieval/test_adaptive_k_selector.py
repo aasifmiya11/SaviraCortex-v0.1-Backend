@@ -147,3 +147,7 @@ def test_does_not_mutate_input_candidates():
     assert result["selected_candidates"][0] is not candidate
     assert result["selected_candidates"][0]["metadata"] is not candidate["metadata"]
     assert result["selected_candidates"][0]["provenance"] is not candidate["provenance"]
+
+
+def test_default_k_min_is_three():
+    assert AdaptiveKSelector().k_min == 3

@@ -64,8 +64,6 @@ class FakeSummarizer:
         return DocumentSummarizerOutput(
             title="Employee Leave Policy",
             document_type="Policy",
-            department="Human Resources",
-            department_confidence="high",
             description="Policy describing employee leave.",
             summary="This policy explains employee leave entitlements.",
         )
@@ -399,3 +397,64 @@ def test_cleanup_failure_is_preserved_on_ingestion_error(tmp_path):
     assert str(exc_info.value.cleanup_error) == "B2 cleanup check failed"
     db.rollback.assert_called_once()
     storage.delete_file.assert_not_called()
+
+
+def test_duplicate_lock_keys_are_stable_and_organization_scoped():
+    organization_id = uuid4()
+    keys = DocumentIngestionService._duplicate_lock_keys(
+        organization_id,
+        "file-hash",
+        "content-hash",
+    )
+
+    assert keys == sorted(keys)
+    assert len(keys) == 2
+    assert keys == DocumentIngestionService._duplicate_lock_keys(
+        organization_id,
+        "file-hash",
+        "content-hash",
+    )
+    assert keys != DocumentIngestionService._duplicate_lock_keys(
+        uuid4(),
+        "file-hash",
+        "content-hash",
+    )
+
+
+def test_duplicate_advisory_locks_are_acquired_in_sorted_order():
+    db = MagicMock()
+    db.get_bind.return_value.dialect.name = "postgresql"
+    organization_id = uuid4()
+
+    keys = DocumentIngestionService._acquire_duplicate_locks(
+        db,
+        organization_id,
+        "file-hash",
+        "content-hash",
+    )
+
+    assert keys == sorted(keys)
+    assert len(keys) == 2
+    assert [
+        call.args[1]["lock_key"]
+        for call in db.execute.call_args_list
+    ] == keys
+    assert all(
+        "pg_advisory_xact_lock" in str(call.args[0])
+        for call in db.execute.call_args_list
+    )
+
+
+def test_duplicate_advisory_locks_skip_non_postgresql_dialects():
+    db = MagicMock()
+    db.get_bind.return_value.dialect.name = "sqlite"
+
+    keys = DocumentIngestionService._acquire_duplicate_locks(
+        db,
+        uuid4(),
+        "file-hash",
+        "content-hash",
+    )
+
+    assert keys == []
+    db.execute.assert_not_called()

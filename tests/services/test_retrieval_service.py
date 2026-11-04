@@ -268,3 +268,32 @@ async def test_expansion_candidate_generation_failure_preserves_initial_results(
     assert result["candidate_generation_error"] == (
         "expansion summary search unavailable"
     )
+
+
+def test_empty_response_stop_reason_matches_actual_reason():
+    response = RetrievalOrchestrator._empty_response(
+        current_query="question",
+        top_k=5,
+        candidate_k=10,
+        mode="hybrid",
+        reason="candidate_generation_failed",
+    )
+
+    assert response["retrieval_reason"] == "candidate_generation_failed"
+    assert response["expansion"]["stop_reason"] == "candidate_generation_failed"
+
+def test_retrieval_concurrency_requires_positive_integer():
+    with pytest.raises(ValueError, match="positive integer"):
+        RetrievalOrchestrator(
+            authorization_service=FakeAuthorizationService([]),
+            multi_query_agent=FakeMultiQueryAgent(),
+            candidate_document_generator=FakeCandidateGenerator(),
+            hybrid_retrieval_pipeline=FakeHybridPipeline(),
+            global_fusion=__import__(
+                "app.rag.retrieval.global_fusion",
+                fromlist=["GlobalResultFusion"],
+            ).GlobalResultFusion(),
+            cross_encoder_reranker=FakeReranker(),
+            adaptive_k_selector=FakeSelector(),
+            retrieval_concurrency=1.5,
+        )

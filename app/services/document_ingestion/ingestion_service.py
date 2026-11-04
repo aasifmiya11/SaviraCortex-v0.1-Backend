@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from pathlib import Path
 from typing import Any, Callable
 from uuid import UUID, uuid4
 
 from langchain_core.documents import Document
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db_session
@@ -137,6 +139,57 @@ class DocumentIngestionService:
             hash_matcher=hash_matcher,
             summary_matcher=summary_matcher,
         )
+
+    @staticmethod
+    def _duplicate_lock_keys(
+        organization_id: UUID,
+        file_hash: str | None,
+        content_hash: str | None,
+    ) -> list[int]:
+        """Return deterministic PostgreSQL advisory-lock keys for input hashes."""
+        lock_keys = set()
+        for hash_type, hash_value in (
+            ("file", file_hash),
+            ("content", content_hash),
+        ):
+            if not hash_value:
+                continue
+            material = (
+                f"voice-ai:duplicate:{organization_id}:{hash_type}:{hash_value}"
+            ).encode("utf-8")
+            digest = hashlib.sha256(material).digest()
+            lock_keys.add(int.from_bytes(digest[:8], byteorder="big", signed=True))
+        return sorted(lock_keys)
+
+    @classmethod
+    def _acquire_duplicate_locks(
+        cls,
+        db: Session,
+        organization_id: UUID,
+        file_hash: str | None,
+        content_hash: str | None,
+    ) -> list[int]:
+        """Serialize same-hash ingestion transactions on PostgreSQL.
+
+        Transaction-scoped locks are released automatically at commit,
+        rollback, or session close. Sorted lock acquisition avoids deadlocks
+        when two uploads share different subsets of file/content hashes.
+        Other dialects skip the PostgreSQL-specific lock; production uses
+        PostgreSQL and the hash lookup remains organization-scoped.
+        """
+        bind = db.get_bind()
+        if bind.dialect.name != "postgresql":
+            return []
+
+        lock_keys = cls._duplicate_lock_keys(
+            organization_id,
+            file_hash,
+            content_hash,
+        )
+        statement = text("SELECT pg_advisory_xact_lock(:lock_key)")
+        for lock_key in lock_keys:
+            db.execute(statement, {"lock_key": lock_key})
+        return lock_keys
 
     # @staticmethod
     # def _normalize_pages(
@@ -317,6 +370,16 @@ class DocumentIngestionService:
 
         with self.session_factory() as db:
 
+            # Hold the organization-scoped hash locks until the version is
+            # registered and this transaction commits. A competing ingestion
+            # then re-runs duplicate detection against the committed version.
+            self._acquire_duplicate_locks(
+                db,
+                organization_id,
+                file_hash,
+                content_hash,
+            )
+
             matching_orchestrator = (
                 self.matching_orchestrator_factory(db)
             )
@@ -412,7 +475,6 @@ class DocumentIngestionService:
                         document_data=DocumentRegistrationData(
                             title=summary_output.title,
                             document_type=summary_output.document_type,
-                            department=summary_output.department,
                             description=summary_output.description,
                         ),
                         version_data=VersionRegistrationData(

@@ -97,6 +97,7 @@ class DocumentVersion(Base):
             "document_id",
             unique=True,
             postgresql_where=text("status = 'active'"),
+            sqlite_where=text("status = 'active'"),
         ),
 
         # Hash lookup indexes.

@@ -92,7 +92,7 @@ def test_exact_file_match_has_highest_priority():
     content_candidate = create_hash_candidate("content_hash")
     semantic_candidate = create_summary_candidate()
 
-    orchestrator, _, _ = create_orchestrator(
+    orchestrator, _, summary_matcher = create_orchestrator(
         hash_candidates=[
             file_candidate,
             content_candidate,
@@ -114,14 +114,15 @@ def test_exact_file_match_has_highest_priority():
     assert result.exact_file_matches == (file_candidate,)
     assert result.exact_content_matches == (content_candidate,)
 
-    # Semantic results are retained for diagnostics.
-    assert result.semantic_candidates == (semantic_candidate,)
+    # Exact matches short-circuit the semantic Qdrant search.
+    assert result.semantic_candidates == ()
+    assert summary_matcher.called is False
 
 
 def test_exact_content_match_when_file_hash_does_not_match():
     content_candidate = create_hash_candidate("content_hash")
 
-    orchestrator, _, _ = create_orchestrator(
+    orchestrator, _, summary_matcher = create_orchestrator(
         hash_candidates=[content_candidate],
     )
 
@@ -135,6 +136,7 @@ def test_exact_content_match_when_file_hash_does_not_match():
     assert result.classification == "exact_content_match"
     assert result.has_exact_match is True
     assert result.requires_user_review is True
+    assert summary_matcher.called is False
 
 
 def test_potential_match_when_no_exact_hash_match_exists():
@@ -178,7 +180,7 @@ def test_exact_match_takes_precedence_over_semantic_match():
     file_candidate = create_hash_candidate("file_hash")
     semantic_candidate = create_summary_candidate()
 
-    orchestrator, _, _ = create_orchestrator(
+    orchestrator, _, summary_matcher = create_orchestrator(
         hash_candidates=[file_candidate],
         summary_candidates=[semantic_candidate],
     )
@@ -191,7 +193,9 @@ def test_exact_match_takes_precedence_over_semantic_match():
     )
 
     assert result.classification == "exact_file_match"
-    assert result.semantic_match_count == 1
+    assert result.semantic_match_count == 0
+    assert result.semantic_candidates == ()
+    assert summary_matcher.called is False
 
 
 def test_matchers_receive_correct_inputs():
@@ -266,7 +270,7 @@ def test_result_properties():
     content_candidate = create_hash_candidate("content_hash")
     semantic_candidate = create_summary_candidate()
 
-    orchestrator, _, _ = create_orchestrator(
+    orchestrator, _, summary_matcher = create_orchestrator(
         hash_candidates=[file_candidate, content_candidate],
         summary_candidates=[semantic_candidate],
     )
@@ -279,10 +283,11 @@ def test_result_properties():
     )
 
     assert result.has_exact_match is True
-    assert result.has_potential_match is True
+    assert result.has_potential_match is False
     assert result.is_new_document is False
     assert result.exact_match_count == 2
-    assert result.semantic_match_count == 1
+    assert result.semantic_match_count == 0
+    assert summary_matcher.called is False
 
 
 def test_organization_id_is_forwarded_to_both_matchers():

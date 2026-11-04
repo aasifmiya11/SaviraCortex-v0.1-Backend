@@ -65,8 +65,6 @@ def test_real_document_summarization():
 
     print("Title:", result.title)
     print("Document Type:", result.document_type)
-    print("Department:", result.department)
-    print("Department Confidence:", result.department_confidence)
     print("Description:", result.description)
 
     print("\nSummary:\n")

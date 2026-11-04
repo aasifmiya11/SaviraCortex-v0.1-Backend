@@ -21,14 +21,25 @@ class FakeSummaryStore:
         limit=20,
         *,
         organization_id,
+        offset=0,
+        document_version_ids=None,
     ):
         self.calls.append({
             "query": summary,
             "limit": limit,
             "organization_id": organization_id,
+            "offset": offset,
+            "document_version_ids": document_version_ids,
         })
 
-        return self.results.get(summary, [])
+        results = self.results.get(summary, [])
+        if document_version_ids is not None:
+            allowed = {str(value) for value in document_version_ids}
+            results = [
+                item for item in results
+                if item.get("document_version_id") in allowed
+            ]
+        return results[offset:offset + limit]
 
 
 @pytest.mark.asyncio
@@ -213,3 +224,162 @@ async def test_candidates_remain_separate_across_queries():
 
     assert len(store.calls) == 2
     assert all(call["limit"] == 20 for call in store.calls)
+
+
+@pytest.mark.asyncio
+async def test_candidate_generation_prefilters_authorized_versions_before_top_k():
+    hits = [
+        {
+            "document_id": f"private-doc-{index}",
+            "document_version_id": f"private-version-{index}",
+            "similarity_score": 0.99 - index * 0.001,
+        }
+        for index in range(20)
+    ]
+    hits.extend([
+        {
+            "document_id": "authorized-doc",
+            "document_version_id": "authorized-version",
+            "similarity_score": 0.80,
+        },
+        {
+            "document_id": "authorized-doc-2",
+            "document_version_id": "authorized-version-2",
+            "similarity_score": 0.79,
+        },
+    ])
+    store = FakeSummaryStore({"query": hits})
+    generator = CandidateDocumentGenerator(
+        summary_store=store,
+        search_limit=20,
+        max_search_limit=100,
+        target_candidate_count=2,
+    )
+    catalogue = [
+        {
+            "document_id": "authorized-doc",
+            "document_version_id": "authorized-version",
+            "document_title": "Authorized Policy",
+            "document_summary": "Relevant authorized policy.",
+            "version_year": 2026,
+            "version_status": "active",
+        },
+        {
+            "document_id": "authorized-doc-2",
+            "document_version_id": "authorized-version-2",
+            "document_title": "Second Authorized Policy",
+            "document_summary": "Another relevant policy.",
+            "version_year": 2026,
+            "version_status": "active",
+        },
+    ]
+    query = GeneratedQuery(
+        query="query",
+        version_scope=QueryVersionScope.ACTIVE,
+    )
+
+    results = await generator.generate_candidates(
+        queries=[query],
+        authorized_catalogue=catalogue,
+        organization_id="org-1",
+    )
+
+    assert [c.document_version_id for c in results[0].candidates] == [
+        "authorized-version",
+        "authorized-version-2",
+    ]
+    # Qdrant receives the exact authorized, in-scope allowlist before
+    # applying its top-K limit; unauthorized summaries never occupy slots.
+    assert len(store.calls) == 1
+    assert set(store.calls[0]["document_version_ids"]) == {
+        "authorized-version",
+        "authorized-version-2",
+    }
+    assert store.calls[0]["offset"] == 0
+
+
+@pytest.mark.asyncio
+async def test_summary_search_allowlist_excludes_unauthorized_and_wrong_scope_versions():
+    hits = [
+        {
+            "document_id": f"unauthorized-doc-{index}",
+            "document_version_id": f"unauthorized-version-{index}",
+            "similarity_score": 0.99 - index * 0.001,
+        }
+        for index in range(15)
+    ]
+    hits.extend([
+        {
+            "document_id": f"old-doc-{index}",
+            "document_version_id": f"superseded-version-{index}",
+            "similarity_score": 0.90 - index * 0.01,
+        }
+        for index in range(3)
+    ])
+    hits.extend([
+        {
+            "document_id": f"allowed-doc-{index}",
+            "document_version_id": f"allowed-version-{index}",
+            "similarity_score": 0.80 - index * 0.01,
+        }
+        for index in range(2)
+    ])
+
+    catalogue = [
+        {
+            "document_id": f"old-doc-{index}",
+            "document_version_id": f"superseded-version-{index}",
+            "document_title": "Old policy",
+            "document_summary": "Superseded summary",
+            "version_year": 2025,
+            "version_status": "superseded",
+        }
+        for index in range(3)
+    ]
+    catalogue.extend([
+        {
+            "document_id": f"allowed-doc-{index}",
+            "document_version_id": f"allowed-version-{index}",
+            "document_title": "Active policy",
+            "document_summary": "Current summary",
+            "version_year": 2026,
+            "version_status": "active",
+        }
+        for index in range(2)
+    ])
+
+    store = FakeSummaryStore({"active policy": hits})
+    generator = CandidateDocumentGenerator(
+        summary_store=store,
+        target_candidate_count=20,
+    )
+    query = GeneratedQuery(
+        query="active policy",
+        version_scope=QueryVersionScope.ACTIVE,
+    )
+
+    results = await generator.generate_candidates(
+        queries=[query],
+        authorized_catalogue=catalogue,
+        organization_id="org-1",
+    )
+
+    assert {
+        candidate.document_version_id
+        for candidate in results[0].candidates
+    } == {"allowed-version-0", "allowed-version-1"}
+    assert store.calls[0]["document_version_ids"] == [
+        "allowed-version-0",
+        "allowed-version-1",
+    ]
+
+@pytest.mark.parametrize(
+    "threshold",
+    [True, False, float("nan"), float("inf"), 1.5, "0.4"],
+)
+def test_candidate_generator_rejects_invalid_similarity_threshold(threshold):
+    with pytest.raises(ValueError, match="similarity_threshold"):
+        CandidateDocumentGenerator(
+            summary_store=FakeSummaryStore({}),
+            similarity_threshold=threshold,
+        )

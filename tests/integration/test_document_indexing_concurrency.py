@@ -1,6 +1,7 @@
 
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
+from hashlib import sha256
 from threading import Event, Lock, current_thread
 from uuid import uuid4
 
@@ -10,6 +11,7 @@ from app.core.database import SessionLocal, engine
 from app.models.organizations import Organization
 from app.models.documents import Document
 from app.models.document_versions import DocumentVersion
+from app.models.organization_departments import OrganizationDepartment
 from app.services.document_indexing.indexing_orchestrator import (
     DocumentIndexingOrchestrationError,
     DocumentIndexingOrchestrator,
@@ -119,11 +121,15 @@ def test_cleanup_holds_document_lock_until_external_cleanup_finishes(
     organization = Organization(
         name=f"Concurrency Test Organization {unique_id}"
     )
+    department = OrganizationDepartment(
+        organization=organization,
+        name="Testing",
+    )
     document = Document(
         organization=organization,
         title=f"Concurrency Test Document {unique_id}",
         document_type="Policy",
-        department="Testing",
+        department=department,
         description="Temporary concurrency regression test.",
     )
     version = DocumentVersion(
@@ -131,6 +137,7 @@ def test_cleanup_holds_document_lock_until_external_cleanup_finishes(
         version_number=1,
         original_filename=f"{unique_id}.pdf",
         storage_key=f"test/concurrency/{unique_id}.pdf",
+        file_hash=sha256(b"%PDF-1.4 test content").hexdigest(),
         summary="Temporary test summary.",
         status="pending",
         page_count=1,

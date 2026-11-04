@@ -81,3 +81,43 @@ def test_summary_upsert_search_and_delete(summary_store):
         result["document_version_id"] == version_id
         for result in results_after_delete
     )
+
+def test_summary_search_applies_document_version_allowlist(summary_store):
+    organization_id = str(uuid.uuid4())
+    allowed_document_id = str(uuid.uuid4())
+    allowed_version_id = str(uuid.uuid4())
+    excluded_document_id = str(uuid.uuid4())
+    excluded_version_id = str(uuid.uuid4())
+    summary = (
+        "Integration test summary about employee leave policies, "
+        "annual leave entitlement, sick leave, and approval procedures."
+    )
+
+    try:
+        for document_id, version_id, title in (
+            (allowed_document_id, allowed_version_id, "Allowed summary"),
+            (excluded_document_id, excluded_version_id, "Excluded summary"),
+        ):
+            summary_store.upsert_summary(
+                document_id=document_id,
+                document_version_id=version_id,
+                version_number=1,
+                title=title,
+                summary=summary,
+                status="active",
+                organization_id=organization_id,
+            )
+
+        results = summary_store.search_similar_summaries(
+            summary=summary,
+            limit=10,
+            organization_id=organization_id,
+            document_version_ids=[allowed_version_id],
+        )
+
+        assert [item["document_version_id"] for item in results] == [
+            allowed_version_id
+        ]
+    finally:
+        summary_store.delete_summary(allowed_version_id)
+        summary_store.delete_summary(excluded_version_id)

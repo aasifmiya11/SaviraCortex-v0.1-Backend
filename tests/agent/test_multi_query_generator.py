@@ -53,12 +53,12 @@ def catalogue() -> AvailableDocuments:
 def make_agent(monkeypatch):
     def _make(config=None):
         model = RunnableLambda(
-            lambda _: '{"queries": [{"query": "Default", '
+            lambda _, **kwargs: '{"queries": [{"query": "Default", '
             '"version_scope": "active", "target_versions": []}]}'
         )
         monkeypatch.setattr(
-            "app.agents.Multi_query_generator.agent.llm_client.get_llm",
-            lambda: model,
+            "app.agents.Multi_query_generator.agent.multi_query_llm_client.get_llm",
+            lambda **_: model,
         )
         return MultiQueryGeneratorAgent(config=config)
 

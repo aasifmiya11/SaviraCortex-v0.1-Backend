@@ -31,7 +31,6 @@ def create_document_and_version(
         title=f"Lifecycle Test Document {unique_id}",
         document_type="Policy",
         organization_id=organization.id,
-        department="Testing",
         description="Document for lifecycle tests.",
     )
 

@@ -17,7 +17,6 @@ def test_repositories():
             title="Employee Leave Policy",
             document_type="Policy",
             organization_id=organization.id,
-            department="Human Resources",
             description="Company employee leave policy.",
         )
         version = version_repo.create(

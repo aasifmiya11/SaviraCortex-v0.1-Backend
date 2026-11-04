@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.documents import Document
+from app.models.organization_departments import OrganizationDepartment
 
 
 class DocumentRepository:
@@ -21,18 +22,43 @@ class DocumentRepository:
         title: str,
         document_type: str,
         organization_id: UUID,
-        department: str | None = None,
+        department: str | UUID | None = None,
         description: str | None = None,
         uploaded_by_user_id: UUID | None = None,
         document_id: UUID | None = None,
     ) -> Document:
+        department_id = None
+        if department is not None:
+            if isinstance(department, UUID):
+                department_id = department
+            elif isinstance(department, str) and department.strip():
+                department_record = self.db.scalar(
+                    select(OrganizationDepartment).where(
+                        OrganizationDepartment.organization_id
+                        == organization_id,
+                        OrganizationDepartment.name == department.strip(),
+                    )
+                )
+                if department_record is None:
+                    department_record = OrganizationDepartment(
+                        organization_id=organization_id,
+                        name=department.strip(),
+                    )
+                    self.db.add(department_record)
+                    self.db.flush()
+                department_id = department_record.id
+            else:
+                raise ValueError(
+                    "department must be a non-empty name, UUID, or None."
+                )
+
         document = Document(
             id=document_id,
             organization_id=organization_id,
             uploaded_by_user_id=uploaded_by_user_id,
             title=title,
             document_type=document_type,
-            suggested_department=department,
+            department_id=department_id,
             description=description,
         )
     
@@ -80,7 +106,7 @@ class DocumentRepository:
 
     def get_all(
         self,
-        department: str | None = None,
+        department_id: UUID | None = None,
         document_type: str | None = None,
         limit: int = 50,
         offset: int = 0,
@@ -92,9 +118,9 @@ class DocumentRepository:
             Document.organization_id == organization_id
         )
 
-        if department:
+        if department_id is not None:
             statement = statement.where(
-                Document.suggested_department == department
+                Document.department_id == department_id
             )
 
         if document_type:
@@ -134,7 +160,7 @@ class DocumentRepository:
         allowed_fields = {
             "title",
             "document_type",
-            "department",
+            "department_id",
             "description",
         }
 

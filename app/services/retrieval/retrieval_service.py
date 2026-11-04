@@ -58,8 +58,12 @@ class RetrievalOrchestrator:
         adaptive_k_selector: AdaptiveKSelector,
         retrieval_concurrency: int = 6,
     ) -> None:
-        if isinstance(retrieval_concurrency, bool) or retrieval_concurrency < 1:
-            raise ValueError("retrieval_concurrency must be at least 1.")
+        if (
+            isinstance(retrieval_concurrency, bool)
+            or not isinstance(retrieval_concurrency, int)
+            or retrieval_concurrency < 1
+        ):
+            raise ValueError("retrieval_concurrency must be a positive integer.")
 
         self.authorization_service = authorization_service
         self.multi_query_agent = multi_query_agent
@@ -491,7 +495,7 @@ class RetrievalOrchestrator:
                 "rounds_performed": 0,
                 "max_rounds": 0,
                 "required_after_final_round": False,
-                "stop_reason": "no_authorized_document_versions",
+                "stop_reason": reason,
                 "score_threshold": None,
             },
             "retrieval_reason": reason,

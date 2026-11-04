@@ -14,6 +14,7 @@ from app.models.documents import Document
 from app.models.document_versions import DocumentVersion
 from app.repositories import DocumentVersionRepository
 from app.rag.pdf_reader.loader import pdf_loader
+from app.rag.ingestion.hash_service import PDFHashService
 from app.rag.vector_stores.qdrant_summary import summary_store
 from app.services.document_indexing.indexing_service import (
     DocumentIndexingService,
@@ -168,6 +169,18 @@ class DocumentIndexingOrchestrator:
                 "Document version has no storage key."
             )
 
+        if (
+            not isinstance(version.file_hash, str)
+            or len(version.file_hash.strip()) != 64
+            or any(
+                character not in "0123456789abcdefABCDEF"
+                for character in version.file_hash.strip()
+            )
+        ):
+            raise ValueError(
+                "Document version has no valid registered file SHA-256 hash."
+            )
+
         if not version.summary or not version.summary.strip():
             raise ValueError(
                 "Document version has no usable summary."
@@ -293,6 +306,20 @@ class DocumentIndexingOrchestrator:
                     if not local_pdf.exists() or local_pdf.stat().st_size == 0:
                         raise IOError(
                             "B2 download produced an empty or missing PDF."
+                        )
+
+                    if not version.file_hash or not version.file_hash.strip():
+                        raise ValueError(
+                            "Document version has no registered file SHA-256 hash."
+                        )
+
+                    downloaded_file_hash = PDFHashService.calculate_file_hash(
+                        local_pdf
+                    )
+                    if downloaded_file_hash.lower() != version.file_hash.strip().lower():
+                        raise ValueError(
+                            "Downloaded PDF integrity verification failed: "
+                            "SHA-256 does not match the registered file hash."
                         )
 
                     # --------------------------------------

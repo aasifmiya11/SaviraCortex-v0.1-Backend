@@ -1,4 +1,5 @@
 
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
@@ -25,6 +26,7 @@ def setup_orchestrator(tmp_path):
         storage_key="voice-ai/test/document.pdf",
         original_filename="document.pdf",
         summary="Test document summary.",
+        file_hash=hashlib.sha256(b"fake-pdf-content").hexdigest(),
         status="pending",
         page_count=0,
     )
@@ -469,6 +471,27 @@ def test_empty_downloaded_pdf_is_rejected(
     setup.loader.load_pdf.assert_not_called()
     setup.indexing_service.index_document_version.assert_not_called()
     setup.summary_storage.upsert_summary.assert_not_called()
+
+
+def test_downloaded_pdf_hash_mismatch_is_rejected_before_extraction(
+    setup_orchestrator,
+):
+    setup = setup_orchestrator
+    setup.version.file_hash = hashlib.sha256(b"different-pdf-content").hexdigest()
+
+    with patch_version_loading(setup):
+        with pytest.raises(DocumentIndexingOrchestrationError) as exc_info:
+            setup.orchestrator.index_pending_version(
+                setup.version_id,
+                organization_id=setup.document.organization_id,
+            )
+
+    assert "SHA-256 does not match" in str(exc_info.value.__cause__)
+    setup.loader.load_pdf.assert_not_called()
+    setup.indexing_service.index_document_version.assert_not_called()
+    setup.summary_storage.upsert_summary.assert_not_called()
+    setup.db.rollback.assert_called_once()
+    setup.db.commit.assert_not_called()
 
 
 def test_pdf_extraction_failure_rolls_back(

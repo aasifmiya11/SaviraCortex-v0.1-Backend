@@ -46,8 +46,6 @@ def sample_output():
     return {
         "title": "Employee Leave Policy",
         "document_type": "Policy",
-        "department": "HR",
-        "department_confidence": "high",
         "description": (
             "A policy defining employee leave entitlements "
             "and approval procedures."
@@ -109,8 +107,6 @@ def test_successful_summarization(
 
     assert result.title == "Employee Leave Policy"
     assert result.document_type == "Policy"
-    assert result.department == "HR"
-    assert result.department_confidence == "high"
 
     assert result.description
     assert result.summary
@@ -192,49 +188,6 @@ def test_invalid_json_response(
 
     with pytest.raises(DocumentSummarizerError):
         agent.summarize(sample_pages)
-
-
-def test_invalid_department_confidence(
-    agent,
-    mock_client,
-    sample_pages,
-    sample_output,
-):
-    sample_output["department_confidence"] = "very_high"
-
-    configure_mock_response(
-        mock_client,
-        json.dumps(sample_output),
-    )
-
-    with pytest.raises(DocumentSummarizerError):
-        agent.summarize(sample_pages)
-
-
-def test_department_null_requires_null_confidence():
-
-    with pytest.raises(ValueError):
-        DocumentSummarizerOutput(
-            title="Test Document",
-            document_type="Report",
-            department=None,
-            department_confidence="high",
-            description="Test description.",
-            summary="Test summary.",
-        )
-
-
-def test_department_requires_confidence():
-
-    with pytest.raises(ValueError):
-        DocumentSummarizerOutput(
-            title="Test Document",
-            document_type="Report",
-            department="Finance",
-            department_confidence=None,
-            description="Test description.",
-            summary="Test summary.",
-        )
 
 
 # =========================================================

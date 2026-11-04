@@ -33,7 +33,7 @@ class QdrantSummaryStore:
         )
 
         self._create_collection_if_not_exists()
-        self._ensure_organization_index()
+        self._ensure_payload_indexes()
 
     def _create_collection_if_not_exists(self) -> None:
         """Create the summary collection using the existing embedding model."""
@@ -59,17 +59,21 @@ class QdrantSummaryStore:
             wait=True,
         )
 
-    def _ensure_organization_index(self) -> None:
+    def _ensure_payload_indexes(self) -> None:
+        """Ensure fields used by summary-search filters are indexed."""
         collection_info = self.client.get_collection(
             collection_name=self.collection_name
         )
-        if "organization_id" not in (collection_info.payload_schema or {}):
-            self.client.create_payload_index(
-                collection_name=self.collection_name,
-                field_name="organization_id",
-                field_schema=models.PayloadSchemaType.KEYWORD,
-                wait=True,
-            )
+        existing_schema = collection_info.payload_schema or {}
+
+        for field_name in ("organization_id", "document_version_id"):
+            if field_name not in existing_schema:
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name=field_name,
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                    wait=True,
+                )
 
     @staticmethod
     def _normalize_id(value: UUID | str) -> str:
@@ -140,9 +144,11 @@ class QdrantSummaryStore:
         limit: int = 20,
         *,
         organization_id: UUID | str,
+        offset: int = 0,
+        document_version_ids: list[UUID | str] | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Search summaries by cosine similarity.
+        Search summaries by cosine similarity with paginated Qdrant results.
 
         All lifecycle statuses are included intentionally. Duplicate
         detection must also find archived and superseded versions.
@@ -153,10 +159,34 @@ class QdrantSummaryStore:
 
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise ValueError("limit must be a positive integer.")
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be a non-negative integer.")
 
         organization_id = self._normalize_id(organization_id)
         if not organization_id.strip():
             raise ValueError("organization_id cannot be empty.")
+
+        must_conditions = [
+            models.FieldCondition(
+                key="organization_id",
+                match=models.MatchValue(value=organization_id),
+            )
+        ]
+
+        if document_version_ids is not None:
+            normalized_version_ids = sorted({
+                self._normalize_id(version_id).strip()
+                for version_id in document_version_ids
+                if self._normalize_id(version_id).strip()
+            })
+            if not normalized_version_ids:
+                return []
+            must_conditions.append(
+                models.FieldCondition(
+                    key="document_version_id",
+                    match=models.MatchAny(any=normalized_version_ids),
+                )
+            )
 
         vector = embedding_client.embed_query(summary.strip())
 
@@ -164,14 +194,8 @@ class QdrantSummaryStore:
             collection_name=self.collection_name,
             query=vector,
             limit=limit,
-            query_filter=models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="organization_id",
-                        match=models.MatchValue(value=organization_id),
-                    )
-                ]
-            ),
+            offset=offset,
+            query_filter=models.Filter(must=must_conditions),
             with_payload=True,
             with_vectors=False,
         )

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
+from numbers import Real
 from typing import Any
 from uuid import UUID
 
@@ -36,8 +38,15 @@ class DocumentSummaryMatcher:
         threshold: float = 0.80,
         candidate_limit: int = 20,
     ) -> None:
-        if not 0.0 <= threshold <= 1.0:
-            raise ValueError("threshold must be between 0.0 and 1.0.")
+        if (
+            isinstance(threshold, bool)
+            or not isinstance(threshold, Real)
+            or not math.isfinite(float(threshold))
+            or not 0.0 <= float(threshold) <= 1.0
+        ):
+            raise ValueError(
+                "threshold must be a finite number between 0.0 and 1.0."
+            )
 
         if (
             isinstance(candidate_limit, bool)

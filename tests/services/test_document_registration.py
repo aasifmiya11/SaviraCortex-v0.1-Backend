@@ -24,7 +24,7 @@ def make_version_data(filename="policy.pdf", version=1):
     return VersionRegistrationData(
         original_filename=filename,
         storage_key=f"voice-ai/test/{uuid4()}/v{version}.pdf",
-        file_hash=f"file-{uuid4().hex}",
+        file_hash=f"{uuid4().hex}{uuid4().hex}",
         content_hash=f"content-{uuid4().hex}",
         summary="Test document summary.",
         page_count=5,
@@ -40,7 +40,6 @@ def test_register_new_document():
             DocumentRegistrationData(
                 title=f"Test Policy {uuid4()}",
                 document_type="Policy",
-                department="HR",
                 description="Test description",
             ),
             make_version_data(),
@@ -259,3 +258,25 @@ def test_register_new_document_with_preassigned_ids():
         assert document.organization_id == organization.id
 
         db.rollback()
+
+def test_reject_empty_summary_before_registration():
+    invalid_data = VersionRegistrationData(
+        original_filename="policy.pdf",
+        storage_key="voice-ai/test/policy.pdf",
+        file_hash="a" * 64,
+        summary="   ",
+    )
+
+    with pytest.raises(ValueError, match="summary cannot be empty"):
+        DocumentRegistrationService._validate_version_data(invalid_data)
+
+
+def test_reject_missing_file_hash_before_registration():
+    invalid_data = VersionRegistrationData(
+        original_filename="policy.pdf",
+        storage_key="voice-ai/test/policy.pdf",
+        summary="A valid summary.",
+    )
+
+    with pytest.raises(ValueError, match="File SHA-256 hash"):
+        DocumentRegistrationService._validate_version_data(invalid_data)

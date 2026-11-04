@@ -20,10 +20,18 @@ class CrossEncoderReranker:
     ) -> None:
         if not model_name or not model_name.strip():
             raise ValueError("model_name cannot be empty.")
-        if isinstance(batch_size, bool) or batch_size < 1:
-            raise ValueError("batch_size must be at least 1.")
-        if isinstance(max_length, bool) or max_length < 1:
-            raise ValueError("max_length must be at least 1.")
+        if (
+            isinstance(batch_size, bool)
+            or not isinstance(batch_size, int)
+            or batch_size < 1
+        ):
+            raise ValueError("batch_size must be a positive integer.")
+        if (
+            isinstance(max_length, bool)
+            or not isinstance(max_length, int)
+            or max_length < 1
+        ):
+            raise ValueError("max_length must be a positive integer.")
 
         self.model_name = model_name
         self.batch_size = batch_size
@@ -50,9 +58,11 @@ class CrossEncoderReranker:
         ):
             raise ValueError("candidates must be a sequence.")
         if top_k is not None and (
-            isinstance(top_k, bool) or top_k < 1
+            isinstance(top_k, bool)
+            or not isinstance(top_k, int)
+            or top_k < 1
         ):
-            raise ValueError("top_k must be at least 1.")
+            raise ValueError("top_k must be a positive integer.")
         if not candidates:
             return []
 

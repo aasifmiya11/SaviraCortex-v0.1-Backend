@@ -4,7 +4,7 @@ from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import PydanticOutputParser
 from langgraph.graph import END, START, StateGraph
 
-from app.llm.client import llm_client
+from app.llm.multi_query_client import multi_query_llm_client
 
 from .config import MultiQueryGeneratorConfig
 from .prompts import get_multi_query_generator_prompt
@@ -38,8 +38,18 @@ class MultiQueryGeneratorAgent:
         self.client = client
         self.model = model
 
-        if self.client is None:
-            self.model = llm_client.get_llm()
+        if self.model is None:
+            if self.client is None:
+                self.model = multi_query_llm_client.get_llm()
+            elif hasattr(self.client, "get_llm"):
+                self.model = self.client.get_llm()
+            else:
+                self.model = self.client
+
+        self.model = self.model.bind(
+            temperature=self.config.temperature,
+            max_tokens=self.config.max_output_tokens,
+        )
 
         self.parser = PydanticOutputParser(
             pydantic_object=MultiQueryGeneratorOutput

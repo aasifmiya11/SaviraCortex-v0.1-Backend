@@ -107,3 +107,30 @@ def test_reranker_rejects_non_finite_scores():
 
     with pytest.raises(ValueError, match="finite"):
         reranker.rerank("query", [candidate])
+
+@pytest.mark.parametrize(
+    "configuration",
+    [
+        {"batch_size": 1.5},
+        {"batch_size": True},
+        {"max_length": 512.5},
+        {"max_length": False},
+    ],
+)
+def test_reranker_rejects_non_integer_configuration(configuration):
+    with pytest.raises(ValueError):
+        CrossEncoderReranker(
+            model=FakeCrossEncoder([]),
+            **configuration,
+        )
+
+
+@pytest.mark.parametrize("top_k", [1.5, True, 0])
+def test_reranker_rejects_invalid_top_k(top_k):
+    reranker = CrossEncoderReranker(model=FakeCrossEncoder([]))
+    with pytest.raises(ValueError):
+        reranker.rerank(
+            "query",
+            [_candidate("chunk-1", "content", 1)],
+            top_k=top_k,
+        )

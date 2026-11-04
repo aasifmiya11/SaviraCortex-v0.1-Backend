@@ -7,7 +7,7 @@ from typing import Sequence
 from langchain_core.documents import Document
 from langchain_core.output_parsers import PydanticOutputParser
 
-from ...llm.client import llm_client
+from ...llm.summarizer_client import summarizer_llm_client
 
 from .config import DocumentSummarizerConfig
 from .prompts import get_document_summarizer_prompt
@@ -29,9 +29,8 @@ class DocumentSummarizerAgent:
     Responsibilities:
         1. Analyze sampled document pages.
         2. Extract document metadata.
-        3. Infer the responsible department.
-        4. Generate a document description.
-        5. Generate a comprehensive document summary.
+        3. Generate a document description.
+        4. Generate a comprehensive document summary.
 
     Does not interact with PostgreSQL, Qdrant, or file storage.
     """
@@ -47,7 +46,14 @@ class DocumentSummarizerAgent:
         self.client = client
         self.model = model
 
-        self.llm = None if client is not None else llm_client.get_llm()
+        self.llm = (
+            None
+            if client is not None
+            else summarizer_llm_client.get_llm(
+                temperature=self.config.temperature,
+                max_output_tokens=self.config.max_output_tokens,
+            )
+        )
 
         # Structured output parser
         self.parser = PydanticOutputParser(
@@ -65,11 +71,7 @@ class DocumentSummarizerAgent:
         if self.client is not None:
             self.chain = None
         else:
-            model = self.llm.bind(
-                temperature=self.config.temperature,
-                max_tokens=self.config.max_output_tokens,
-            )
-            self.chain = self.prompt | model | self.parser
+            self.chain = self.prompt | self.llm | self.parser
 
     # =====================================================
     # Input Preparation

@@ -1,5 +1,6 @@
 
 from dataclasses import dataclass
+import re
 from datetime import date
 from uuid import UUID
 
@@ -18,7 +19,6 @@ from app.repositories import (
 class DocumentRegistrationData:
     title: str
     document_type: str
-    department: str | None = None
     description: str | None = None
 
 
@@ -104,6 +104,16 @@ class DocumentRegistrationService:
                 "effective_until cannot be earlier than effective_from."
             )
 
+
+        if not isinstance(data.summary, str) or not data.summary.strip():
+            raise ValueError("Document summary cannot be empty.")
+
+        if (
+            not isinstance(data.file_hash, str)
+            or re.fullmatch(r"[0-9a-fA-F]{64}", data.file_hash.strip()) is None
+        ):
+            raise ValueError("File SHA-256 hash must contain exactly 64 hexadecimal characters.")
+
     def _create_version(
         self,
         document_id: UUID,
@@ -177,7 +187,6 @@ class DocumentRegistrationService:
                 document_type=document_data.document_type.strip(),
                 organization_id=organization_id,
                 uploaded_by_user_id=uploaded_by_user_id,
-                department=document_data.department,
                 description=document_data.description,
                 document_id=document_id,
             )

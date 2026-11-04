@@ -14,7 +14,7 @@ def create_documents(page_count: int) -> list[Document]:
                 "source": "test.pdf",
             },
         )
-        for page_number in range(page_count)
+        for page_number in range(1, page_count + 1)
     ]
 
 
@@ -31,7 +31,7 @@ def test_sample_large_document():
         for document in sampled
     ]
 
-    assert sampled_pages == [0, 3, 6, 9, 12]
+    assert sampled_pages == [1, 4, 7, 10, 13]
 
 
 def test_sample_small_document():
@@ -51,7 +51,7 @@ def test_sample_one_page():
     sampled = sampler.sample(documents)
 
     assert len(sampled) == 1
-    assert sampled[0].metadata["page"] == 0
+    assert sampled[0].metadata["page"] == 1
 
 
 def test_sample_two_pages():
@@ -65,7 +65,7 @@ def test_sample_two_pages():
         for document in sampled
     ]
 
-    assert sampled_pages == [0, 9]
+    assert sampled_pages == [1, 10]
 
 
 def test_empty_document_list():

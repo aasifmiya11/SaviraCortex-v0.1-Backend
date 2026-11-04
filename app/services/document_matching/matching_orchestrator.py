@@ -135,6 +135,23 @@ class DocumentMatchingOrchestrator:
         # 2. Semantic summary matching
         # --------------------------------------------
 
+        # Exact hashes conclusively identify an existing version.
+        # Skip semantic search for duplicates; it adds latency without
+        # changing the classification or review decision.
+        if exact_file_matches or exact_content_matches:
+            classification: MatchClassification = (
+                "exact_file_match"
+                if exact_file_matches
+                else "exact_content_match"
+            )
+            return DocumentMatchingResult(
+                classification=classification,
+                exact_file_matches=exact_file_matches,
+                exact_content_matches=exact_content_matches,
+                semantic_candidates=(),
+                requires_user_review=True,
+            )
+
         summary_result: SummaryMatchResult = (
             self.summary_matcher.match(
                 summary.strip(),

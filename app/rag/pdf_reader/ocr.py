@@ -181,6 +181,10 @@ class OCRClient:
             extra_metadata={
                 "language": self.easyocr_languages,
                 "detection_count": len(detections),
+                "mean_confidence": (
+                    sum(item["confidence"] for item in detections) / len(detections)
+                    if detections else None
+                ),
             },
         )
 
@@ -267,6 +271,10 @@ class OCRClient:
                 "language": language,
                 "config": config,
                 "detection_count": len(detections),
+                "mean_confidence": (
+                    sum(item["confidence"] for item in detections) / len(detections)
+                    if detections else None
+                ),
             },
         )
 
@@ -399,6 +407,7 @@ class OCRClient:
             return self._run_fastocr(
                 image_path,
                 page_number=page_number,
+                languages=languages,
             )
 
     def fastocr_image(
@@ -410,6 +419,14 @@ class OCRClient:
             raise ValueError(f"Unsupported image format: {path.suffix}")
         return self._run_fastocr(path, languages=languages)
 
-# Initialized once at application import. EasyOCR is the default and its Reader
-# is initialized here, so the model is loaded once per server process.
-ocr_client = OCRClient(initialize_easyocr=True)
+# Initialize the OCR singleton with the configured languages and render DPI.
+# EasyOCR is loaded once per server process, not once per document/page.
+ocr_client = OCRClient(
+    easyocr_languages=[
+        language.strip()
+        for language in (settings.OCR_LANGS or "en").split(",")
+        if language.strip()
+    ],
+    default_dpi=settings.RENDER_DPI,
+    initialize_easyocr=False,
+)
