@@ -295,3 +295,46 @@ The following targeted suites passed:
   5. Do a short final source audit for remaining bool/fractional validation and verify the app's runtime/composition roots instantiate the intended defaults.
 - No live PostgreSQL reset, no live Qdrant write, and no external storage operation was performed during this pass.
 - Once these integration checks are complete, freeze ingestion/retrieval and move to evaluations.
+
+
+## Checkpoint — regression fixes and commit preparation (2026-11-04)
+
+### Latest user-reported test result
+- User ran the full suite after the latest regression fixes: **280 passed**.
+- The prior five failures were resolved: model mock accepts bound kwargs; document department construction uses the ORM relationship correctly; OCR merge policy preserves better native text and only selects/merges OCR according to policy; concurrency test fixture includes the required file hash and department entity.
+- The focused regression tests and related suites were reported passing in the previous handoff, but the exact terminal output is not present in this checkpoint. Treat the 280-pass full-suite result as user-reported, not independently reproduced here.
+
+### Git/commit status
+- User wants to commit the work to GitHub. A suggested commit message is `fix: resolve OCR merge and document indexing regressions`.
+- Current Git status/diff has not been verified. The available MyPC command runner executes only in a disposable Windows Sandbox copy; a Git status attempt failed because the sandbox runner could not launch the executable. No commit or push was performed.
+- Before commit, user should review `git status --short`, `git diff --check`, and `git diff` locally, then stage only intended files and commit.
+
+### Remaining work / blockers
+- Ingestion/retrieval are still **not declared frozen**. Remaining verification: real two-session PostgreSQL same-hash concurrency; review Qdrant reconciliation dry-run and apply only after inspection; exercise OCR against representative PDFs in a native-dependency-capable runtime; run the complete suite after all current changes; final runtime wiring and validation audit.
+- Do not reset the database. Do not run Qdrant `--apply` or connect to live stores without explicit user approval.
+- Next safe step: continue the source-level final audit and record findings. The DB concurrency and native OCR checks require the user's configured development environment.
+
+
+## Checkpoint — requested checks 1 and 2 (2026-11-04)
+
+- Inspected `tests/integration/test_document_indexing_concurrency.py`: it uses separate `SessionLocal()` sessions in two worker threads, checks the second worker blocks while the first holds cleanup/transaction, then verifies final active status and retained Qdrant point. It skips non-PostgreSQL dialects and creates/deletes only uniquely named test records.
+- Attempted the integration test in the disposable Windows Sandbox. Collection failed before test execution because `AIVEN_POSTGRES_URI` is absent. No PostgreSQL connection or data changes occurred. Real two-session verification remains pending in the user's configured dev environment.
+- Inspected `scripts/reconcile_indexes.py`, `lifecycle_reconciler.py`, and its unit tests. Default CLI path sets both Qdrant stores to `None` and calls `reconcile(dry_run=True)`; Qdrant client imports are inside the explicit `--apply` branch. The reconciler dry-run loads active/superseded snapshots from PostgreSQL and reports planned count without calling either store's write methods.
+- Attempted the reconciler unit tests in Sandbox; collection also failed because `AIVEN_POSTGRES_URI` is absent. Did not run the CLI dry-run, since it needs the configured PostgreSQL connection to produce a meaningful inventory. Did not use `--apply`; no Qdrant writes were attempted.
+- Both requested items remain unverified operationally due to unavailable DB configuration in the isolated runner. Next safe step is to run the concurrency test and default dry-run from the configured dev environment; inspect the dry-run report before considering any apply, which still requires explicit approval.
+
+
+## Checkpoint — user-run integration and reconciler checks; OCR sandbox retry (2026-11-04)
+
+- User reports the PostgreSQL concurrency integration test passed in their configured environment: `1 passed` in 40.68s, with one `langchain-community` deprecation warning. Treat this as user-reported successful verification.
+- User reports the default `python scripts/reconcile_indexes.py` dry-run returned `dry_run=true`, `planned_versions=12`, `chunk_versions_synced=0`, `summary_versions_synced=0`, and `errors=[]`. This was read-only; no `--apply` was run. The output does not expose per-version changes, so inspect/report intended deltas before considering any write. Explicit approval remains required for `--apply`.
+- Reopened the `voice-ai` workspace and successfully executed OCR-focused tests in the disposable Windows Sandbox: `python -m pytest tests/test_pdf_loader_policy.py tests/test_pdf_loader_normalized.py -q`. Collection failed in both modules because PyMuPDF's native `_extra` extension could not load (`ImportError: DLL load failed while importing _extra`). No tests ran. This is a sandbox runtime/DLL limitation, not evidence of an OCR code failure; the user's configured `.venv` has not yet been tested by this run.
+- Source review confirms `test_pdf_loader_policy.py` covers empty/short/low-confidence OCR preservation, better OCR replacement, merge behavior, forced OCR, and settings wiring. `test_pdf_loader_normalized.py` exercises the real `HiPPA.pdf` fixture through EasyOCR and checks normalized page content/metadata. Retry these two tests in the user's configured environment where native dependencies are installed.
+- Next safe step: user runs those exact two pytest targets in `(Voice-AI)`; then run full suite and complete final diff/source review. Do not use Qdrant `--apply` without explicit approval.
+
+
+## Checkpoint — configured-environment OCR tests passed (2026-11-04)
+
+- User reports running `python -m pytest tests/test_pdf_loader_policy.py tests/test_pdf_loader_normalized.py -q` in the configured `(Voice-AI)` environment: **9 passed** in 26.73s, with one `langchain-community` deprecation warning from `app/rag/pdf_reader/native.py:26`.
+- This completes the focused OCR policy/normalization verification in the user's configured environment, including the real `HiPPA.pdf` fixture. The sandbox's PyMuPDF DLL failure remains an isolated runner limitation.
+- Next: rerun the full test suite after these focused checks, then inspect final diff/source state before deciding on a commit. Do not run Qdrant reconciliation with `--apply` without explicit user approval.
