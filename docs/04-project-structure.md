@@ -7,11 +7,12 @@ Voice-AI/
 ├── app/
 │   ├── agents/
 │   │   ├── Document_summarizer/
-│   │   └── Multi_query_generator/
+│   │   ├── Multi_query_generator/
+│   │   └── Generation/
 │   ├── api/v1/                 # empty in reviewed tree
 │   ├── core/                   # settings, database, Redis
 │   ├── guardrails/             # empty
-│   ├── llm/                    # model client factories
+│   ├── llm/                    # model clients, including generator_client.py
 │   ├── memory/                 # empty
 │   ├── models/                 # SQLAlchemy entities
 │   ├── observability/          # empty
@@ -24,6 +25,7 @@ Voice-AI/
 │   │   └── vector_stores/
 │   ├── repositories/
 │   ├── schemas/                # empty
+│   ├── validation/             # deterministic generation-output validation and citation metadata mapping
 │   ├── services/
 │   │   ├── authorization/
 │   │   ├── document_indexing/
@@ -48,8 +50,9 @@ Voice-AI/
 
 ## 4.2 Package responsibilities
 
-- `app/agents`: document summarization (prompt/model/parser chain) and multi-query generation (one-node LangGraph), with prompts, configuration and Pydantic schemas.
-- `app/api`: reserved API namespace; no endpoints were found.
+- `app/agents`: document summarization (prompt/model/parser chain), multi-query generation (one-node LangGraph), and company-grounded answer generation (prompt/model/parser chain), with prompts, configuration and Pydantic schemas. See [Generation pipeline](26-generation-pipeline.md).
+- `app/api`: reserved API namespace; no endpoints were found. The current validation layer does not add HTTP routes.
+- `app/validation`: deterministic validation of Generation output and request-scoped citation metadata mapping. See [Static validation](27-static-validation.md).
 - `app/core`: global settings, SQLAlchemy engine/session lifecycle and async Redis client.
 - `app/llm`: provider-specific chat model factories.
 - `app/models`: relational entity definitions.

@@ -1,0 +1,251 @@
+# 28. Remaining Implementation Roadmap
+
+**Status date:** 4 November 2026  
+**Scope:** Remaining application coding work after the Generation Agent and Static Validation Layer were implemented and their focused tests passed.
+
+This page is an implementation roadmap, not a claim that the listed future components already exist. Existing source code remains authoritative. The roadmap separates completed components, the next integration milestone, and later application work so that the next phase does not duplicate existing functionality.
+
+## 28.1 Current implementation baseline
+
+The following work is present in the repository:
+
+| Component | Current implementation | Verification |
+|---|---|---|
+| Retrieval algorithms | Dense, BM25/hybrid retrieval, fusion, reranking and adaptive-K components under `app/rag/retrieval/` | Existing component tests; see retrieval test modules |
+| Retrieval orchestration | `RetrievalOrchestrator` in `app/services/retrieval/retrieval_service.py` coordinates authorization-scoped retrieval, multi-query generation, candidate-document generation, retrieval branches, fusion, reranking and adaptive selection | Existing retrieval integration test module |
+| Generation Agent | `app/agents/Generation/` with structured company-grounded output | 11 focused tests passed |
+| Generation streaming | `GenerationAgent.astream_generate()` emits provisional content deltas and a completed event containing the parsed output after its citation-ID check | Covered by Generation Agent tests |
+| Static Validation Layer | `app/validation/` parses output, validates request-scoped citation IDs, enforces basic status/citation consistency, and maps cited IDs to allowlisted document metadata | 6 focused tests passed |
+
+### Focused verification recorded on 4 November 2026
+
+The user ran:
+
+```powershell
+uv run pytest tests/agent/test_generation.py tests/agent/test_generation_validation.py -v
+```
+
+Reported result: **17 passed in 6.14 seconds** (11 Generation Agent tests and 6 Static Validation tests). This verifies those two focused test modules only. It is not a full-suite or production integration test.
+
+## 28.2 Important distinction: retrieval orchestration versus end-to-end LangGraph orchestration
+
+There are two different orchestration responsibilities:
+
+1. **Existing retrieval orchestration:** `RetrievalOrchestrator` is already implemented in `app/services/retrieval/retrieval_service.py`. Its public operation is asynchronous `retrieve(...)`. It returns a dictionary containing `selected_candidates` and retrieval diagnostics such as counts, generated queries, branches and expansion details.
+2. **Remaining end-to-end orchestration:** A new LangGraph workflow still needs to coordinate the existing retrieval orchestrator, Generation Agent and Static Validation Layer to produce one validated RAG response.
+
+The Multi-Query Generator already uses a one-node LangGraph, but that is not the end-to-end RAG graph.
+
+**Implementation rule:** The new graph must call the existing retrieval orchestrator. It must not reimplement authorization, multi-query generation, candidate selection, retrieval branches, fusion, reranking or adaptive-K behavior.
+
+## 28.3 Next milestone: end-to-end LangGraph orchestration
+
+The next coding milestone is to design and implement the LangGraph coordinator.
+
+### A. Inspect and freeze component contracts
+
+Before implementation, confirm the actual public interfaces and agree on the graph's input/output contract.
+
+Required inputs will need to account for:
+
+- Current user query.
+- Organization and user identifiers required by retrieval authorization.
+- Optional chronological LangChain conversation history.
+- Retrieval configuration such as `top_k`, `candidate_k`, `mode` and `rrf_k`, using the existing retrieval defaults unless the application contract specifies otherwise.
+
+The graph's public response should preserve the structured Generation output and the Static Validation result. Decide explicitly which retrieval diagnostics are returned to the caller and which remain internal.
+
+### B. Define graph state
+
+Design a typed state that carries only the data needed between nodes. Candidate fields to evaluate include:
+
+- Request inputs: query, organization ID, user ID and optional conversation history.
+- Retrieval result, including the original ordered `selected_candidates` list.
+- Generation output.
+- Static validation result.
+- A structured failure/error field or equivalent graph error handling.
+- Any approved retrieval diagnostics needed in the final response.
+
+Finalize field names and required/optional semantics from the actual component contracts before coding. Do not copy the entire retrieval result into the LLM prompt.
+
+### C. Define graph nodes and flow
+
+The expected logical stages are:
+
+1. **Retrieve:** asynchronously call the existing `RetrievalOrchestrator.retrieve()`.
+2. **Generate:** call `GenerationAgent.agenerate()` with the current query, optional history and the exact `selected_candidates` list.
+3. **Validate:** call `static_validation_layer.validate_generation_output()` with the Generation output and that same original ordered candidate list.
+4. **Return:** produce the agreed final response only after deterministic validation has completed.
+
+The graph should coordinate these components rather than copy their internal logic.
+
+### D. Preserve evidence identity
+
+This is a critical integration invariant:
+
+- Generation assigns `E1`, `E2`, ... using the order of usable retrieval candidates.
+- Static Validation reconstructs the same evidence registry from the original ordered candidates, skipping blank/non-string chunk content in the same way.
+- The graph must pass the same candidate list, without sorting, filtering, rebuilding or otherwise changing its order, to both components.
+- Do not treat request-scoped evidence IDs as canonical document IDs.
+
+### E. Define empty-result and failure behavior
+
+Design and test these cases explicitly:
+
+- No authorized document versions / empty retrieval result.
+- Retrieval returns no selected candidates.
+- Candidate generation reports its handled failure result.
+- Retrieval raises an unexpected exception.
+- Generation returns the deterministic insufficient-evidence output when no usable evidence remains.
+- Generation or parsing fails.
+- Static Validation returns an invalid result.
+- Static Validation returns warnings while the result remains valid.
+
+Do not silently convert unexpected failures into a successful insufficient-evidence answer. Preserve the distinction between a legitimate no-evidence result and an operational failure.
+
+### F. Add graph integration tests
+
+Use injected or mocked component dependencies so graph tests do not require live model calls or production services.
+
+At minimum, cover:
+
+- Successful retrieval → generation → validation.
+- Conversation history reaches Generation unchanged.
+- The exact ordered `selected_candidates` object/list is passed to Generation and Validation.
+- Empty retrieval reaches the deterministic insufficient-evidence path.
+- Invalid citation IDs or invalid validation results do not produce a successful final response.
+- Retrieval and generation failures remain distinguishable.
+- Validation warnings are preserved without being incorrectly treated as hard failures.
+- Final response schema and graph state behavior.
+
+The graph should be tested independently before connecting it to an HTTP API.
+
+## 28.4 Streaming orchestration
+
+Generation streaming exists, but end-to-end graph streaming is not implemented.
+
+After the non-streaming graph contract is stable:
+
+1. Decide how graph-level streaming events are represented.
+2. Forward Generation content deltas as provisional output.
+3. Preserve `segment_index` so the consumer can reconstruct segment boundaries.
+4. Do not emit a final successful/completed response until the complete output has passed Static Validation.
+5. Define the terminal error event/behavior if validation fails after provisional text has already been emitted.
+6. Test empty-evidence streaming and stream failures.
+
+A Generation `COMPLETED` event means its own parsing and citation-ID check succeeded. The end-to-end workflow must still run the broader Static Validation operation before declaring the whole request successful.
+
+## 28.5 Citation resolution and protected document access
+
+Static Validation currently maps evidence IDs to allowlisted metadata. It deliberately does not generate URLs or make documents accessible.
+
+Future backend work:
+
+1. Inspect the existing document repository, version model, storage abstraction and authorization-service contracts.
+2. Design a citation resolver that accepts validated citation references and resolves trusted document/version identifiers to an application-owned document-viewer reference.
+3. Ensure the resolver does not trust LLM-generated URLs, storage paths or permission claims.
+4. Check the current user and document-level authorization on every document open.
+5. Define consistent not-found and access-denied behavior.
+6. Support page navigation where the stored document format and viewer permit it.
+
+Do not implement a resolver by guessing storage keys or inventing document routes. Base it on the real repository, storage and permission contracts.
+
+## 28.6 FastAPI application and API routes
+
+The reviewed application currently has no implemented FastAPI entry point or endpoint modules:
+
+- `app/main.py` is a placeholder.
+- `app/api/v1/endpoints/` is empty.
+
+Future API work, after the graph contract is stable:
+
+1. Establish the FastAPI application entry point and router registration.
+2. Define request/response Pydantic schemas for the chat workflow.
+3. Add authenticated request dependencies and pass trusted organization/user identity into retrieval.
+4. Add the chat endpoint that invokes the end-to-end graph.
+5. Add protected citation/document-viewing routes after the citation resolver and authorization behavior are defined.
+6. Add API tests for authentication, authorization, validation failures and response serialization.
+
+The API layer should call the graph; it should not reimplement graph nodes or retrieval/generation logic.
+
+## 28.7 Frontend citation interaction
+
+Frontend implementation is not present in the reviewed API/application tree and remains future work.
+
+The intended division of responsibility is:
+
+- Generation returns answer segments with evidence IDs.
+- Static Validation returns trusted metadata for cited evidence IDs.
+- The API/citation resolver exposes an authorized application-level document reference.
+- The frontend renders citation markers as clickable controls and opens the document viewer.
+- The viewer navigates to a cited page when supported.
+
+A citation marker is not itself an authorization grant. The backend must authorize every document request.
+
+## 28.8 Evaluation and broader verification
+
+Keep retrieval evaluation separate from end-to-end RAG evaluation.
+
+### Layer 1 — retrieval evaluation
+
+The existing `docs/Layer 1 evaluation.md` describes the retrieval benchmark and metric plan. Its remaining work includes generating/reviewing the benchmark candidates, approving ground-truth relevance labels, implementing/validating the evaluator, running the planned retrieval experiments and reporting results. The Generation Agent does not replace this work.
+
+### Layer 2 — end-to-end RAG evaluation
+
+After the end-to-end graph exists, extend evaluation to cover:
+
+- Query and retrieved contexts.
+- Generated answer and expected/reference answer where available.
+- Faithfulness / groundedness.
+- Answer relevance and correctness.
+- Citation behavior and failure cases.
+- End-to-end latency and component-level timing.
+
+Use the pinned library APIs and the actual evaluation objective. Do not introduce a second LLM citation-verification call by default; semantic verification strategy remains a separate product/architecture decision.
+
+### Regression and runtime verification
+
+After integration, run the focused tests, relevant retrieval/service tests, graph integration tests and then the full test suite in the appropriate test environment. Tests requiring PostgreSQL, Redis/Valkey, Qdrant or model credentials must use isolated test resources.
+
+## 28.9 Recommended implementation sequence
+
+| Order | Work item | Completion condition |
+|---:|---|---|
+| 1 | Inspect/freeze retrieval, Generation and Validation contracts | Inputs, outputs, exceptions and evidence-order invariant documented |
+| 2 | Design typed LangGraph state and final response schema | Graph contract reviewed before implementation |
+| 3 | Implement non-streaming end-to-end LangGraph | Existing components are called without duplicating their logic |
+| 4 | Add graph integration tests | Success, empty evidence, invalid output and failure paths pass |
+| 5 | Implement graph-level streaming | Provisional deltas and final validation semantics are tested |
+| 6 | Implement citation resolver | Trusted document references resolve using real repository/auth contracts |
+| 7 | Establish FastAPI application and chat/document routes | Authenticated API behavior is tested |
+| 8 | Implement frontend citation controls and document viewer | Citations open only authorized documents |
+| 9 | Complete Layer 1 and Layer 2 evaluation work | Reproducible reports are generated and reviewed |
+| 10 | Run broader regression and operational checks | Relevant suite and integration checks pass |
+
+## 28.10 Current status summary
+
+**Completed and focused-test-verified:**
+- Generation Agent implementation.
+- Generation synchronous, asynchronous and streaming interfaces.
+- Request-scoped citation-ID existence checks.
+- Static Validation Layer and citation metadata mapping.
+- 17 focused Generation and Validation tests.
+
+**Existing and reusable:**
+- Retrieval algorithms and retrieval service.
+- Retrieval-only `RetrievalOrchestrator`.
+- Multi-Query Generator's one-node LangGraph.
+- Authorization, repository and storage components that must be inspected before citation/document API implementation.
+
+**Next implementation milestone:**
+- End-to-end LangGraph orchestration connecting Retrieval → Generation → Static Validation.
+
+**Not yet implemented as part of this end-to-end workflow:**
+- LangGraph RAG coordinator and its final response contract.
+- Graph-level streaming.
+- Citation resolver and protected document-viewer API.
+- FastAPI application/routes.
+- Frontend clickable citation/document viewer integration.
+- Completed Layer 1 benchmark/evaluation run and Layer 2 end-to-end RAG evaluation.
+
+This status is scoped to the reviewed source and the focused test output recorded above. It does not claim that the full repository test suite or production deployment has been verified.

@@ -42,4 +42,4 @@ Some tests may require PostgreSQL, Redis/Valkey, Qdrant, model credentials or OC
 
 ## Review status
 
-The audit inspected the test inventory and relevant tests for authorization, PDF processing, agents, matching, registration, indexing, retrieval, storage and reconciliation. The full test suite was not executed as part of this documentation audit, so no pass/fail claim is made.
+The audit inspected the test inventory and relevant tests for authorization, PDF processing, agents, matching, registration, indexing, retrieval, storage and reconciliation. On 4 November 2026, the user reported a passing focused run of `tests/agent/test_generation.py` and `tests/agent/test_generation_validation.py`: **17 passed in 6.14 seconds**. The full test suite was not executed, so no full-suite pass/fail claim is made. See [Remaining implementation roadmap](28-remaining-implementation-roadmap.md) for the next integration testing milestones.

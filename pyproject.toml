@@ -33,6 +33,8 @@ dependencies = [
     "sentence-transformers>=6.2.0",
     "sqlalchemy>=2.1.6",
     "unstructured[pdf]>=0.27.36",
+    "deepeval>=4.3.2",
+    "ragas>=0.4.3",
 ]
 
 [tool.pytest.ini_options]

@@ -8,6 +8,10 @@ from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import JsonOutputParser, PydanticOutputParser
 
 from app.llm.generator_client import generator_llm_client
+from app.validation import (
+    InvalidCitationReferenceError,
+    static_validation_layer,
+)
 
 from .config import GenerationConfig
 from .prompts import get_generation_prompt
@@ -159,22 +163,15 @@ class GenerationAgent:
         This is an existence check only. It does not determine whether a
         particular chunk semantically supports the claim that cites it.
         """
-        available_ids = {
-            item["evidence_id"]
-            for item in evidence
-            if isinstance(item.get("evidence_id"), str)
-        }
-        invalid_ids = [
-            citation
-            for segment in output.segments
-            for citation in segment.citations
-            if citation not in available_ids
-        ]
-
-        if invalid_ids:
-            raise CitationValidationError(invalid_ids)
-
-        return output
+        try:
+            return static_validation_layer.validate_citation_ids(
+                output,
+                evidence,
+            )
+        except InvalidCitationReferenceError as exc:
+            raise CitationValidationError(
+                exc.invalid_citations
+            ) from exc
 
     @staticmethod
     def _parse_output(result: Any) -> GenerationOutput:

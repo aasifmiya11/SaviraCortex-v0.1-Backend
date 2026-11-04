@@ -33,6 +33,9 @@ This documentation describes the implementation present in the repository at the
 23. [Execution guide](23-execution-guide.md)
 24. [Error handling](24-error-handling.md)
 25. [Operational runbook](25-operational-runbook.md)
+26. [Generation pipeline](26-generation-pipeline.md)
+27. [Static validation and citation mapping](27-static-validation.md)
+28. [Remaining implementation roadmap](28-remaining-implementation-roadmap.md)
 
 Architecture diagrams are collected in [diagrams/](diagrams/).
 
@@ -44,14 +47,14 @@ Architecture diagrams are collected in [diagrams/](diagrams/).
 - `migrations/` is empty. The current `scripts/create_tables.py` name is misleading: it invokes a destructive reset that drops and recreates registered SQLAlchemy tables after confirmation.
 - The `DepartmentAccessPolicy` model is defined but is not imported by `app.models`' package initializer; it is therefore not registered by the current package import alone.
 - Retrieval currently calls `AuthorizationService` directly; the separate Redis-backed `AuthorizationCacheService` is not wired into the retrieval orchestrator.
-- The summarizer is a prompt/model/parser chain; the multi-query generator is the LangGraph workflow.
+- The summarizer and Generation Agent are prompt/model/parser chains; the multi-query generator is the LangGraph workflow.
 - The project contains sample PDFs and local data artifacts under `data/`; treat these as fixtures or local artifacts, not production data.
 
 ## Audit scope and verification limits
 
-The audit compared the documentation set against the repository structure and source for the main configuration, database, authorization, PDF, agent, ingestion, registration, indexing, retrieval, storage and operational-script paths. The relevant documentation pages and diagrams were corrected where source behavior differed or required more precise explanation.
+The audit compared the documentation set against the repository structure and source for the main configuration, database, authorization, PDF, agent (including Generation), ingestion, registration, indexing, retrieval, storage and operational-script paths. The relevant documentation pages and diagrams were corrected where source behavior differed or required more precise explanation.
 
-The full test suite was not executed, external services were not contacted, and no production deployment/recovery was performed. Runtime behavior that depends on external providers is documented from source and tests, not claimed as live-verified.
+The focused Generation and Static Validation test modules were run on 4 November 2026 and reported 17 passing tests. The full test suite was not executed, external services were not contacted, and no production deployment/recovery was performed. Runtime behavior that depends on external providers is documented from source and tests, not claimed as live-verified.
 
 ## Source-of-truth policy
 
