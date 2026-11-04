@@ -30,6 +30,7 @@ class RAGWorkflowState(TypedDict):
 
     # Input validation.
     is_valid: NotRequired[bool]
+    validation_error: NotRequired[str | None]
 
     # Retrieval results accumulated across retrieval attempts.
     retrieved_documents: NotRequired[list[dict[str, Any]]]
