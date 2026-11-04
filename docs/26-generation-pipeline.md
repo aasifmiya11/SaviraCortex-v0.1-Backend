@@ -270,3 +270,45 @@ The user ran `uv run pytest tests/agent/test_generation.py -v` on 4 November 202
 | End-to-end AI orchestrator | Not implemented |
 | Streaming generation | Implemented; final structured output follows citation-ID validation |
 
+
+
+## LangGraph orchestration
+
+The end-to-end workflow is assembled in `app/workflows/rag/graph.py`. The graph receives already-configured dependencies through `create_rag_graph(...)`; it does not instantiate duplicate agents or retrieval services during module import.
+
+The workflow is:
+
+1. Input Validation normalizes the query. Invalid input routes directly to END.
+2. Retriever calls the existing RetrievalOrchestrator. The node accumulates unique evidence, tracks excluded chunk IDs, increments the retrieval-attempt count, and records per-attempt diagnostics.
+3. Evidence Sufficiency Evaluator judges the accumulated evidence against the original query.
+4. Insufficient evidence routes to Retrieval Expansion only while the total retrieval-attempt count is below the configured maximum (3 by default). Expansion returns retrieval guidance, then the same Retriever node runs again with chunk exclusions enabled.
+5. When evidence is sufficient or the attempt limit is reached, the graph checks the accumulated document count. More than 15 documents routes through Context Compression; 15 or fewer bypass it.
+6. Both paths converge on Generation and then Static Validation. The graph ends with the validation result in workflow state.
+
+The retry limit is checked before Retrieval Expansion is invoked, so the third insufficient evaluation does not trigger an unnecessary expansion-model call. The original query remains unchanged throughout the loop.
+
+### Workflow graph
+
+```mermaid
+flowchart TD
+    START([START]) --> IV[Input Validator]
+    IV --> VALID{Is query valid?}
+    VALID -->|No| END([END])
+    VALID -->|Yes| RET[Retriever]
+    RET --> EVAL[Evidence Sufficiency Evaluator]
+    EVAL --> SUFF{Evidence sufficient?}
+    SUFF -->|No| LIMIT{Attempts < 3?}
+    LIMIT -->|Yes| EXP[Retrieval Expansion Agent]
+    EXP --> RET
+    SUFF -->|Yes| COMP_FILTER{Accumulated documents > 15?}
+    LIMIT -->|No| COMP_FILTER
+    COMP_FILTER -->|Yes| COMP[Context Compression]
+    COMP_FILTER -->|No| GEN[Generation Agent]
+    COMP --> GEN
+    GEN --> SV[Static Validation]
+    SV --> END
+```
+
+### Graph configuration
+
+`RAGWorkflowConfig` defines `max_retrieval_attempts=3` and `compression_document_threshold=15`. Both values are validated and can be overridden when constructing the graph.

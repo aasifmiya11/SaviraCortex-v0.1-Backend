@@ -10,10 +10,12 @@ from app.workflows.rag.state import RAGWorkflowState
 def create_context_compression_node(
     agent: ContextCompressionAgent,
 ) -> Callable[[RAGWorkflowState], Any]:
-    """Create a conditional compression node using an injected agent.
+    """Create a compression node.
 
-    Original retrieval candidates remain untouched in retrieved_documents.
-    The compressed one-to-one view is stored separately in context_documents.
+    Graph routing is responsible for invoking this node only when the
+    accumulated document count exceeds the configured workflow threshold.
+    Once invoked, every document is compressed one-to-one. The original
+    retrieval candidates remain untouched.
     """
 
     async def context_compression_node(state: RAGWorkflowState) -> dict[str, Any]:
@@ -26,13 +28,6 @@ def create_context_compression_node(
             }
 
         token_estimate = agent.estimate_token_count(state["query"], documents)
-        if token_estimate <= agent.config.token_threshold:
-            return {
-                "context_documents": documents,
-                "context_compressed": False,
-                "context_token_estimate": token_estimate,
-            }
-
         compressed_documents = await agent.acompress(
             current_query=state["query"],
             retrieved_documents=documents,

@@ -10,25 +10,20 @@ from app.workflows.rag.state import RAGWorkflowState
 def create_retriever_node(
     retriever: RetrievalOrchestrator,
 ) -> Callable[[RAGWorkflowState], Any]:
-    """Create a Retriever node using an application-configured orchestrator.
-
-    The orchestrator is injected because its dependencies (authorization,
-    query generation, vector retrieval, fusion, and reranking) are managed by
-    the application composition layer, not constructed inside a graph node.
-    """
+    """Create a Retriever node using an application-configured orchestrator."""
 
     async def retriever_node(state: RAGWorkflowState) -> dict[str, Any]:
         previously_retrieved = list(state.get("retrieved_documents") or [])
-        exclude = state.get("exclude", False)
+        attempt_before_call = state.get("retrieval_attempt", 0)
+        exclude = attempt_before_call > 0
 
         if exclude:
             rewritten_query = state.get("rewritten_query")
             hypothetical_answer = state.get("hypothetical_answer")
-
             if not rewritten_query or not hypothetical_answer:
                 raise ValueError(
                     "rewritten_query and hypothetical_answer are required "
-                    "when exclude is True."
+                    "for retrieval attempts after the first."
                 )
 
             current_query = (
@@ -67,21 +62,61 @@ def create_retriever_node(
         )
 
         newly_retrieved = retrieval_result["selected_candidates"]
+        accumulated_documents = list(previously_retrieved)
+        known_chunk_ids = {
+            document.get("chunk_id")
+            for document in previously_retrieved
+            if document.get("chunk_id")
+        }
 
-        if not exclude:
-            accumulated_documents = newly_retrieved
-        else:
-            existing_chunk_ids = {
-                document.get("chunk_id")
-                for document in previously_retrieved
-                if document.get("chunk_id")
-            }
-            accumulated_documents = previously_retrieved + [
-                document
-                for document in newly_retrieved
-                if document.get("chunk_id") not in existing_chunk_ids
-            ]
+        for document in newly_retrieved:
+            chunk_id = document.get("chunk_id")
+            if chunk_id and chunk_id in known_chunk_ids:
+                continue
+            accumulated_documents.append(document)
+            if chunk_id:
+                known_chunk_ids.add(chunk_id)
 
-        return {"retrieved_documents": accumulated_documents}
+        all_excluded_chunk_ids = list(
+            dict.fromkeys(
+                document["chunk_id"]
+                for document in accumulated_documents
+                if isinstance(document.get("chunk_id"), str)
+                and document["chunk_id"]
+            )
+        )
+
+        attempt = attempt_before_call + 1
+        diagnostics = {
+            "attempt": attempt,
+            "selected_count": retrieval_result.get(
+                "selected_count", len(newly_retrieved)
+            ),
+            "eligible_count": retrieval_result.get("eligible_count"),
+            "fused_count": retrieval_result.get("fused_count"),
+            "reranked_count": retrieval_result.get("reranked_count"),
+            "branch_count": retrieval_result.get("branch_count"),
+            "retrieval_reason": retrieval_result.get("retrieval_reason"),
+            "candidate_generation_error": retrieval_result.get(
+                "candidate_generation_error"
+            ),
+            "expansion": retrieval_result.get("expansion"),
+        }
+        previous_diagnostics = state.get("retrieval_diagnostics") or {}
+        diagnostic_attempts = list(previous_diagnostics.get("attempts") or [])
+        diagnostic_attempts.append(diagnostics)
+
+        return {
+            "retrieved_documents": accumulated_documents,
+            "excluded_chunk_ids": all_excluded_chunk_ids,
+            "retrieval_attempt": attempt,
+            "retrieval_diagnostics": {
+                "total_attempts": attempt,
+                "attempts": diagnostic_attempts,
+            },
+            "exclude": exclude,
+            "retry": False,
+            "context_compressed": False,
+        }
 
     return retriever_node

@@ -6,8 +6,7 @@ from app.workflows.rag.nodes.context_compression import (
 
 
 class FakeContextCompressionAgent:
-    def __init__(self, threshold=10):
-        self.config = type("Config", (), {"token_threshold": threshold})()
+    def __init__(self):
         self.received = None
 
     def estimate_token_count(self, query, documents):
@@ -24,12 +23,12 @@ class FakeContextCompressionAgent:
 
 
 @pytest.mark.asyncio
-async def test_node_compresses_only_when_threshold_is_exceeded():
+async def test_node_compresses_all_documents_when_graph_routes_to_it():
     documents = [
         {"chunk_id": "a:0", "page_content": "Long original content A", "metadata": {"page": 1}},
         {"chunk_id": "b:0", "page_content": "Long original content B", "metadata": {"page": 2}},
     ]
-    agent = FakeContextCompressionAgent(threshold=10)
+    agent = FakeContextCompressionAgent()
     node = create_context_compression_node(agent)
 
     updates = await node({"query": "Question", "retrieved_documents": documents})
@@ -43,16 +42,15 @@ async def test_node_compresses_only_when_threshold_is_exceeded():
 
 
 @pytest.mark.asyncio
-async def test_node_skips_model_when_below_threshold():
+async def test_node_does_not_apply_a_second_token_threshold():
     documents = [{"chunk_id": "a:0", "page_content": "Short", "metadata": {}}]
-    agent = FakeContextCompressionAgent(threshold=100)
+    agent = FakeContextCompressionAgent()
     node = create_context_compression_node(agent)
 
     updates = await node({"query": "Q", "retrieved_documents": documents})
 
-    assert updates["context_documents"] is documents
-    assert updates["context_compressed"] is False
-    assert agent.received is None
+    assert agent.received == ("Q", documents)
+    assert updates["context_compressed"] is True
 
 
 @pytest.mark.asyncio

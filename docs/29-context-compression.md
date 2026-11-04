@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Context Compression Agent reduces the prompt footprint of accumulated retrieval evidence when its estimated size exceeds a configurable threshold. It is a query-aware, one-to-one transformation: it does not merge chunks, drop chunks, or change their order.
+The Context Compression Agent reduces the prompt footprint of accumulated retrieval evidence. It is a query-aware, one-to-one transformation: it does not merge chunks, drop chunks, or change their order.
 
 ## Package structure
 
@@ -13,21 +13,24 @@ The Context Compression Agent reduces the prompt footprint of accumulated retrie
 
 ## Input and output contract
 
-The agent receives the current user query and the complete ordered list of accumulated retrieval candidates. It sends all candidate contents in one structured model request, each paired with a one-based input index.
+The agent receives the original user query and the complete ordered list of accumulated retrieval candidates. It sends all candidate contents in one structured model request, each paired with a one-based input index.
 
-The model must return exactly one compressed passage for every input index. The agent rejects missing, duplicate, additional, or reordered indexes. It then copies each original candidate dictionary and changes only `page_content`. Metadata, stable chunk IDs, other retrieval fields, candidate count, and order are retained. Original candidate dictionaries are never mutated.
+The model must return exactly one compressed passage for every input index. The agent rejects missing, duplicate, additional, or reordered indexes. It copies each original candidate dictionary and changes only `page_content`. Metadata, stable chunk IDs, other retrieval fields, candidate count, and order are retained. Original candidate dictionaries are never mutated.
 
 The model receives document content and indexes only. Backend metadata, internal IDs, retrieval scores, storage locations, and authorization information are not sent to the compression prompt.
 
 ## Conditional activation
 
-The default configuration uses a 12,000-token threshold. The current implementation estimates tokens deterministically as:
+The LangGraph workflow uses a document-count filter with a default threshold of 15 accumulated unique retrieved documents:
 
-`ceil((query characters + retrieved page-content characters) / chars_per_token)`
+- 15 documents or fewer: skip the Context Compression Agent and proceed directly to Generation.
+- More than 15 documents: invoke the Context Compression Agent, then proceed to Generation.
 
-The default `chars_per_token` is 4. This is an approximate routing estimate, not provider token accounting. The threshold and estimator are configurable. At or below the threshold, the workflow node skips the model call and passes the original ordered candidates through as `context_documents`. Above the threshold, it stores the one-to-one compressed candidates in `context_documents`.
+The count is evaluated after the retrieval loop has finished and uses the accumulated evidence across all retrieval attempts. This is a workflow routing decision intended to avoid an unnecessary model call and its associated cost.
 
-The original `retrieved_documents` remains unchanged and available to Retrieval Expansion. Evidence Evaluation, Generation, and Static Validation use `context_documents` when present, ensuring Generation and Static Validation see the exact same ordered evidence view. If compression has not run, those nodes fall back to `retrieved_documents`.
+When compression is invoked, the node estimates the input token count for diagnostics and compresses all documents. The previous token-threshold check is not used as a second gate. The agent retains its character-based token estimation helper, but it does not decide whether the graph invokes compression.
+
+The original `retrieved_documents` remains unchanged and available for provenance. The compressed one-to-one view is stored in `context_documents`. Generation and Static Validation use `context_documents` when present, ensuring they see the exact same ordered evidence view. When compression is skipped, those nodes fall back to `retrieved_documents`.
 
 ## Information preservation requirements
 
@@ -35,6 +38,6 @@ The prompt instructs the model to preserve query-relevant facts, exact figures, 
 
 ## Current limitations
 
-- The token threshold uses a character-based estimate, not the model provider's tokenizer.
-- Compression quality is dependent on the configured model and prompt; structured output and index checks guarantee shape and mapping, not semantic losslessness.
-- The node is implemented and tested independently; end-to-end graph routing and composition remain a separate integration step.
+- The token estimate is character-based and diagnostic, not provider token accounting.
+- Compression quality depends on the configured model and prompt; structured output and index checks guarantee shape and mapping, not semantic losslessness.
+- The graph is dependency-injected; the application composition layer must provide configured agent and retrieval instances.
