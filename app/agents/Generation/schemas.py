@@ -51,3 +51,27 @@ class GenerationOutput(BaseModel):
             "containing the claims they support."
         ),
     )
+
+
+class GenerationStreamEventType(str, Enum):
+    """Kinds of events emitted by the generation streaming interface."""
+
+    CONTENT_DELTA = "content_delta"
+    COMPLETED = "completed"
+
+
+class GenerationStreamEvent(BaseModel):
+    """
+    One event from a streaming generation request.
+
+    CONTENT_DELTA events contain provisional text for a single answer
+    segment. COMPLETED contains the fully parsed and citation-validated
+    GenerationOutput.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_type: GenerationStreamEventType
+    delta: str | None = None
+    segment_index: int | None = None
+    output: GenerationOutput | None = None

@@ -6,10 +6,12 @@ from pydantic import ValidationError
 
 from app.agents.Generation import (
     AnswerSegment,
+    CitationValidationError,
     GenerationAgent,
     GenerationConfig,
     GenerationOutput,
     GenerationStatus,
+    GenerationStreamEventType,
 )
 
 
@@ -199,6 +201,157 @@ async def test_async_generation(sample_candidates):
     assert result == expected
 
 
+@pytest.mark.asyncio
+async def test_streaming_emits_text_then_complete_validated_output(
+    sample_candidates,
+    expected_output,
+):
+    agent = make_agent()
+
+    class FakeStreamingChain:
+        async def astream(self, _payload, config=None):
+            yield {
+                "status": "answered",
+                "segments": [
+                    {"text": "Employees receive", "citations":[]},
+                ],
+            }
+            yield {
+                "status": "answered",
+                "segments": [
+                    {
+                        "text": "Employees receive 20 days of annual leave per year.",
+                        "citations": ["E1"],
+                    },
+                    {
+                        "text": "Up to 5 unused days can be carried forward.",
+                        "citations": ["E2"],
+                    },
+                ],
+            }
+
+    agent.streaming_chain = FakeStreamingChain()
+
+    events = [
+        event
+        async for event in agent.astream_generate(
+            current_query="Summarize annual leave.",
+            retrieved_documents=sample_candidates,
+        )
+    ]
+
+    content_events = [
+        event for event in events
+        if event.event_type == GenerationStreamEventType.CONTENT_DELTA
+    ]
+    completed_events = [
+        event for event in events
+        if event.event_type == GenerationStreamEventType.COMPLETED
+    ]
+
+    first_segment_text = "".join(
+        event.delta
+        for event in content_events
+        if event.segment_index == 0
+    )
+    second_segment_text = "".join(
+        event.delta
+        for event in content_events
+        if event.segment_index == 1
+    )
+
+    assert first_segment_text == expected_output.segments[0].text
+    assert second_segment_text == expected_output.segments[1].text
+    assert len(completed_events) == 1
+    assert completed_events[0].output == expected_output
+    assert events[-1].event_type == GenerationStreamEventType.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_streaming_rejects_unknown_citation_after_content_was_streamed(
+    sample_candidates,
+):
+    agent = make_agent()
+
+    class FakeStreamingChain:
+        async def astream(self, _payload, config=None):
+            yield {
+                "status": "answered",
+                "segments": [
+                    {"text": "This answer cites an unknown source.", "citations":[]},
+                ],
+            }
+            yield {
+                "status": "answered",
+                "segments": [
+                    {
+                        "text": "This answer cites an unknown source.",
+                        "citations": ["E99"],
+                    },
+                ],
+            }
+
+    agent.streaming_chain = FakeStreamingChain()
+
+    events = []
+    with pytest.raises(CitationValidationError) as exc_info:
+        async for event in agent.astream_generate(
+            current_query="Question?",
+            retrieved_documents=sample_candidates,
+        ):
+            events.append(event)
+
+    assert any(
+        event.event_type == GenerationStreamEventType.CONTENT_DELTA
+        for event in events
+    )
+    assert exc_info.value.invalid_citations == ("E99",)
+    assert not any(
+        event.event_type == GenerationStreamEventType.COMPLETED
+        for event in events
+    )
+
+
+def test_non_streaming_generation_rejects_unknown_citation(sample_candidates):
+    agent = make_agent()
+    agent.chain = RunnableLambda(
+        lambda _: GenerationOutput(
+            status=GenerationStatus.ANSWERED,
+            segments=[
+                AnswerSegment(
+                    text="This answer cites an unknown source.",
+                    citations=["E99"],
+                )
+            ],
+        )
+    )
+
+    with pytest.raises(CitationValidationError) as exc_info:
+        agent.generate(
+            current_query="Question?",
+            retrieved_documents=sample_candidates,
+        )
+
+    assert exc_info.value.invalid_citations == ("E99",)
+
+
+@pytest.mark.asyncio
+async def test_streaming_without_evidence_emits_only_completed_event():
+    agent = make_agent()
+
+    events = [
+        event
+        async for event in agent.astream_generate(
+            current_query="Question?",
+            retrieved_documents=[],
+        )
+    ]
+
+    assert len(events) == 1
+    assert events[0].event_type == GenerationStreamEventType.COMPLETED
+    assert events[0].output.status == GenerationStatus.INSUFFICIENT_EVIDENCE
+
+
 def test_config_rejects_invalid_values():
     with pytest.raises(ValueError):
         GenerationConfig(temperature=2.1)
@@ -212,6 +365,10 @@ def test_output_schema_rejects_unknown_fields():
         GenerationOutput.model_validate(
             {
                 "status": "answered",
-                "segments": [{"text": "Answer", "citations": [], "url": "https://example.com"}],
+                "segments": [{
+                    "text": "Answer",
+                    "citations": [],
+                    "url": "https://example.com",
+                }],
             }
         )
