@@ -1,8 +1,8 @@
 # Voice-AI Technical Documentation
 
-**Documentation status:** source-to-documentation audit updated 4 November 2026  
+**Documentation status:** source-to-documentation audit updated 5 November 2026  
 **Repository:** `E:\\Voice-AI`  
-**Review baseline:** 4 November 2026
+**Review baseline:** 5 November 2026
 
 This documentation describes the implementation present in the repository at the time of review. It is not a product specification and does not imply that planned or placeholder components are implemented. When code and documentation disagree, the implementation is authoritative.
 
@@ -47,14 +47,15 @@ Architecture diagrams are collected in [diagrams/](diagrams/).
 - `migrations/` is empty. The current `scripts/create_tables.py` name is misleading: it invokes a destructive reset that drops and recreates registered SQLAlchemy tables after confirmation.
 - The `DepartmentAccessPolicy` model is defined but is not imported by `app.models`' package initializer; it is therefore not registered by the current package import alone.
 - Retrieval currently calls `AuthorizationService` directly; the separate Redis-backed `AuthorizationCacheService` is not wired into the retrieval orchestrator.
-- The summarizer and Generation Agent are prompt/model/parser chains; the multi-query generator is the LangGraph workflow.
+- Four independently implemented agents currently live under `app/agents/`: Document Summarizer, Multi-query Generator, Evidence Sufficiency Evaluator, and Generation. The Evidence Evaluator is injected into its RAG workflow node; it evaluates evidence sufficiency and reports missing requirements but does not perform retrieval or answer generation.
+- The summarizer, Evidence Evaluator, and Generation Agent are prompt/model/parser chains; the multi-query generator is the LangGraph workflow.
 - The project contains sample PDFs and local data artifacts under `data/`; treat these as fixtures or local artifacts, not production data.
 
 ## Audit scope and verification limits
 
-The audit compared the documentation set against the repository structure and source for the main configuration, database, authorization, PDF, agent (including Generation), ingestion, registration, indexing, retrieval, storage and operational-script paths. The relevant documentation pages and diagrams were corrected where source behavior differed or required more precise explanation.
+The audit compared the documentation set against the repository structure and source for the main configuration, database, authorization, PDF, agent, ingestion, registration, indexing, retrieval, storage and operational-script paths. The relevant documentation pages and diagrams were corrected where source behavior differed or required more precise explanation.
 
-The focused Generation and Static Validation test modules were run on 4 November 2026 and reported 17 passing tests. The full test suite was not executed, external services were not contacted, and no production deployment/recovery was performed. Runtime behavior that depends on external providers is documented from source and tests, not claimed as live-verified.
+The focused Generation and Static Validation test modules were run on 4 November 2026 and reported 17 passing tests. Evidence Evaluator unit and workflow tests were added on 5 November 2026; their execution status is not asserted here. The full test suite was not executed, external services were not contacted, and no production deployment/recovery was performed. Runtime behavior that depends on external providers is documented from source and tests, not claimed as live-verified.
 
 ## Source-of-truth policy
 
