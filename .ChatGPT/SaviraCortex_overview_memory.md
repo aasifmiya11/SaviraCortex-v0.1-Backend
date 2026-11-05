@@ -2,7 +2,7 @@
 
 > **Purpose:** This document is the agreed architectural reference for the end-to-end SaviraCortex RAG workflow. It records the decisions made during architecture discussions and is intended to guide implementation.
 >
-> **Status:** Architecture agreed; implementation of the end-to-end workflow has not yet started.
+> **Status (updated 5 November 2026):** The end-to-end LangGraph RAG workflow is implemented and verified by the workflow test suite and full repository test suite. Retrieval evaluation is the next project milestone; backend/API and frontend integration follow.
 >
 > **Scope:** Orchestration of input validation, retrieval, evidence sufficiency evaluation, iterative retrieval expansion, generation, and static validation. This document does not authorize changes to code by itself.
 
@@ -562,3 +562,71 @@ Any proposed change to the agreed behavior should be discussed before implementa
 ## 19. Final agreed architecture in one paragraph
 
 SaviraCortex will use a LangGraph-orchestrated, company-grounded RAG workflow that validates the current query deterministically, invokes the existing RetrievalOrchestrator for an initial retrieval, evaluates the accumulated company-document evidence against the unchanged original query, and—only when evidence is insufficient and fewer than three total retrieval attempts have occurred—uses a Retrieval Expansion Agent to produce a rewritten retrieval query and a hypothetical answer as retrieval-only guidance. Every attempt reuses the same RetrievalOrchestrator, with backward-compatible exclusion parameters enabled on retries to avoid retrieving previously seen stable chunk IDs. The Retriever Node owns evidence accumulation and deduplication in graph state. After sufficient evidence or the third attempt, the existing Generation component produces an answer grounded only in retrieved evidence, and the existing deterministic Static Validation Layer validates the output schema and citation references before a final response is returned. Context compression, graph streaming, API/frontend integration, and authenticated document viewing are staged follow-on capabilities, not reasons to split or duplicate the core retrieval pipeline.
+
+---
+
+## Implementation checkpoint — end-to-end RAG workflow completed (5 November 2026)
+
+### Current project status
+
+The end-to-end SaviraCortex RAG workflow is implemented. The earlier status statement that implementation had not started is superseded by this checkpoint.
+
+Implemented workflow modules:
+- app/workflows/rag/graph.py
+- app/workflows/rag/state.py
+- app/workflows/rag/routing.py
+- app/workflows/rag/config.py
+- app/workflows/rag/nodes/
+
+The graph coordinates:
+1. Deterministic input validation and invalid-query termination.
+2. The existing RetrievalOrchestrator for the initial retrieval and every subsequent attempt.
+3. Evidence sufficiency evaluation against the original query.
+4. Retrieval expansion with a rewritten query and hypothetical answer used only as retrieval guidance.
+5. A maximum of three total retrieval attempts, including the first attempt. The attempt limit is checked before calling the expansion agent.
+6. Chunk-level exclusion on subsequent attempts and accumulation/deduplication of evidence by stable chunk ID.
+7. Context compression only when accumulated unique retrieved-document count is greater than 15. Fifteen or fewer bypass compression. Token estimates are diagnostic only.
+8. Generation from the original query, optional history, and the final ordered evidence view.
+9. Deterministic Static Validation using the same evidence order used by Generation.
+
+The same existing RetrievalOrchestrator and retrieval stages are reused. No second retrieval pipeline was introduced. Hypothetical answers are never treated as evidence or citations.
+
+### Verification reported by the user
+
+- Workflow suite: uv run pytest tests/workflows -v — 45 passed in 29.84 seconds.
+- Full repository suite: pytest -v — 393 passed, 2 warnings in 163.43 seconds.
+- Retrieval exclusion focused suite — 49 passed in 92.79 seconds.
+- The full-suite warnings were a LangChain community-package sunset/deprecation warning and a PyMuPDF/fitz API deprecation warning; no test failures were reported.
+
+These are user-reported local test results, not CI or production deployment results.
+
+### End-to-end smoke-test fixture and observations
+
+A synthetic two-page employee leave policy PDF was created at data/savira_employee_leave_policy_e2e_test.pdf and ingested/indexed for a live workflow smoke test. The ingestion output reported nine Qdrant chunks and an active indexing status.
+
+The E2E runner is scripts/workflow_E2E.py. It exercises a simple company-policy question without history, a follow-up question with Human/AI conversation history, and a whitespace-heavy query to exercise normalization.
+
+The run using the same organization/user identity returned by ingestion successfully retrieved evidence and generated grounded answers for the first two scenarios; Static Validation passed and resolved citation metadata.
+
+A later run using a different organization/user identity returned no evidence for the first two scenarios, while the third scenario retrieved three documents and produced a qualified partial answer. This is an unresolved tenant-scope/retrieval consistency observation. It is not proof of either correct isolation or a confirmed data leak. Inspect authorization catalogue scoping, Qdrant payload filters, and the exact document ownership/access metadata before drawing a security conclusion.
+
+The E2E script's Passed 3/3 summary means the workflow completed and its static validation checks passed under the script's current criteria. It does not mean every scenario received a fully answered response or that semantic answer quality was independently verified.
+
+### Next project milestones
+
+1. Complete and report Layer 1 retrieval evaluation using the frozen evaluation corpus and independently reviewed relevance judgments. Audit existing evaluation artifacts and scripts before creating duplicate tooling.
+2. Implement the application backend: FastAPI entry point, authenticated chat API, graph composition/invocation, trusted citation resolution, and protected document-viewing routes.
+3. Implement the frontend chat experience, clickable citation controls, and document viewer.
+4. Add Layer 2 end-to-end answer evaluation after the application integration contract is stable.
+
+### Important implementation boundaries
+
+- The original user query remains the target for evaluation and Generation; rewritten queries are retrieval-only.
+- Hypothetical answers are retrieval aids, never evidence or citations.
+- Reuse the one existing RetrievalOrchestrator; do not create a parallel retrieval pipeline.
+- Keep request-scoped evidence IDs separate from stable chunk IDs.
+- Generation and Static Validation must receive the same ordered evidence view.
+- Static validation checks schema and citation-ID existence/mapping, not semantic claim support.
+- Never expose storage paths, private URLs, or authorization details to the LLM.
+- A citation ID is not an authorization grant. Every document-view request must enforce current-user and document-level access.
+- Do not claim production readiness from unit tests or the local E2E smoke test.

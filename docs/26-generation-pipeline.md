@@ -12,7 +12,7 @@ The implementation described here is present in:
 - `tests/agent/test_generation.py`
 - `tests/workflows/test_generation.py`
 
-This page documents the current code, not planned functionality. Request-scoped citation-ID existence checks and Generation streaming are implemented. Semantic claim-to-source verification, citation-to-document resolution, document viewing, and end-to-end orchestration remain outside the current implementation.
+This page documents the current code, not planned functionality. Request-scoped citation-ID existence checks and Generation streaming are implemented. Semantic claim-to-source verification, citation-to-document resolution, protected document viewing, and HTTP/API integration remain outside the current implementation. The end-to-end LangGraph RAG workflow itself is implemented in `app/workflows/rag/graph.py` and documented below.
 
 ## 26.1 Package structure
 
@@ -312,3 +312,19 @@ flowchart TD
 ### Graph configuration
 
 `RAGWorkflowConfig` defines `max_retrieval_attempts=3` and `compression_document_threshold=15`. Both values are validated and can be overridden when constructing the graph.
+
+## 26.14 End-to-end workflow smoke test
+
+The live workflow smoke-test runner is `scripts/workflow_E2E.py`. It constructs the application dependencies and invokes the LangGraph workflow for three scenarios: a simple company-policy question without history, a follow-up with Human/AI conversation history, and a whitespace-heavy query.
+
+A synthetic two-page employee leave policy PDF was ingested and indexed for the smoke test. The ingestion output reported nine Qdrant chunks and active indexing. Using the same organization/user identity returned by ingestion, the first two scenarios retrieved evidence, generated grounded answers, and passed Static Validation with citation metadata resolved.
+
+A subsequent run with a different organization/user identity returned no evidence for the first two scenarios but did retrieve three documents for the third scenario, producing a qualified partial answer. This inconsistency remains an investigation item. It does not prove cross-tenant isolation and does not, by itself, prove a cross-tenant data leak. Inspect authorization catalogue scoping, document ownership/access metadata, and the actual Qdrant payload filters before drawing a security conclusion.
+
+The script currently counts successful workflow completion and Static Validation, not full semantic answer correctness. A `3/3` script summary must not be interpreted as all three responses being fully answered or independently quality-reviewed.
+
+Warnings observed during local runs included unauthenticated Hugging Face Hub requests and the deprecated `fitz` API. They did not stop the reported workflow run; the full test suite also reported a LangChain community-package deprecation warning.
+
+## 26.15 Current workflow verification
+
+The user reported `uv run pytest tests/workflows -v`: **45 passed in 29.84 seconds**, and `pytest -v`: **393 passed, 2 warnings in 163.43 seconds**. These are local user-reported results, not CI or production verification.

@@ -239,3 +239,46 @@ Implemented evaluation-only structured question generation:
 - Validation performed in Windows Sandbox: both Python files compile; all 100 evidence groups and references validate against 485 frozen catalogue chunks; validation-only run succeeded once; mock structured-agent tests passed, including rejecting context-dependent output when context is empty.
 - No real LLM generation call has been run yet (sandbox networking is disabled); API/model compatibility and generated content quality still need a small live smoke test with `--limit 1`, then the full 100-candidate run.
 - No production/application Python files changed; no Qdrant data, vectors, payloads, collections or ingestion were modified.
+
+---
+
+# Current SaviraCortex handoff — 5 November 2026
+
+This checkpoint supersedes the earlier task-specific handoff status where it conflicts. The detailed evaluation dataset history and constraints below remain useful as provenance, but the old instruction that the current task is only evidence-group preparation is no longer the current project objective.
+
+## Overall implementation status
+
+The end-to-end RAG workflow is implemented in app/workflows/rag/ and uses the existing RetrievalOrchestrator. It includes input validation, retrieval, evidence sufficiency evaluation, bounded retrieval expansion, evidence accumulation and chunk exclusion, conditional context compression, Generation, and deterministic Static Validation.
+
+Verified user-reported test results:
+- uv run pytest tests/workflows -v: 45 passed in 29.84s.
+- pytest -v: 393 passed, 2 warnings in 163.43s.
+- Retrieval exclusion focused suite: 49 passed in 92.79s.
+
+The graph uses a maximum of three total retrieval attempts. The compression gate is based only on accumulated unique retrieved-document count greater than 15; token estimates are diagnostic only.
+
+## End-to-end smoke test
+
+scripts/workflow_E2E.py runs three scenarios: a simple policy query, a follow-up with conversation history, and a whitespace-heavy query. A synthetic employee leave policy fixture was ingested and indexed with nine Qdrant chunks.
+
+Using the organization/user identity created by ingestion, the first two scenarios retrieved evidence, generated grounded answers, and passed Static Validation. A later run with a different tenant identity returned no evidence for two scenarios but retrieved three documents for the third. Treat this as an unresolved tenant-scope/retrieval consistency finding; do not claim that cross-tenant isolation is proven or that a leak is confirmed without inspecting authorization and Qdrant filters.
+
+The script's Passed 3/3 currently reflects workflow/static-validation completion, not a guarantee that every answer was complete or semantically correct.
+
+## Next work
+
+1. Finish Layer 1 retrieval evaluation. Existing artifacts include the frozen chunk catalogue/corpus lock, evidence-group candidates, generated question datasets, relevance-judgment files, metric code, and retrieval evaluation/scoring scripts. Audit and reuse them; do not regenerate or overwrite existing benchmark artifacts without explicit approval. Independently verify relevance judgments and benchmark readiness before treating results as authoritative.
+2. Then implement the application backend and frontend: FastAPI/chat workflow integration, authenticated citation resolution and protected document viewing, followed by chat UI, clickable citations, and viewer integration.
+3. Add Layer 2 answer/faithfulness evaluation after the end-to-end application contract is stable.
+
+## Safety and architecture invariants
+
+- The original user query remains the target for evaluation and Generation; rewritten queries are retrieval-only.
+- Hypothetical answers are retrieval aids, never evidence or citations.
+- Reuse the one existing RetrievalOrchestrator; do not create a parallel retrieval pipeline.
+- Keep request-scoped evidence IDs separate from stable chunk IDs.
+- Generation and Static Validation must receive the same ordered evidence view.
+- Static validation checks schema and citation-ID existence/mapping, not semantic claim support.
+- Never expose storage paths, private URLs, or authorization details to the LLM.
+- Citation references do not grant access; enforce authorization on every document request.
+- Do not claim production readiness based solely on local tests or the smoke test.

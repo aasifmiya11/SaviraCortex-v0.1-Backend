@@ -14,6 +14,7 @@ The repository has several independent Python scripts and no unified CLI applica
 | `qdrant_summary_store.py` | Counts/lists/shows document-version summary points with optional payload filters |
 | `candidate_documents.py` | Generates and prints candidate document versions from an authorized PostgreSQL catalogue and Qdrant summary similarity |
 | `reconcile_indexes.py` | Dry-runs by default; with `--apply`, synchronizes Qdrant chunk lifecycle payloads and re-upserts summary points from PostgreSQL |
+| `workflow_E2E.py` | Runs three end-to-end LangGraph RAG smoke-test scenarios (simple query, conversation follow-up, whitespace-heavy query) against configured services |
 
 ## Common invocations
 
@@ -32,6 +33,9 @@ uv run python scripts/reconcile_indexes.py --apply
 
 # Search Qdrant BM25
 uv run python scripts/qdrant_bm25.py "leave policy" --organization-id <ORG_UUID>
+
+# Run the live RAG workflow smoke test
+uv run python scripts/workflow_E2E.py --organization-id <ORG_UUID> --user-id <USER_UUID>
 ```
 
 The ingestion demo creates a new tenant/user each run; it is not a production upload command. The reconciliation script does not rebuild missing chunk vectors or rerun PDF extraction.

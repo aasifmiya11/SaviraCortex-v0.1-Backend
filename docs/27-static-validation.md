@@ -1,6 +1,6 @@
 # 27. Static Validation and Citation Mapping
 
-**Status:** implemented; all 6 Static Validation tests passed as part of the combined 17-test run reported on 4 November 2026.
+**Status:** implemented. The 6 Static Validation agent/unit tests passed in the combined 17-test Generation/Validation run reported on 4 November 2026; the 4 workflow adapter tests are included in the 45-test workflow-suite pass reported on 5 November 2026.
 
 ## Purpose
 
@@ -81,7 +81,7 @@ Generation Agent remains responsible for prompt evidence preparation, model invo
 
 `validate_generation_output()` is the broader post-generation operation. The caller must pass the original ordered candidate list used for generation.
 
-The workflow adapter `create_static_validation_node(validator)` in `app/workflows/rag/nodes/static_validation.py` receives an application-configured `StaticValidationLayer`. Its synchronous node reads `generation_output` and the original `retrieved_documents` from graph state, calls `validate_generation_output()`, and stores the returned `GenerationValidationResult` in `validation_result`. It raises a clear `ValueError` if Generation has not populated its output. It does not duplicate validation logic, modify the Generation output, or reconstruct/reorder evidence. The graph's routing/final-response handling can inspect `validation_result.is_valid`, `errors`, `warnings`, and `citations`.
+The workflow adapter `create_static_validation_node(validator)` in `app/workflows/rag/nodes/static_validation.py` receives an application-configured `StaticValidationLayer`. Its synchronous node reads `generation_output` and the same ordered evidence view used by Generation (`context_documents` when compression ran, otherwise `retrieved_documents`), calls `validate_generation_output()`, and stores the returned `GenerationValidationResult` in `validation_result`. It raises a clear `ValueError` if Generation has not populated its output. It does not duplicate validation logic, modify the Generation output, or reconstruct/reorder evidence. The graph's routing/final-response handling can inspect `validation_result.is_valid`, `errors`, `warnings`, and `citations`.
 
 ## Clickable citations: future responsibility split
 
@@ -116,4 +116,4 @@ Reported result: **17 passed in 6.14 seconds** — 11 Generation Agent tests and
 - API routing, protected document delivery, page navigation, and frontend citation rendering are future work.
 - A future resolver must use trusted document identifiers and check permissions on every document request.
 
-Recommended order: integrate the layer through the end-to-end LangGraph workflow while preserving the original ordered retrieval candidates; implement a citation resolver using existing repository and permission-service contracts; establish the FastAPI entry point and router; implement protected document viewing; then add frontend citation rendering. See [Remaining implementation roadmap](28-remaining-implementation-roadmap.md).
+The LangGraph integration is complete. Remaining application work is to implement a citation resolver using existing repository and permission-service contracts, establish the FastAPI entry point and authenticated chat/document routes, implement protected document viewing, and then add frontend citation rendering. See [Remaining implementation roadmap](28-remaining-implementation-roadmap.md).

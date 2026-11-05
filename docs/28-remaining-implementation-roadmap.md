@@ -1,6 +1,6 @@
 # 28. Remaining Implementation Roadmap
 
-**Status date:** 4 November 2026  
+**Status date:** 5 November 2026  
 **Scope:** Remaining application coding work after the Generation Agent and Static Validation Layer were implemented and their focused tests passed.
 
 This page is an implementation roadmap, not a claim that the listed future components already exist. Existing source code remains authoritative. The roadmap separates completed components, the next integration milestone, and later application work so that the next phase does not duplicate existing functionality.
@@ -32,15 +32,15 @@ Reported result: **17 passed in 6.14 seconds** (11 Generation Agent tests and 6 
 There are two different orchestration responsibilities:
 
 1. **Existing retrieval orchestration:** `RetrievalOrchestrator` is already implemented in `app/services/retrieval/retrieval_service.py`. Its public operation is asynchronous `retrieve(...)`. It returns a dictionary containing `selected_candidates` and retrieval diagnostics such as counts, generated queries, branches and expansion details.
-2. **Remaining end-to-end orchestration:** A new LangGraph workflow still needs to coordinate the existing retrieval orchestrator, Generation Agent and Static Validation Layer to produce one validated RAG response.
+2. **Completed end-to-end orchestration:** The LangGraph RAG workflow now coordinates the existing retrieval orchestrator, evidence evaluation, bounded retrieval expansion, optional context compression, Generation Agent and Static Validation Layer to produce a validated workflow result.
 
 The Multi-Query Generator already uses a one-node LangGraph, but that is not the end-to-end RAG graph.
 
 **Implementation rule:** The new graph must call the existing retrieval orchestrator. It must not reimplement authorization, multi-query generation, candidate selection, retrieval branches, fusion, reranking or adaptive-K behavior.
 
-## 28.3 Next milestone: end-to-end LangGraph orchestration
+## 28.3 Completed milestone: end-to-end LangGraph orchestration
 
-The next coding milestone is to design and implement the LangGraph coordinator.
+This milestone was completed on 5 November 2026. The design checklist below records the component contracts and implementation requirements that were used; the current verified implementation status is summarized in section 28.10.
 
 ### A. Inspect and freeze component contracts
 
@@ -207,24 +207,26 @@ Use the pinned library APIs and the actual evaluation objective. Do not introduc
 
 After integration, run the focused tests, relevant retrieval/service tests, graph integration tests and then the full test suite in the appropriate test environment. Tests requiring PostgreSQL, Redis/Valkey, Qdrant or model credentials must use isolated test resources.
 
-## 28.9 Recommended implementation sequence
+## 28.9 Updated implementation sequence (5 November 2026)
 
 | Order | Work item | Completion condition |
 |---:|---|---|
-| 1 | Inspect/freeze retrieval, Generation and Validation contracts | Inputs, outputs, exceptions and evidence-order invariant documented |
-| 2 | Design typed LangGraph state and final response schema | Graph contract reviewed before implementation |
-| 3 | Implement non-streaming end-to-end LangGraph | Existing components are called without duplicating their logic |
-| 4 | Add graph integration tests | Success, empty evidence, invalid output and failure paths pass |
-| 5 | Implement graph-level streaming | Provisional deltas and final validation semantics are tested |
-| 6 | Implement citation resolver | Trusted document references resolve using real repository/auth contracts |
-| 7 | Establish FastAPI application and chat/document routes | Authenticated API behavior is tested |
-| 8 | Implement frontend citation controls and document viewer | Citations open only authorized documents |
-| 9 | Complete Layer 1 and Layer 2 evaluation work | Reproducible reports are generated and reviewed |
-| 10 | Run broader regression and operational checks | Relevant suite and integration checks pass |
+| 1 | Complete Layer 1 retrieval evaluation | Existing corpus, datasets, judgments and scripts audited; metrics validated; reproducible experiment report reviewed |
+| 2 | Establish FastAPI application and authenticated chat API | Graph composition, request/response schemas, authentication and API tests are complete |
+| 3 | Implement trusted citation resolution and protected document viewing | Document/version resolution uses real repository and authorization contracts; every open is authorized |
+| 4 | Implement frontend chat and citation interaction | Chat consumes the API; citations open only authorized documents in the viewer |
+| 5 | Add frontend document viewer and page navigation | Viewer handles loading, denied access, missing documents and supported page navigation |
+| 6 | Add Layer 2 end-to-end RAG evaluation | Answer quality, faithfulness, citation behavior and end-to-end latency are evaluated after API contracts stabilize |
+| 7 | Run broader regression and operational checks | Focused, workflow, full-suite and isolated integration checks pass |
+| 8 | Add graph-level streaming when the non-streaming API/UI contract is stable | Provisional deltas are never represented as a validated final response |
+| 9 | Complete deployment, observability and operational hardening | Readiness checks, logging, metrics, secrets and failure handling are reviewed |
+| 10 | Maintain regression evaluation | Retrieval and answer-quality benchmarks run on approved changes |
 
 ## 28.10 Current status summary
 
-**Completed and focused-test-verified:**
+**Completed and locally verified:**
+- End-to-end LangGraph RAG workflow, including input validation, retrieval, evidence evaluation, bounded expansion, conditional context compression, Generation, and Static Validation.
+- 45 workflow tests passed; 393 full-suite tests passed with 2 warnings.
 - Generation Agent implementation.
 - Generation synchronous, asynchronous and streaming interfaces.
 - Request-scoped citation-ID existence checks.
@@ -238,10 +240,9 @@ After integration, run the focused tests, relevant retrieval/service tests, grap
 - Authorization, repository and storage components that must be inspected before citation/document API implementation.
 
 **Next implementation milestone:**
-- End-to-end LangGraph orchestration connecting Retrieval → Generation → Static Validation.
+- Layer 1 retrieval evaluation using the existing frozen corpus, question datasets, relevance judgments, metrics, and runner scripts.
 
 **Not yet implemented as part of this end-to-end workflow:**
-- LangGraph RAG coordinator and its final response contract.
 - Graph-level streaming.
 - Citation resolver and protected document-viewer API.
 - FastAPI application/routes.
@@ -249,3 +250,37 @@ After integration, run the focused tests, relevant retrieval/service tests, grap
 - Completed Layer 1 benchmark/evaluation run and Layer 2 end-to-end RAG evaluation.
 
 This status is scoped to the reviewed source and the focused test output recorded above. It does not claim that the full repository test suite or production deployment has been verified.
+
+---
+
+## 28.11 Authoritative status update — 5 November 2026
+
+This section supersedes earlier roadmap statements that described the end-to-end LangGraph RAG workflow as not yet implemented.
+
+### Completed
+
+- End-to-end LangGraph graph in `app/workflows/rag/graph.py`, with typed workflow state, conditional routing, injected node dependencies, and a three-total-attempt retrieval limit.
+- Reuse of the existing RetrievalOrchestrator for initial and subsequent retrieval attempts.
+- Backward-compatible chunk exclusion across dense and BM25 retrieval branches.
+- Input validation, Retriever, Evidence Sufficiency Evaluator, Retrieval Expansion, Context Compression, Generation, and Static Validation workflow nodes.
+- Context compression activation based only on accumulated unique retrieved-document count greater than 15.
+- Workflow tests: 45 passed in 29.84 seconds.
+- Full repository suite: 393 passed with 2 warnings in 163.43 seconds.
+- Local E2E smoke-test runner and a synthetic indexed policy PDF fixture.
+
+### Current findings and limits
+
+- The local E2E run using the ingestion-created organization/user identity successfully retrieved evidence and generated grounded answers for the first two scenarios.
+- A later run under a different tenant identity showed inconsistent evidence availability across the three scenarios. Tenant isolation and retrieval scoping require a focused investigation; neither a security pass nor a confirmed leak should be claimed yet.
+- The E2E script's current pass count reflects workflow completion and static validation, not semantic correctness or full-answer coverage.
+- No FastAPI chat/document API, citation resolver, protected document-viewer route, or frontend chat/citation viewer has been implemented as part of this workflow.
+
+### Updated next sequence
+
+1. Audit and complete Layer 1 retrieval evaluation using the existing frozen corpus, generated questions, relevance judgments, metrics, and scripts. Validate benchmark quality before reporting scores.
+2. Implement the backend: FastAPI application and authenticated chat API, composition of the existing graph, trusted citation resolution, and protected document viewing.
+3. Implement the frontend: chat interface, clickable evidence citations, and an authorized document viewer with page navigation where supported.
+4. Add Layer 2 answer-quality/faithfulness evaluation after the end-to-end API contract is stable.
+5. Investigate tenant-scoped retrieval behavior before treating the E2E setup as a security validation.
+
+Do not duplicate the existing retrieval or graph components when building the API. The backend should compose and invoke the current graph, and every document open must perform authorization.

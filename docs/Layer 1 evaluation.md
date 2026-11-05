@@ -442,4 +442,23 @@ The frozen corpus and the first candidate-generation utility are now in place.
 
 The candidate generator reads and validates the exact locked Qdrant corpus before calling the configured LLM. It writes candidate questions and proposed source-chunk links only. It does not generate reference answers, assign relevance grades, modify Qdrant, or implement the retrieval evaluator.
 
-**Current decision:** Layer 1 evaluation scope is agreed and the seven-document, 485-chunk corpus is locked and full-text verified. The candidate-generation script is implemented, but the 100 questions have not yet been generated or independently reviewed. No canonical benchmark, retrieval evaluator, or benchmark run is complete.
+**Current decision (updated 5 November 2026):** Layer 1 evaluation scope is agreed and the seven-document, 485-chunk corpus is locked and full-text verified. The workspace now contains evidence-group candidates, generated question datasets, relevance-judgment artifacts, metric code, and retrieval evaluation/scoring scripts. The remaining work is to audit and reuse these artifacts, independently review relevance judgments and benchmark readiness, validate metric formulas and edge cases, and run/report reproducible experiments. The existence of these files does not by itself establish benchmark approval or valid final scores.
+
+---
+
+## Repository checkpoint — 5 November 2026
+
+The retrieval evaluation work has progressed beyond the initial planning stage. The workspace currently contains:
+
+- A frozen chunk catalogue and corpus lock.
+- The evidence-group candidate dataset.
+- Generated question datasets, including a cleaned output.
+- Relevance-judgment artifacts, including a hybrid-successful-run judgment file.
+- Metric implementation in `evaluation/metrics.py`.
+- Retrieval capture, evaluation runner, worker, scoring, and judgment-preparation scripts under `evaluation/`.
+
+This is a filesystem inventory, not a claim that the benchmark is fully approved or that the latest evaluator run has passed. Before treating results as authoritative, audit the existing datasets and scripts, confirm the frozen corpus identity, independently review relevance judgments for completeness and correctness, validate metric formulas/edge cases, and run a reproducible benchmark with a recorded configuration and report.
+
+The end-to-end RAG workflow is now implemented and locally verified. Layer 1 retrieval evaluation is the next project milestone. Backend/API and frontend integration follow; Layer 2 answer-quality evaluation should be added after the application workflow contract is stable.
+
+Do not overwrite existing generated datasets, judgment files, or experiment results while auditing. Create versioned outputs for new runs.
