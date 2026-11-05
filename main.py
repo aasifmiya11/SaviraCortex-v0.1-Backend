@@ -1,5 +1,5 @@
 def main():
-    print("Hello from voice-ai!")
+    print("Hello from SaviraCortex-Backend!")
 
 
 if __name__ == "__main__":

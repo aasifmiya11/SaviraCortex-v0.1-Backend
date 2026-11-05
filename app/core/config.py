@@ -33,6 +33,19 @@ class Settings:
     QDRANT_API_ENDPOINT = os.getenv("QDRANT_API_ENDPOINT")
     QDRANT_COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME")
 
+    # Firebase Admin SDK configuration for server-side ID-token verification.
+    FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID")
+    FIREBASE_DATABASE_URL = os.getenv("FIREBASE_DATABASE_URL")
+    FIREBASE_SERVICE_ACCOUNT_PATH = os.getenv(
+        "FIREBASE_SERVICE_ACCOUNT_PATH",
+        os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "app",
+            "secrets",
+            "firebase-service-account.json",
+        ),
+    )
+
     AIVEN_POSTGRES_URI = os.getenv("AIVEN_POSTGRES_URI")
     if AIVEN_POSTGRES_URI and AIVEN_POSTGRES_URI.startswith("postgres://"):
         AIVEN_POSTGRES_URI = AIVEN_POSTGRES_URI.replace(

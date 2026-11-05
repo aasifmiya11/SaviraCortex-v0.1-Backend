@@ -1,0 +1,5 @@
+$kind: http-request
+name: API Home
+method: GET
+url: '{{base_url}}/api/v1/'
+order: 1000

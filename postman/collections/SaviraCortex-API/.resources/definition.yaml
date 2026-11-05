@@ -1,0 +1,11 @@
+$kind: collection
+name: SaviraCortex API
+variables:
+  - key: base_url
+    value: 'http://localhost:8000'
+  - key: bearer_token
+    value: ''
+  - key: organization_name
+    value: 'Acme Corp'
+  - key: admin_name
+    value: 'John Doe'

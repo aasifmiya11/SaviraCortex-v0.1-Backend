@@ -46,3 +46,4 @@ evals/results/
 /tests/evaluation/
 
 secrets/
+app/secrets/

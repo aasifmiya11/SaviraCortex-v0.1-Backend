@@ -2,10 +2,10 @@
 
 **Document:** Authentication architecture handoff  
 **Date:** 5 November 2026  
-**Status:** Core architecture agreed; implementation pending code inspection and development  
+**Status:** Core architecture agreed; initial API v1 endpoints are implemented in the existing `app/` package, pending user testing  
 **Purpose:** Durable project memory for future GPT instances: agreed behavior, architecture, implementation responsibilities, and current progress.
 
-> **Progress accuracy:** The architecture below is agreed with the user. Authentication code has not yet been implemented or verified. Do not describe endpoints, models, Firebase Admin initialization, invitation flow, or sessions as already existing. Inspect the backend workspace before coding.
+> **Progress accuracy (5 November 2026):** API v1 home, health, and organization signup source files have been migrated into the established `app/` package. Runtime and tests remain pending developer verification. `firebase-admin` is declared in `pyproject.toml`, but `uv.lock` synchronization is pending. Signup currently writes role `admin` to match the current membership role constraint (`owner`, `admin`, `member`), while the agreed architecture uses the semantic label `org_admin`. Firebase session/login, `/auth/me`, logout, invitation APIs, and broader RBAC are still pending. See Section 13 for implementation status.
 
 ## 1. Product and architectural context
 
@@ -284,3 +284,17 @@ Frontend can be built/integrated after backend API contract is established; it i
 - Public signup creates organizations only; ordinary members join via admin invitation and self-activation.
 - Firebase manages identity credentials; FastAPI/application DB manages internal identity mapping, organization, membership, and authorization.
 - Enforce tenant authorization server-side on every organization-scoped operation.
+
+
+## 13. Implementation progress — 5 November 2026
+
+Initial API v1 source files are now placed inside the established `app/` package:
+- `app/main.py` — FastAPI entry point; API docs and OpenAPI are configured under `/api/v1` (launch target: `uvicorn app.main:app`).
+- `app/api/v1/router.py` — central v1 router.
+- `app/api/v1/endpoints/home.py` — `GET /api/v1/`.
+- `app/api/v1/endpoints/health.py` — `GET /api/v1/health`, including a `SELECT 1` database probe.
+- `app/api/v1/endpoints/auth.py` — `POST /api/v1/auth/organizations/signup`.
+- Signup schema, Firebase ID-token verifier, DB dependency, auth repository, and signup service now reside respectively under `app/schemas/v1/`, `app/core/`, `app/repositories/`, and `app/services/auth/`.
+- Signup trusts email and UID only from a verified Firebase ID token, requires email verification, and writes User + Organization + OrganizationMembership within one DB transaction. It rejects duplicate Firebase UID/email and uses role `admin`, which is accepted by the current membership role constraint (`owner`, `admin`, `member`). Mapping to the agreed `org_admin` label needs a DB schema migration decision.
+- `firebase-admin` was added to `pyproject.toml`; `uv.lock` has not yet been refreshed.
+- The schema test import was updated to the new `app.schemas.v1.auth` location. Tests and runtime startup remain to be verified by the developer; do not claim production readiness until dependency lock, environment, imports, and DB/Firebase behavior are checked.
