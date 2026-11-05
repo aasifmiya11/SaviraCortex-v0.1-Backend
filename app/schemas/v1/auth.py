@@ -23,3 +23,19 @@ class OrganizationSignupResponse(BaseModel):
     user_id: str
     organization_id: str
     role: Literal["owner", "admin", "member"]
+
+
+class OrganizationMembershipSummary(BaseModel):
+    organization_id: str
+    organization_name: str
+    role: Literal["owner", "admin", "member"]
+
+
+class AuthenticatedUserResponse(BaseModel):
+    user_id: str
+    firebase_uid: str
+    email: str | None
+    phone_number: str | None
+    display_name: str | None
+    sign_in_provider: str | None
+    organizations: list[OrganizationMembershipSummary]
