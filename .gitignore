@@ -1,7 +1,45 @@
-.venv
+# Python environments
+.venv/
+venv/
 .env
-__pycache__
-data/
-# Retrieval evaluation workspace (datasets, corpus, results, reports, scripts, and docs)
+.env.*
+!.env.example
+
+# Python bytecode and test/tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local secrets, logs, and temporary files
+*.log
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+
+# Local application data and source documents
+/data/
+evals/dataset_synthesizer/corpus/source_pdfs/
+
+# Generated DeepEval cache and dataset artifacts.
+# The generated Goldens may contain excerpts from private source documents.
+.deepeval/
+evals/datasets/
+
+# Local retrieval-evaluation workspace (kept out of this repository)
 /evaluation/
 /tests/evaluation/

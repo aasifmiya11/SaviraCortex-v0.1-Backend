@@ -1,0 +1,57 @@
+{
+  "global": {
+    "minimum_total_goldens": 50,
+    "target_total_goldens": 55,
+    "maximum_total_goldens": 60,
+    "minimum_goldens_per_pdf": 1,
+    "maximum_goldens_per_pdf": 10
+  },
+  "excluded_documents": [
+    "Sajid_Miya_AI_Engineer_resume.pdf"
+  ],
+  "context": {
+    "chunk_size": 1000,
+    "chunk_overlap": 200,
+    "minimum_chunks_per_golden": 1,
+    "maximum_chunks_per_golden": 15,
+    "max_concurrent": 10
+  },
+  "documents": {
+    "2306.07303v1.pdf": {
+      "min_goldens": 1,
+      "max_goldens": 10
+    },
+    "AASIFMIYA_025NEB756.pdf": {
+      "min_goldens": 1,
+      "max_goldens": 10
+    },
+    "capstone_proposal.pdf": {
+      "min_goldens": 1,
+      "max_goldens": 10
+    },
+    "El_Nino.pdf": {
+      "min_goldens": 1,
+      "max_goldens": 10
+    },
+    "HiPPA.pdf": {
+      "min_goldens": 1,
+      "max_goldens": 10
+    },
+    "organized.pdf": {
+      "min_goldens": 1,
+      "max_goldens": 10
+    },
+    "SaviraNous.pdf": {
+      "min_goldens": 1,
+      "max_goldens": 10
+    },
+    "Sorting_Algos.pdf": {
+      "min_goldens": 1,
+      "max_goldens": 10
+    },
+    "UMS_report.pdf": {
+      "min_goldens": 1,
+      "max_goldens": 10
+    }
+  }
+}
