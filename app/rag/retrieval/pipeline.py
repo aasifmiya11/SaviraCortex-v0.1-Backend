@@ -5,8 +5,8 @@ from uuid import UUID
 
 from langchain_core.documents import Document
 
-from .qdrant_bm25 import bm25_retriever
-from .dense import dense_retriever
+from .qdrant_bm25 import bm25_retriever as default_bm25_retriever
+from .dense import dense_retriever as default_dense_retriever
 from .fusion import reciprocal_rank_fusion
 
 
@@ -15,6 +15,9 @@ class HybridRetrievalPipeline:
         self,
         bm25_weight: float = 1.0,
         dense_weight: float = 1.0,
+        *,
+        bm25_retriever=None,
+        dense_retriever=None,
     ):
         if (
             bm25_weight < 0
@@ -27,6 +30,8 @@ class HybridRetrievalPipeline:
 
         self.bm25_weight = bm25_weight
         self.dense_weight = dense_weight
+        self.bm25_retriever = bm25_retriever or default_bm25_retriever
+        self.dense_retriever = dense_retriever or default_dense_retriever
 
     def search(
         self,
@@ -66,7 +71,7 @@ class HybridRetrievalPipeline:
         dense = []
 
         if mode in {"hybrid", "bm25"}:
-            bm25 = bm25_retriever.search(
+            bm25 = self.bm25_retriever.search(
                 query=query,
                 organization_id=organization_id,
                 k=candidate_k,
@@ -79,7 +84,7 @@ class HybridRetrievalPipeline:
             )
 
         if mode in {"hybrid", "dense"}:
-            dense = dense_retriever.search(
+            dense = self.dense_retriever.search(
                 query=query,
                 organization_id=organization_id,
                 k=candidate_k,

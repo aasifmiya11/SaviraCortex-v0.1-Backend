@@ -35,11 +35,14 @@ dist/
 /data/
 evals/dataset_synthesizer/corpus/source_pdfs/
 
-# Generated DeepEval cache and dataset artifacts.
-# The generated Goldens may contain excerpts from private source documents.
+# Generated DeepEval cache, datasets, and evaluation reports.
+# These artifacts may contain excerpts from private source documents.
 .deepeval/
 evals/datasets/
+evals/results/
 
 # Local retrieval-evaluation workspace (kept out of this repository)
 /evaluation/
 /tests/evaluation/
+
+secrets/

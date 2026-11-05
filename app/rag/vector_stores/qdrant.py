@@ -20,9 +20,12 @@ from .qdrant_payload_indexes import ensure_payload_indexes
 
 class QdrantVectorStoreClient:
 
-    def __init__(self):
+    def __init__(self, collection_name: str | None = None):
+        """Connect to the configured collection or an explicitly isolated one."""
 
-        self.collection_name = settings.QDRANT_COLLECTION_NAME
+        self.collection_name = collection_name or settings.QDRANT_COLLECTION_NAME
+        if not self.collection_name:
+            raise ValueError("QDRANT collection name is not configured.")
 
         # Connect to Qdrant.
         self.client = QdrantClient(

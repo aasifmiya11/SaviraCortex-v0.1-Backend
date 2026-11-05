@@ -56,6 +56,7 @@ class Settings:
     # Isolated retrieval-evaluation resources. Keep these separate from the
     # production Qdrant collections and B2 storage prefix.
     EVAL_ORGANIZATION_ID = os.getenv("SAVIRACORTEX_EVAL_ORGANIZATION_ID")
+    EVAL_USER_ID = os.getenv("SAVIRACORTEX_EVAL_USER_ID")
     EVAL_QDRANT_COLLECTION_NAME = os.getenv(
         "SAVIRACORTEX_EVAL_QDRANT_COLLECTION"
     )
