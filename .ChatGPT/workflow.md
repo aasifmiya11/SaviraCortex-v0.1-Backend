@@ -630,3 +630,66 @@ The E2E script's Passed 3/3 summary means the workflow completed and its static 
 - Never expose storage paths, private URLs, or authorization details to the LLM.
 - A citation ID is not an authorization grant. Every document-view request must enforce current-user and document-level access.
 - Do not claim production readiness from unit tests or the local E2E smoke test.
+
+---
+
+# Authentication architecture checkpoint — SaviraCortex (5 November 2026)
+
+## Status — decisions frozen; implementation not yet started
+
+The user and assistant finalized the initial authentication/authorization architecture in conversation on 2026-11-05. Treat this as the current agreed design for future work. **Do not report the authentication features as implemented.** No auth endpoint, Firebase Admin integration, database auth models, invitation flows, or cookie sessions have yet been verified as implemented in code. The next work is to inspect the actual backend repository structure/configuration and then implement incrementally.
+
+## Core decisions
+
+- SaviraCortex is organization-centric and multi-tenant.
+- Public signup is exclusively **Organization Signup**. The person signing up is a person/user and simultaneously creates a new organization, then becomes its initial organization admin.
+- One signup operation conceptually creates three records: User, Organization, and Organization Membership. User UUID and Organization UUID are separate identifiers; membership links them.
+- **An admin is a user, not a separate identity type.** Admin role is granted through the user's membership in an organization.
+- Multiple admins per organization are supported.
+- Ordinary members are not publicly self-registered. An organization admin invites them; the invited person activates/authenticates their own account using an email verification or Firebase email-link/magic-link flow. The admin never sets or knows the invitee's password.
+- Sign-in uses the same identity/authentication system for organization admins and members. Users may have memberships in more than one organization; after authentication, organization context must be selected/resolved from authorized memberships as needed.
+- If a person attempts to sign in but has no account, do not auto-create a user or organization. Direct them to organization signup or invitation-based activation.
+- Roles are membership-scoped (RBAC), not global user fields. Initial roles proposed: `org_admin`, `member`, `viewer`. Platform-level `super_admin` is a future role and is distinct from organization admin.
+- Admin's initial organization permissions include organization dashboard/settings, member invitations and role management (within allowed rules), departments, knowledge/document ingestion, deletion, archiving, and unarchiving. Member uses authorized chatbot/content; viewer is read-only.
+- Department creation and additional member-management features are future organization dashboard capabilities; they are not part of the first signup endpoint.
+
+## Identity, backend, database, and session responsibilities
+
+- Firebase Authentication is the identity provider: identity verification, email verification, and configured password/email-link authentication.
+- FastAPI handles Firebase token verification, internal identity resolution, organization membership resolution, authorization, and session orchestration.
+- PostgreSQL is the proposed application database (verify actual configured database before implementation; do not treat PostgreSQL as confirmed just from this proposal).
+- Proposed core entities: `users` (internal UUID, unique Firebase UID, email, name, status); `organizations` (UUID, name, status); `organization_memberships` (UUID, user UUID, organization UUID, role, status, optional department); `departments`; `invitations` (organization, email, intended role, invited_by, expiry, status).
+- Browser session should use secure server-managed cookies: HttpOnly, Secure in production, appropriate SameSite, expiration/logout invalidation, and CSRF protection for state-changing cookie-authenticated requests. Exact session implementation remains to be selected based on current backend dependencies/conventions.
+- The backend must resolve trusted `user_id`, `organization_id`, membership, and role from verified identity plus database records. Never trust client-submitted UUIDs/roles alone. Enforce organization/tenant isolation for chatbot, retrieval, document operations, and every private document request.
+- Signup operations span Firebase and database; these are not a single distributed transaction. Implement idempotency and partial-failure recovery. Use DB transactions for local user/organization/membership consistency; consider pending registration states/compensation where needed.
+
+## Planned API sequence (not yet implemented)
+
+1. `POST /api/v1/auth/organizations/signup` — register organization and initial admin.
+2. `POST /api/v1/auth/session` — exchange/verify Firebase identity and establish session.
+3. `GET /api/v1/auth/me` — current user and authorized memberships.
+4. `POST /api/v1/auth/logout` — invalidate session.
+5. `POST /api/v1/organizations/{organization_id}/invitations` — admin invites member.
+6. `POST /api/v1/auth/invitations/accept` — verify invite and activate membership.
+7. `GET /api/v1/organizations/{organization_id}/members` — list organization members.
+
+The signup Pydantic payload will collect organization details and registering admin/person details (e.g. organization name/type, admin full name, email). Do not put plaintext passwords into the application database; credentials should be handled through Firebase's supported client/auth flow. Exact payload fields, email activation sequencing, and endpoint contracts need to be designed against the existing code before implementation.
+
+## Implementation order / next action
+
+1. Locate and inspect the actual FastAPI backend workspace, existing app structure, config/env setup, database/ORM/migrations, and Firebase credentials configuration. Be careful: workspace profile roots vary; do not assume the default workspace is the project.
+2. Confirm actual database and auth packages/config before committing to SQLAlchemy/ORM, PostgreSQL, or cookie-session technology.
+3. Implement Firebase Admin initialization safely (secrets must not be committed or printed).
+4. Define Pydantic signup schemas and User/Organization/Membership persistence models/migrations.
+5. Implement organization signup with validation, uniqueness constraints, transaction/idempotency/recovery, and initial `org_admin` membership.
+6. Implement Firebase verification and session/me/logout.
+7. Implement invitations and activation; then RBAC dependencies and organization-scoped authorization.
+8. Integrate auth context with chatbot API only after auth/session contracts are tested.
+
+## Current progress summary for future GPT handoff
+
+- RAG workflow: documented in prior checkpoints and implemented/test results are user-reported as described earlier in this memory.
+- Authentication architecture: discussed and agreed/frozen on 2026-11-05.
+- Authentication coding: **not started / not verified**.
+- Frontend: not needed to begin designing or implementing backend auth APIs; can be integrated after the API contracts are established. Frontend will later use Firebase auth flow and backend session APIs.
+- Immediate next step: inspect the actual backend workspace/files; then begin Firebase Admin and the organization signup endpoint. Do not write only a conceptual proposal again unless requested; this memory checkpoint is the handoff reference.
