@@ -8,6 +8,7 @@ from .document_versions import DocumentVersion
 from .organization_roles import OrganizationRole
 from .user_role_assignments import UserRoleAssignment
 from .document_acl import DocumentACL
+from .organization_invitations import OrganizationInvitation
 
 __all__ = [
     "User",
@@ -20,4 +21,5 @@ __all__ = [
     "OrganizationRole",
     "UserRoleAssignment",
     "DocumentACL",
+    "OrganizationInvitation",
 ]

@@ -80,7 +80,14 @@ def create_tables() -> None:
     """
 
     # Import models to register them with Base.metadata.
-    from ..models import Organization,User,OrganizationMembership,Document, DocumentVersion
+    from ..models import (
+        Organization,
+        User,
+        OrganizationMembership,
+        OrganizationInvitation,
+        Document,
+        DocumentVersion,
+    )
     Base.metadata.create_all(bind=engine)
 
     print("Database initialized successfully.")

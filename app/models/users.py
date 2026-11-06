@@ -29,7 +29,7 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(
         String(320),
         nullable=True,
-        index=True,
+        unique=True,
     )
 
     phone_number: Mapped[str | None] = mapped_column(

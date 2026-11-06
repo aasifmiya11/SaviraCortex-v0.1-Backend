@@ -54,6 +54,19 @@ class Settings:
 
     AIVEN_REDIS_URI = os.getenv("AIVEN_REDIS_URI")
 
+    # Organization invitation email delivery (SMTP).
+    SMTP_HOST = os.getenv("SMTP_HOST")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USERNAME = os.getenv("SMTP_USERNAME")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+    SMTP_FROM = os.getenv("SMTP_FROM")
+    SMTP_USE_SSL = get_bool("SMTP_USE_SSL", False)
+    SMTP_STARTTLS = get_bool("SMTP_STARTTLS", True)
+    INVITATION_EXPIRY_DAYS = int(os.getenv("INVITATION_EXPIRY_DAYS", "7"))
+    FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
+    if INVITATION_EXPIRY_DAYS < 1:
+        raise ValueError("INVITATION_EXPIRY_DAYS must be at least 1.")
+
     B2_KEY_ID = os.getenv("B2_KEY_ID")
     B2_APPLICATION_KEY = os.getenv("B2_APPLICATION_KEY")
     B2_BUCKET_NAME = os.getenv("B2_BUCKET_NAME")

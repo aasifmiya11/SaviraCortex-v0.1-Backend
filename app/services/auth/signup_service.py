@@ -80,7 +80,7 @@ class OrganizationSignupService:
             id=uuid4(),
             organization_id=organization.id,
             user_id=user.id,
-            role="admin",
+            role="owner",
         )
 
         try:
