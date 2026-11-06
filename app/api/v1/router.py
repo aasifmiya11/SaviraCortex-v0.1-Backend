@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, department_memberships, departments, health, home, invitations, memberships, organization_roles, organizations
+from app.api.v1.endpoints import auth, department_memberships, departments, document_ingestion, health, home, invitations, memberships, organization_roles, organizations
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(home.router)
@@ -12,3 +12,4 @@ api_router.include_router(organization_roles.router)
 api_router.include_router(memberships.router)
 api_router.include_router(department_memberships.router)
 api_router.include_router(invitations.router)
+api_router.include_router(document_ingestion.router)
