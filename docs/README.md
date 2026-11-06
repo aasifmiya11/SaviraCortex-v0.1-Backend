@@ -1,10 +1,9 @@
-# Voice-AI Technical Documentation
+# SaviraCortex — Backend Technical Documentation
 
-**Documentation status:** source-to-documentation audit updated 5 November 2026  
-**Repository:** `E:\\Voice-AI`  
-**Review baseline:** 5 November 2026
+**Repository:** `E:\\SaviraCortex`  
+**Documentation baseline:** 5 November 2026
 
-This documentation describes the implementation present in the repository at the time of review. It is not a product specification and does not imply that planned or placeholder components are implemented. When code and documentation disagree, the implementation is authoritative.
+This documentation describes the implementation present in the SaviraCortex repository at the time of the latest checkpoint. It is an engineering reference, not a product specification. Planned work and unverified assumptions are identified separately. When source code and documentation disagree, the implementation is authoritative.
 
 ## Reading order
 
@@ -37,27 +36,40 @@ This documentation describes the implementation present in the repository at the
 27. [Static validation and citation mapping](27-static-validation.md)
 28. [Remaining implementation roadmap](28-remaining-implementation-roadmap.md)
 29. [Context compression](29-context-compression.md)
+30. [Current application checkpoint](30-current-application-checkpoint.md)
 
 Architecture diagrams are collected in [diagrams/](diagrams/).
 
+## Current application snapshot
+
+The backend now includes a FastAPI application and versioned API routes for health, authentication, organization signup and department management. Firebase Authentication provides Email/Password, Google and Phone identity; Firebase Admin verifies ID tokens on the backend. PostgreSQL stores SaviraCortex users, organizations, memberships and departments.
+
+The Next.js frontend contains a public homepage, login, registration and organization dashboard. The dashboard loads the authenticated profile and organization-specific departments and exposes department creation to owner/admin members.
+
+The earlier document ingestion, indexing, retrieval, LangGraph RAG, generation and static validation components remain part of the backend architecture. The latest implementation and verification boundaries are recorded in [30-current-application-checkpoint.md](30-current-application-checkpoint.md).
+
 ## Important implementation boundaries
 
-- The inspected application is a collection of Python modules and service classes, not a complete runnable web API.
-- Root `main.py` prints a greeting; `app/main.py` prints `hi`. Neither starts an application server.
-- `app/api/v1`, `app/guardrails`, `app/memory`, `app/observability`, `app/schemas`, `app/tasks`, `app/tools`, and `app/utils` contain no implementation files in the reviewed tree.
-- `migrations/` is empty. The current `scripts/create_tables.py` name is misleading: it invokes a destructive reset that drops and recreates registered SQLAlchemy tables after confirmation.
-- The `DepartmentAccessPolicy` model is defined but is not imported by `app.models`' package initializer; it is therefore not registered by the current package import alone.
-- Retrieval currently calls `AuthorizationService` directly; the separate Redis-backed `AuthorizationCacheService` is not wired into the retrieval orchestrator.
-- Six independently implemented agents currently live under `app/agents/`: Document Summarizer, Multi-query Generator, Evidence Sufficiency Evaluator, Retrieval Expansion, Context Compression, and Generation. The Evidence Evaluator is injected into its RAG workflow node; it evaluates evidence sufficiency and reports missing requirements but does not perform retrieval or answer generation. The Retrieval Expansion Agent is injected into its workflow node; it produces a targeted rewritten query and a hypothetical answer for retrieval guidance only, not factual evidence. The Context Compression Agent performs query-focused, one-to-one compression of accumulated retrieved candidates when the LangGraph workflow has more than 15 accumulated unique documents; the count-based graph decision is the only activation gate. It preserves candidate order and metadata while changing only `page_content`; token estimates are diagnostic only. The Generation Agent is injected into its workflow node; it creates a structured, company-grounded answer from the original query, the compressed context view when available, and optional conversation history.
-- The summarizer, Evidence Evaluator, Retrieval Expansion Agent, Context Compression Agent, and Generation Agent are prompt/model/parser chains; the multi-query generator also uses a small LangGraph workflow. The end-to-end RAG workflow is implemented in app/workflows/rag/graph.py and coordinates input validation, the existing RetrievalOrchestrator, evidence evaluation, bounded retrieval expansion, optional context compression, Generation, and Static Validation.
-- The project contains sample PDFs and local data artifacts under `data/`; treat these as fixtures or local artifacts, not production data.
+- A passing schema test is not proof of successful database persistence or endpoint integration.
+- Firebase authentication proves an external identity; SaviraCortex must still resolve the UID to an application user and verify organization membership/role.
+- Hiding a UI control is not authorization. The backend must enforce every organization and role check.
+- The presence of a SQLAlchemy model does not prove that the live database schema is migrated.
+- The current department form creates organization departments; it does not yet assign users to departments.
+- The current frontend pages do not yet constitute a complete chat/citation/document-viewer experience.
+- The previous retrieval E2E tenant-scope inconsistency remains an investigation item, not a confirmed vulnerability or a security pass.
+- Local test results are recorded with the exact command and scope. They are not CI or production verification.
 
-## Audit scope and verification limits
+## Latest reported verification
 
-The audit compared the documentation set against the repository structure and source for the main configuration, database, authorization, PDF, agent, ingestion, registration, indexing, retrieval, storage and operational-script paths. The relevant documentation pages and diagrams were corrected where source behavior differed or required more precise explanation.
+On 5 November 2026 the user reported:
 
-The user reported the following local verification on 5 November 2026: `uv run pytest tests/workflows -v` — 45 passed in 29.84 seconds; `pytest -v` — 393 passed with 2 deprecation warnings in 163.43 seconds; and the focused retrieval-exclusion suite — 49 passed in 92.79 seconds. A live smoke test was also run with `scripts/workflow_E2E.py` against configured services and a synthetic indexed PDF. These results do not constitute CI verification, production deployment, or proof of tenant isolation. See [Testing](21-testing.md) and [Remaining implementation roadmap](28-remaining-implementation-roadmap.md).
+```text
+python -m pytest tests/test_v1_department_schemas.py tests/test_v1_auth_schemas.py tests/services/test_auth_services.py -v
+20 passed in 2.33s
+```
+
+Earlier RAG workflow and full-suite results are retained in [Testing](21-testing.md). No frontend build/lint or department endpoint integration result is claimed by this documentation update.
 
 ## Source-of-truth policy
 
-When code and this documentation disagree, code is authoritative. Update the relevant page when implementation changes. Document uncertainty explicitly rather than inferring undocumented behavior.
+When code and this documentation disagree, code is authoritative. Update the relevant numbered page and the current checkpoint when implementation changes. Record the command, environment and result for verification; document uncertainty rather than inferring behavior.

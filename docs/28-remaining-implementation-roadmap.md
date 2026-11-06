@@ -284,3 +284,36 @@ This section supersedes earlier roadmap statements that described the end-to-end
 5. Investigate tenant-scoped retrieval behavior before treating the E2E setup as a security validation.
 
 Do not duplicate the existing retrieval or graph components when building the API. The backend should compose and invoke the current graph, and every document open must perform authorization.
+
+---
+
+## 28.12 Application/API checkpoint update — 5 November 2026
+
+This section supersedes the earlier statements in sections 28.6 and 28.7 that FastAPI routes and the frontend application were absent. Those statements describe the earlier RAG-only checkpoint and are no longer the current repository state.
+
+### Implemented since the previous checkpoint
+
+- FastAPI application at `app/main.py`, with CORS configuration and versioned router.
+- API documentation endpoints at `/api/v1/docs`, `/api/v1/redoc` and `/api/v1/openapi.json`.
+- Firebase Admin ID-token verification dependency.
+- Authentication routes: `GET /api/v1/auth/me` and `POST /api/v1/auth/organizations/signup`.
+- Organization signup and identity/profile services.
+- Department request/response schemas, repository, service and API routes.
+- Department list access for organization members and create access for organization owners/admins.
+- Next.js homepage, Firebase login and registration flows, organization dashboard and department create/list UI.
+- Focused auth/department schema and auth service tests: user-reported **20 passed in 2.33 seconds** on 5 November 2026.
+
+### Current implementation boundary
+
+The department feature reuses the existing organization-department model/table and organization/name uniqueness. The latest test command did not run dedicated department service authorization tests, API integration tests or a live database persistence test. Frontend build/lint/browser verification is also not recorded.
+
+### Updated next work
+
+1. Add department service tests for membership, roles, duplicate names and transaction rollback.
+2. Add authenticated API integration tests using an isolated database.
+3. Verify the actual PostgreSQL department schema and unique constraint.
+4. Run frontend lint/build and browser verification for the complete registration-to-dashboard flow.
+5. Continue the previously identified retrieval tenant-scope investigation and Layer 1 evaluation.
+6. Implement chat API/UI and protected citation/document viewing as separate milestones.
+
+See [30 — Current Application Checkpoint](30-current-application-checkpoint.md) for the full chronology, file map, test evidence and resumption instructions.

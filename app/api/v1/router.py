@@ -1,9 +1,13 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, departments, health, home
+from app.api.v1.endpoints import auth, department_memberships, departments, health, home, memberships, organization_roles, organizations
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(home.router)
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(departments.router)
+api_router.include_router(organizations.router)
+api_router.include_router(organization_roles.router)
+api_router.include_router(memberships.router)
+api_router.include_router(department_memberships.router)

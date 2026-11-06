@@ -1,78 +1,85 @@
 # 4. Project Structure
 
+**Repository root:** `E:\\SaviraCortex`
+
 ## 4.1 Repository map
 
 ```text
-Voice-AI/
-├── app/
-│   ├── agents/
-│   │   ├── Document_summarizer/
-│   │   ├── Multi_query_generator/
-│   │   └── Generation/
-│   ├── api/v1/                 # empty in reviewed tree
-│   ├── core/                   # settings, database, Redis
-│   ├── guardrails/             # empty
-│   ├── llm/                    # model clients, including generator_client.py
-│   ├── memory/                 # empty
-│   ├── models/                 # SQLAlchemy entities
-│   ├── observability/          # empty
-│   ├── rag/
-│   │   ├── embeddings/
-│   │   ├── ingestion/
-│   │   ├── pdf_reader/
-│   │   ├── retrieval/
-│   │   ├── splitters/
-│   │   └── vector_stores/
-│   ├── repositories/
-│   ├── schemas/                # empty
-│   ├── validation/             # deterministic generation-output validation and citation metadata mapping
-│   ├── services/
-│   │   ├── authorization/
-│   │   ├── document_indexing/
-│   │   ├── document_ingestion/
-│   │   ├── document_matching/
-│   │   ├── document_registration/
-│   │   └── retrieval/
-│   ├── storage/
-│   ├── tasks/                  # empty
-│   ├── tools/                  # empty
-│   └── utils/                  # empty
-├── data/                       # local fixtures/artifacts
-├── migrations/                 # empty
-├── scripts/
-├── tests/
-├── main.py
-├── storage.py
-├── pyproject.toml
-├── uv.lock
-└── README.md
+SaviraCortex/
+├── backend/
+│   ├── app/
+│   │   ├── agents/                 # LLM agents and prompts
+│   │   ├── api/v1/
+│   │   │   ├── endpoints/          # auth, departments, health, home
+│   │   │   └── router.py
+│   │   ├── core/                   # settings, database, Firebase, dependencies
+│   │   ├── llm/                    # model clients
+│   │   ├── models/                 # SQLAlchemy entities
+│   │   ├── rag/                    # PDF, ingestion, retrieval, vectors
+│   │   ├── repositories/           # database access
+│   │   ├── schemas/v1/             # auth and department contracts
+│   │   ├── services/
+│   │   │   ├── auth/
+│   │   │   ├── authorization/
+│   │   │   ├── department_service.py
+│   │   │   ├── document_indexing/
+│   │   │   ├── document_ingestion/
+│   │   │   ├── document_matching/
+│   │   │   ├── document_registration/
+│   │   │   └── retrieval/
+│   │   ├── storage/
+│   │   ├── validation/
+│   │   └── workflows/rag/
+│   ├── docs/                       # numbered technical documentation
+│   ├── evals/                      # evaluation assets and plans
+│   ├── migrations/
+│   ├── scripts/
+│   ├── tests/
+│   ├── app/main.py                 # FastAPI entry point
+│   ├── pyproject.toml
+│   └── uv.lock
+└── frontend/
+    ├── src/app/
+    │   ├── page.tsx                # public homepage
+    │   ├── login/page.tsx
+    │   ├── register/page.tsx
+    │   ├── dashboard/page.tsx
+    │   └── firebase.ts
+    ├── public/
+    ├── package.json
+    └── package-lock.json
 ```
 
-## 4.2 Package responsibilities
+This is a high-level map, not an exhaustive file listing. Preserve existing package capitalization and naming conventions when importing modules.
 
-- `app/agents`: document summarization (prompt/model/parser chain), multi-query generation (one-node LangGraph), and company-grounded answer generation (prompt/model/parser chain), with prompts, configuration and Pydantic schemas. See [Generation pipeline](26-generation-pipeline.md).
-- `app/api`: reserved API namespace; no endpoints were found. The current validation layer does not add HTTP routes.
-- `app/validation`: deterministic validation of Generation output and request-scoped citation metadata mapping. See [Static validation](27-static-validation.md).
-- `app/core`: global settings, SQLAlchemy engine/session lifecycle and async Redis client.
-- `app/llm`: provider-specific chat model factories.
-- `app/models`: relational entity definitions.
-- `app/rag`: PDF extraction, embeddings, chunking, retrieval algorithms and Qdrant adapters.
-- `app/repositories`: database query and persistence operations.
-- `app/services`: business workflows and orchestration.
-- `app/storage`: Backblaze B2/S3 object storage abstraction.
-- `scripts`: direct operational and diagnostic entry points.
-- `tests`: behavior verification by component and integration boundary.
+## 4.2 Backend package responsibilities
 
-## 4.3 Root-level files
+- `app/api/v1/endpoints`: HTTP route declarations for authentication, departments, health and home.
+- `app/api/v1/router.py`: versioned API router composition.
+- `app/core`: configuration, database session lifecycle, Firebase Admin setup and FastAPI dependencies.
+- `app/schemas/v1`: Pydantic request/response contracts.
+- `app/models`: SQLAlchemy database entities.
+- `app/repositories`: relational queries and persistence operations.
+- `app/services/auth`: organization signup and authenticated identity/profile resolution.
+- `app/services/department_service.py`: organization-scoped department authorization and creation.
+- `app/services/authorization`: document-level access calculations and related cache helper.
+- `app/services/document_ingestion`, `document_registration`, `document_indexing`: document lifecycle services.
+- `app/services/retrieval` and `app/rag/retrieval`: retrieval orchestration and retrieval algorithms.
+- `app/agents` and `app/workflows/rag`: LLM agents and end-to-end RAG graph.
+- `app/validation`: deterministic output/citation validation.
+- `app/storage`: object-storage abstraction.
 
-- `main.py`: minimal greeting function; not the service runtime.
-- `app/main.py`: currently a placeholder print statement.
-- `storage.py`: separate root-level storage implementation; inspect before treating it as the same abstraction as `app/storage/`.
-- `pyproject.toml`: package metadata and dependencies.
-- `uv.lock`: resolved dependency lock.
-- `README.md`: currently contains only a short HTML comment, not setup documentation.
-- `data/`: includes sample PDF files and a SQLite database artifact.
+## 4.3 Frontend routes
 
-## 4.4 Naming note
+| Route | Purpose |
+|---|---|
+| `/` | SaviraCortex public homepage |
+| `/login` | Firebase sign-in UI |
+| `/register` | Firebase identity registration and organization signup |
+| `/dashboard` | Authenticated organization overview and department management |
 
-Some package/file names use capitalization or spelling that should be preserved when importing, such as `Document_summarizer`, `Multi_query_generator`, and `recurrsive_text_splitter.py`. This document intentionally records the current paths rather than proposing renames.
+The dashboard consumes `GET /api/v1/auth/me` and organization-specific department endpoints. Firebase remains the browser-side identity SDK; backend API requests carry Firebase ID tokens.
+
+## 4.4 Documentation
+
+Technical documentation lives in `backend/docs/`. The numbered documents cover the system from project overview through context compression. The latest application/authentication checkpoint is [30-current-application-checkpoint.md](30-current-application-checkpoint.md). Update the relevant architecture, schema, authorization and testing pages when implementation changes.

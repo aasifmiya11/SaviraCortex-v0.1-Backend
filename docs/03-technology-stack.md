@@ -1,51 +1,59 @@
 # 3. Technology Stack
 
-## 3.1 Runtime and packaging
+## Runtime and packaging
 
-- Python requirement: `>=3.11` as declared in `pyproject.toml`.
-- Package/project name: `voice-ai`, version `0.1.0`.
-- Dependency lock: `uv.lock`.
-- Test runner: pytest; pytest configuration is in `pyproject.toml`.
+- Backend: Python `>=3.11`, FastAPI, Uvicorn ASGI server.
+- Backend package: `SaviraCortex-backend`, dependencies locked in `uv.lock`.
+- Frontend: Next.js App Router, React and TypeScript.
+- Frontend package manager: npm, lockfile `frontend/package-lock.json`.
+- Backend tests: pytest.
 
-## 3.2 Main declared dependencies
+## Main backend technologies
 
-| Technology/package | Declared role in this codebase |
+| Technology/package | Role |
 |---|---|
-| SQLAlchemy | ORM, relational models, sessions and schema creation |
-| psycopg / psycopg2-binary | PostgreSQL drivers |
-| redis | Async Redis-compatible client |
+| FastAPI / Uvicorn | HTTP API and ASGI runtime |
+| Pydantic | Request/response validation and structured model output |
+| Firebase Admin SDK | Server-side Firebase ID-token verification |
+| SQLAlchemy | ORM, relational models and database sessions |
+| psycopg / psycopg2 | PostgreSQL drivers |
+| Qdrant integrations | Vector database and LangChain integration |
 | boto3 | S3-compatible Backblaze B2 access |
-| Qdrant integrations | Vector database client and LangChain integration |
 | langchain, langchain-community | Document abstractions and LLM/RAG composition |
 | langchain-openai | Chat model adapter |
-| langgraph | Graph-based agent execution |
+| langgraph | Graph-based agent/workflow execution |
 | langchain-huggingface | Hugging Face embedding integration |
 | sentence-transformers | Embedding/reranking model ecosystem |
-| langchain-text-splitters | Text chunking |
-| PyMuPDF (pymupdf) | Native PDF parsing/rendering |
-| EasyOCR, pytesseract, langchain-fastocr | OCR-related options/adapters |
-| pydantic | Structured model validation and LLM output parsing |
-| python-dotenv | Load environment variables from dotenv files |
-| FastAPI | Declared dependency; no implemented routes were found in the reviewed API directory |
-| FAISS CPU | Declared dependency; not established as the active production vector store by this review |
-| pandas, Pillow, unstructured | Declared supporting libraries; usage varies by module |
+| PyMuPDF, EasyOCR, pytesseract | PDF parsing and OCR |
+| redis | Redis-compatible client used by cache components |
+| pytest and plugins | Backend unit, service, workflow and integration tests |
 
-## 3.3 LLM integration
+## Frontend technologies
 
-The LLM clients construct `ChatOpenAI` instances using `OPENAI_MODEL`, `OPENAI_BASE_URL`, and `OPENAI_API_KEY`. Separate client classes provide different defaults for summarization, retrieval and multi-query generation. A compatible API endpoint may be configured through the base URL; the actual provider/model is environment-dependent.
+| Technology/package | Role |
+|---|---|
+| Next.js | App Router and frontend runtime |
+| React | UI components and state |
+| TypeScript | Static typing |
+| Firebase JS SDK | Browser-side authentication |
+| Hugeicons React packages | Login interface iconography |
+| Tailwind CSS | Utility styling, with custom CSS for homepage motion |
+| ESLint | Frontend linting |
 
-## 3.4 Vector and embedding layer
+## Identity and authentication
 
-Qdrant is the vector database integration used by the RAG modules. The project includes a Hugging Face embedding adapter and Qdrant-specific payload index and summary-store helpers. Model identifiers and vector dimensions must be taken from the implementation/configuration in the deployed environment; they should not be guessed from package names.
+Firebase Authentication provides Email/Password, Google and Phone sign-in. The browser SDK obtains ID tokens. The Firebase Admin SDK verifies those tokens in FastAPI. SaviraCortex then resolves the verified Firebase UID to an application user and applies organization membership/role checks.
 
-## 3.5 OCR layer
+The Firebase web configuration is supplied through `NEXT_PUBLIC_FIREBASE_*` variables. The Admin SDK uses a backend-only service-account JSON path and optional project ID. Never place the Admin service-account JSON or private key in the frontend.
 
-The PDF reader supports native text extraction and OCR strategies. Configuration exposes OCR engine/language selection, render DPI, minimum native text characters, whether all pages should be OCR-processed, and whether OCR output should be merged with native text. The concrete engine availability depends on local system packages and credentials.
+## LLM, vector and storage layers
 
-## 3.6 Testing stack
+LLM clients construct `ChatOpenAI` instances using `OPENAI_MODEL`, `OPENAI_BASE_URL` and `OPENAI_API_KEY`. The configured provider/model is environment-dependent.
 
-pytest is configured with the repository root on `pythonpath`. The `integration` marker identifies tests that need external services or integration infrastructure. Tests include unit/service, agent, RAG, integration and end-to-end categories.
+Qdrant is the vector database integration used by the RAG modules. The project includes Hugging Face embedding adapters and Qdrant-specific payload index and summary-store helpers.
 
-## 3.7 Dependency declaration versus runtime usage
+Backblaze B2 stores original PDFs through an S3-compatible client. PostgreSQL stores relational identity, organization, document and lifecycle metadata.
 
-A dependency being present in `pyproject.toml` does not prove that the package is used by the current execution path. This documentation distinguishes directly visible integrations from packages that are only declared.
+## Dependency declaration versus runtime usage
+
+A dependency being present in `pyproject.toml` or `package.json` does not prove that it is used by every execution path. This document records the directly visible integrations and avoids inferring behavior from dependency declarations alone.

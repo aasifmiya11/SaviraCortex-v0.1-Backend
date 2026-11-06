@@ -2,27 +2,27 @@
 
 ## Persistence
 
-The relational layer uses SQLAlchemy declarative models, a shared `Base`, an engine created from `AIVEN_POSTGRES_URI`, and a `SessionLocal` factory. Sessions use `autoflush=False` and `expire_on_commit=False`. `get_db_session()` yields a session, rolls back when an exception escapes, and always closes it. It does not automatically commit; transaction ownership remains with the calling service/repository.
+The relational layer uses SQLAlchemy declarative models and a shared `Base`. The database engine is configured through the backend settings (PostgreSQL connection configuration). Sessions are created through the shared database module. Session dependencies yield a session and close it; services own transaction commits and rollbacks.
 
 ## Entity catalogue
 
 | Model | Responsibility |
 |---|---|
-| User | User identity |
+| User | SaviraCortex user linked to a Firebase UID |
 | Organization | Tenant/organization boundary |
-| OrganizationMembership | User membership and membership role |
-| OrganizationDepartment | Departments within an organization |
-| OrganizationDepartmentMembership | User-to-department membership |
+| OrganizationMembership | User membership and organization-level role |
+| OrganizationDepartment | Department belonging to an organization |
+| OrganizationDepartmentMembership | User-to-department assignment |
 | OrganizationRole | Organization-defined roles |
 | UserRoleAssignment | Assigns an organization role to a user |
-| DepartmentAccessPolicy | Department/role policy model defined in its own module |
+| DepartmentAccessPolicy | Department/role policy model |
 | Document | Logical document identity and organization ownership |
 | DocumentVersion | Version-specific file metadata, hashes, summary, page count and lifecycle status |
 | DocumentACL | Explicit allow/deny rules for user, role or department principals |
 
-**Model registration caveat:** `DepartmentAccessPolicy` is defined in `app/models/department_access_policies.py`, but it is not imported or exported by `app/models/__init__.py`. The current `import app.models` used by the database reset script therefore does not, by itself, register that model's table in `Base.metadata`. Do not assume the table is created by that script without separately importing the module.
+Consult SQLAlchemy model declarations for exact foreign keys, nullability, indexes, uniqueness and cascade behavior. A model file existing on disk does not by itself prove that its table is registered in imported metadata or that a deployed database has the corresponding schema.
 
-## Logical relationships
+## Organization and department relationships
 
 ```mermaid
 erDiagram
@@ -39,22 +39,28 @@ erDiagram
  DOCUMENT ||--o{ DOCUMENT_ACL : protected_by
 ```
 
-This is a conceptual diagram. Consult SQLAlchemy declarations for exact foreign keys, uniqueness constraints, indexes, nullability and cascade behavior. The diagram does not include every constraint or model.
+### Department persistence contract
+
+The department feature reuses the existing `OrganizationDepartment` entity/table; it does not introduce a second department table.
+
+- A department belongs to one organization through `organization_id`.
+- The department stores a name, optional description and creation timestamp.
+- Department names are unique within an organization, not globally.
+- The existing `OrganizationDepartmentMembership` relationship remains the mechanism for assigning users to departments; the current department form does not yet assign members.
+- Department creation is committed by `DepartmentService`. An integrity error is rolled back and translated into HTTP 409.
 
 ## Document and version distinction
 
-A document is the stable logical identity. A document version represents one uploaded file revision and carries file-specific information such as original filename, storage key, hashes, summary, page count, version number and status. The model enforces unique version numbers per document, a positive version number, and at most one active version per document through a partial unique index (PostgreSQL and SQLite predicates are declared).
+A document is the stable logical identity. A document version represents one uploaded file revision and carries file-specific information such as original filename, storage key, hashes, summary, page count, version number and status. The model enforces unique version numbers per document and at most one active version per document through a partial unique index where supported.
 
 ## Version states
 
-The service and repository code uses `pending`, `active`, and `superseded` statuses. Archiving is represented on the logical document and does not itself rewrite version status. Archived documents are excluded from authorization catalogues/retrieval eligibility, while hash lookup may still find their versions to prevent duplicate re-registration.
+The service and repository code uses `pending`, `active`, and `superseded` statuses. Archiving is represented on the logical document and does not itself rewrite version status. Archived documents are excluded from authorization catalogues/retrieval eligibility.
 
-## Schema creation and reset
+## Schema creation and migrations
 
-`app/core/database.py:create_tables()` imports `app.models` and calls `Base.metadata.create_all()`. This creates missing tables known to the currently imported metadata; it does not alter existing table definitions. The `migrations/` directory is empty in the reviewed tree.
-
-**Destructive script warning:** `scripts/create_tables.py` is a compatibility entry point to `scripts/database.py:reset_database()`. That script prompts for confirmation, then drops and recreates every table registered in `Base.metadata`, deleting their data. It is not a safe additive table-initialization command. `create_all()` and the reset script are not substitutes for a migration system.
+The `migrations/` directory and actual database schema must be checked before assuming a new or modified table is present. SQLAlchemy `create_all()` creates missing tables known to imported metadata; it does not alter existing table definitions. The legacy database reset script is destructive and must not be used as a routine migration command.
 
 ## Transaction conventions
 
-Services explicitly call `commit`, `rollback`, or `flush` depending on workflow. `flush` sends pending ORM changes to the current transaction without committing it. Do not assume repository methods commit automatically; inspect the caller and implementation.
+Services explicitly call `commit`, `rollback`, or `flush` depending on workflow. A repository's `add` operation does not imply a commit. For department creation, the service owns the transaction and performs rollback on failure.
