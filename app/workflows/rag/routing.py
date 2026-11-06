@@ -19,14 +19,25 @@ def route_after_evaluation(
 
     The attempt limit is checked before Retrieval Expansion can be invoked.
     Compression is selected only when accumulated documents exceed the
-    configured document-count threshold.
+    configured document-count threshold. If PostgreSQL authorizes no document
+    versions for this member, another retrieval attempt cannot add evidence.
     """
     workflow_config = config or RAGWorkflowConfig()
 
-    is_sufficient = state.get("is_sufficient") is True
-    attempts = state.get("retrieval_attempt", 0)
+    diagnostics: Any = state.get("retrieval_diagnostics") or {}
+    attempts = diagnostics.get("attempts") or []
+    if attempts and attempts[-1].get("retrieval_reason") == (
+        "no_authorized_document_versions"
+    ):
+        return "generate"
 
-    if not is_sufficient and attempts < workflow_config.max_retrieval_attempts:
+    is_sufficient = state.get("is_sufficient") is True
+    retrieval_attempt = state.get("retrieval_attempt", 0)
+
+    if (
+        not is_sufficient
+        and retrieval_attempt < workflow_config.max_retrieval_attempts
+    ):
         return "expand"
 
     documents: Any = state.get("retrieved_documents") or []

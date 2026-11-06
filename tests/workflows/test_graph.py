@@ -221,3 +221,85 @@ async def test_graph_performs_three_total_retrieval_attempts_and_two_expansions(
     assert expansion.calls == 2
     assert [call["exclude"] for call in retriever.calls] == [False, True, True]
     assert result["generation_output"].status == GenerationStatus.ANSWERED
+
+class NoAuthorizedDocumentsRetriever:
+    def __init__(self):
+        self.calls = 0
+
+    async def retrieve(self, **kwargs):
+        self.calls += 1
+        return {
+            "selected_candidates": [],
+            "selected_count": 0,
+            "eligible_count": 0,
+            "fused_count": 0,
+            "reranked_count": 0,
+            "branch_count": 0,
+            "retrieval_reason": "no_authorized_document_versions",
+            "expansion": {},
+        }
+
+
+@pytest.mark.asyncio
+async def test_graph_skips_retries_when_member_has_no_authorized_documents():
+    retriever = NoAuthorizedDocumentsRetriever()
+    expansion = CountingExpansionAgent()
+    graph = create_rag_graph(
+        retriever=retriever,
+        evaluator=AlwaysInsufficientEvaluator(),
+        retrieval_expansion_agent=expansion,
+        context_compression_agent=FakeCompressionAgent(),
+        generation_agent=FakeGenerationAgent(),
+        validator=FakeValidator(),
+    )
+
+    result = await graph.ainvoke(
+        {
+            "query": "What does the company policy say?",
+            "organization_id": uuid4(),
+            "user_id": uuid4(),
+        }
+    )
+
+    assert retriever.calls == 1
+    assert result["retrieval_attempt"] == 1
+    assert expansion.calls == 0
+    assert result["retrieval_reason"] == "no_authorized_document_versions"
+
+
+class CandidateGenerationFailureRetriever:
+    async def retrieve(self, **kwargs):
+        return {
+            "selected_candidates": [],
+            "selected_count": 0,
+            "eligible_count": 0,
+            "fused_count": 0,
+            "reranked_count": 0,
+            "branch_count": 0,
+            "retrieval_reason": "candidate_generation_failed",
+            "candidate_generation_error": "internal Qdrant failure",
+            "expansion": {},
+        }
+
+
+@pytest.mark.asyncio
+async def test_graph_surfaces_candidate_generation_failure_as_operational_error():
+    from app.services.retrieval.retrieval_service import RetrievalOrchestrationError
+
+    graph = create_rag_graph(
+        retriever=CandidateGenerationFailureRetriever(),
+        evaluator=FakeEvaluator(),
+        retrieval_expansion_agent=FakeExpansionAgent(),
+        context_compression_agent=FakeCompressionAgent(),
+        generation_agent=FakeGenerationAgent(),
+        validator=FakeValidator(),
+    )
+
+    with pytest.raises(RetrievalOrchestrationError):
+        await graph.ainvoke(
+            {
+                "query": "What does the company policy say?",
+                "organization_id": uuid4(),
+                "user_id": uuid4(),
+            }
+        )

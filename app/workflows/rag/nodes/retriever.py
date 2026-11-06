@@ -3,7 +3,10 @@
 from collections.abc import Callable
 from typing import Any
 
-from app.services.retrieval.retrieval_service import RetrievalOrchestrator
+from app.services.retrieval.retrieval_service import (
+    RetrievalOrchestrationError,
+    RetrievalOrchestrator,
+)
 from app.workflows.rag.state import RAGWorkflowState
 
 
@@ -61,6 +64,14 @@ def create_retriever_node(
             excluded_chunk_ids=excluded_chunk_ids,
         )
 
+        # Candidate-generation failures are operational errors, not a valid
+        # "no evidence" outcome. Do not let the graph turn an outage into a
+        # misleading insufficient-evidence answer.
+        if retrieval_result.get("candidate_generation_error"):
+            raise RetrievalOrchestrationError(
+                "Authorized document candidate generation failed."
+            )
+
         newly_retrieved = retrieval_result["selected_candidates"]
         accumulated_documents = list(previously_retrieved)
         known_chunk_ids = {
@@ -97,9 +108,7 @@ def create_retriever_node(
             "reranked_count": retrieval_result.get("reranked_count"),
             "branch_count": retrieval_result.get("branch_count"),
             "retrieval_reason": retrieval_result.get("retrieval_reason"),
-            "candidate_generation_error": retrieval_result.get(
-                "candidate_generation_error"
-            ),
+            "candidate_generation_error": None,
             "expansion": retrieval_result.get("expansion"),
         }
         previous_diagnostics = state.get("retrieval_diagnostics") or {}
@@ -110,6 +119,7 @@ def create_retriever_node(
             "retrieved_documents": accumulated_documents,
             "excluded_chunk_ids": all_excluded_chunk_ids,
             "retrieval_attempt": attempt,
+            "retrieval_reason": retrieval_result.get("retrieval_reason"),
             "retrieval_diagnostics": {
                 "total_attempts": attempt,
                 "attempts": diagnostic_attempts,

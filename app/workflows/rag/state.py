@@ -29,6 +29,7 @@ class RAGWorkflowState(TypedDict):
     excluded_chunk_ids: NotRequired[list[str]]
     exclude: NotRequired[bool]
     retrieval_attempt: NotRequired[int]
+    retrieval_reason: NotRequired[str | None]
     retrieval_diagnostics: NotRequired[dict[str, Any] | None]
 
     # One-to-one query-focused view; order and metadata match original docs.
