@@ -10,14 +10,16 @@ from app.main import app
 from app.models import (
     Organization, OrganizationDepartment, OrganizationDepartmentMembership,
     OrganizationInvitation, OrganizationMembership, OrganizationRole,
-    User, UserRoleAssignment,
+    User, UserRoleAssignment, Document, DocumentVersion,
+    DocumentIngestionSession,
 )
 
 TEST_TABLES = [
     User.__table__, Organization.__table__, OrganizationMembership.__table__,
     OrganizationRole.__table__, UserRoleAssignment.__table__,
     OrganizationDepartment.__table__, OrganizationDepartmentMembership.__table__,
-    OrganizationInvitation.__table__,
+    OrganizationInvitation.__table__, Document.__table__,
+    DocumentVersion.__table__, DocumentIngestionSession.__table__,
 ]
 
 
@@ -37,7 +39,9 @@ def db_session():
         yield testing_session
     finally:
         testing_session.close()
-        Base.metadata.drop_all(bind=engine, tables=TEST_TABLES)
+        with engine.connect() as connection:
+            connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+            Base.metadata.drop_all(bind=connection, tables=TEST_TABLES)
         engine.dispose()
 
 
