@@ -34,6 +34,40 @@ class FakeStorage:
         self.deletes.append(key)
 
 
+class FakeIndexingOrchestrator:
+    def __init__(self, db_session, *, fail=False):
+        self.db_session = db_session
+        self.fail = fail
+        self.calls = []
+
+    def index_pending_version(self, version_id, *, organization_id):
+        self.calls.append((version_id, organization_id))
+        if self.fail:
+            raise RuntimeError("simulated Qdrant indexing failure")
+
+        version = self.db_session.get(DocumentVersion, version_id)
+        active_versions = (
+            self.db_session.query(DocumentVersion)
+            .filter(
+                DocumentVersion.document_id == version.document_id,
+                DocumentVersion.status == "active",
+            )
+            .all()
+        )
+        for previous in active_versions:
+            previous.status = "superseded"
+        self.db_session.flush()
+        version.status = "active"
+        self.db_session.commit()
+        return SimpleNamespace(
+            status="active",
+            page_count=2,
+            ocr_page_count=0,
+            chunk_count=4,
+            summary_sync_pending=False,
+            lifecycle_sync_pending=False,
+        )
+
 def staged_session(context, *, classification="no_match", candidates=None):
     return DocumentIngestionSession(
         id=uuid4(),
@@ -56,11 +90,12 @@ def staged_session(context, *, classification="no_match", candidates=None):
     )
 
 
-def test_finalize_new_document_persists_reviewed_metadata_and_pending_version(
+def test_finalize_new_document_persists_reviewed_metadata_and_indexes_version(
     db_session, organization_context
 ):
     storage = FakeStorage()
-    workflow = DocumentIngestionWorkflowService(file_storage=storage)
+    indexing = FakeIndexingOrchestrator(db_session)
+    workflow = DocumentIngestionWorkflowService(file_storage=storage, indexing_orchestrator=indexing)
     staged = staged_session(organization_context)
     db_session.add(staged)
     db_session.commit()
@@ -79,24 +114,59 @@ def test_finalize_new_document_persists_reviewed_metadata_and_pending_version(
 
     document = db_session.get(Document, result["document_id"])
     version = db_session.get(DocumentVersion, result["document_version_id"])
-    assert result["status"] == "registered_pending"
+    assert result["status"] == "indexed"
     assert result["version_number"] == 1
     assert document.title == "Reviewed title"
     assert document.archived is True
     assert document.uploaded_by_user_id == organization_context["owner"].id
-    assert version.status == "pending"
+    assert version.status == "active"
     assert version.uploaded_by_user_id == organization_context["owner"].id
     assert version.version_label == "original"
     assert version.storage_key == storage.copies[0][1]
     assert staged.status == "completed"
+    assert indexing.calls == [(version.id, organization_context["organization"].id)]
     assert storage.deletes == ["staging/upload.pdf"]
 
+
+
+def test_finalize_keeps_permanent_pdf_and_pending_version_when_indexing_fails(
+    db_session, organization_context
+):
+    storage = FakeStorage()
+    indexing = FakeIndexingOrchestrator(db_session, fail=True)
+    workflow = DocumentIngestionWorkflowService(
+        file_storage=storage,
+        indexing_orchestrator=indexing,
+    )
+    staged = staged_session(organization_context)
+    db_session.add(staged)
+    db_session.commit()
+
+    result = workflow.finalize(
+        db_session,
+        organization_id=organization_context["organization"].id,
+        ingestion_session_id=staged.id,
+        uploaded_by_user_id=organization_context["owner"].id,
+        action="new",
+        title="Reviewed title",
+        document_type="Policy",
+        description="Reviewed description",
+    )
+
+    version = db_session.get(DocumentVersion, result["document_version_id"])
+    assert result["status"] == "indexing_failed"
+    assert result["version_status"] == "pending"
+    assert version.status == "pending"
+    assert version.storage_key == storage.copies[0][1]
+    assert storage.deletes == ["staging/upload.pdf"]
+    assert "Retry indexing" in result["indexing_error"]
 
 def test_finalize_supersede_creates_next_version_under_matched_document(
     db_session, organization_context
 ):
     storage = FakeStorage()
-    workflow = DocumentIngestionWorkflowService(file_storage=storage)
+    indexing = FakeIndexingOrchestrator(db_session)
+    workflow = DocumentIngestionWorkflowService(file_storage=storage, indexing_orchestrator=indexing)
     owner = organization_context["owner"]
     organization = organization_context["organization"]
     existing = Document(
@@ -156,13 +226,15 @@ def test_finalize_supersede_creates_next_version_under_matched_document(
         .order_by(DocumentVersion.version_number)
         .all()
     )
+    assert result["status"] == "indexed"
     assert result["document_id"] == existing.id
     assert result["version_number"] == 2
     assert len(versions) == 2
-    assert versions[1].status == "pending"
+    assert versions[1].status == "active"
     assert versions[1].supersedes_version_id == previous.id
     assert versions[1].version_label == "revision"
     assert versions[1].uploaded_by_user_id == owner.id
+    assert versions[0].status == "superseded"
     assert existing.title == "Updated policy"
 
 
