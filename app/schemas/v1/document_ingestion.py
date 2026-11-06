@@ -55,9 +55,31 @@ class DocumentIngestionFinalizeRequest(BaseModel):
 
 
 class DocumentIngestionFinalizeResponse(BaseModel):
-    status: Literal["registered_pending", "rejected"]
+    status: Literal[
+        "indexed",
+        "indexing_failed",
+        "registered_pending",
+        "rejected",
+    ]
     document_id: UUID | None = None
     document_version_id: UUID | None = None
     version_number: int | None = None
     version_status: str | None = None
     archived: bool | None = None
+    page_count: int | None = None
+    chunk_count: int | None = None
+    summary_sync_pending: bool = False
+    lifecycle_sync_pending: bool = False
+    indexing_error: str | None = None
+
+
+class DocumentVersionIndexingResponse(BaseModel):
+    document_id: UUID
+    document_version_id: UUID
+    version_number: int
+    version_status: str
+    page_count: int
+    ocr_page_count: int
+    chunk_count: int
+    summary_sync_pending: bool = False
+    lifecycle_sync_pending: bool = False

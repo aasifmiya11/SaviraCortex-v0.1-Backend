@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import hashlib
+import logging
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -26,6 +27,9 @@ from app.rag.ingestion.pdf_sampler import PDFSampler
 from app.storage.file_storage import FileStorage
 
 
+logger = logging.getLogger(__name__)
+
+
 class DocumentIngestionWorkflowError(RuntimeError):
     pass
 
@@ -46,6 +50,7 @@ class DocumentIngestionWorkflowService:
         summarizer=None,
         file_storage=None,
         matching_factory=None,
+        indexing_orchestrator=None,
     ) -> None:
         self.validator = validator or PDFValidator(max_file_size_mb=25)
         self.loader = loader or pdf_loader
@@ -57,6 +62,18 @@ class DocumentIngestionWorkflowService:
         self.summarizer = summarizer
         self.file_storage = file_storage or FileStorage()
         self.matching_factory = matching_factory or self._matching_factory
+        self.indexing_orchestrator = indexing_orchestrator
+
+    def _get_indexing_orchestrator(self):
+        if self.indexing_orchestrator is None:
+            from app.services.document_indexing.indexing_orchestrator import (
+                DocumentIndexingOrchestrator,
+            )
+
+            self.indexing_orchestrator = DocumentIndexingOrchestrator(
+                file_storage=self.file_storage,
+            )
+        return self.indexing_orchestrator
 
     @staticmethod
     def _matching_factory(db: Session):
@@ -457,6 +474,7 @@ class DocumentIngestionWorkflowService:
             version_id=version_id,
         )
         copied = False
+        registration_committed = False
         try:
             copied = True  # Copy can succeed remotely before a verification error is raised.
             self.file_storage.copy_file(staged.staging_storage_key, final_key)
@@ -509,21 +527,64 @@ class DocumentIngestionWorkflowService:
                 )
             staged.status = "completed"
             db.commit()
+            registration_committed = True
+
+            indexing_result = None
+            indexing_error = None
+            try:
+                indexing_result = self._get_indexing_orchestrator().index_pending_version(
+                    version_id,
+                    organization_id=organization_id,
+                )
+            except Exception:
+                logger.exception(
+                    "Document was registered but indexing failed "
+                    "(organization_id=%s, document_version_id=%s).",
+                    organization_id,
+                    version_id,
+                )
+                indexing_error = (
+                    "The document was saved, but indexing could not finish. "
+                    "Use Retry indexing to make it searchable."
+                )
+
+            # The permanent object is retained even if indexing fails so that
+            # the pending version can be retried without uploading the PDF again.
             try:
                 self.file_storage.delete_file(staged.staging_storage_key)
             except Exception:
-                # The permanent object and database record are committed.
-                # An expiry cleanup can remove this orphaned staging copy.
+                # Expiry cleanup can remove this duplicate staging copy later.
                 pass
+
             return {
-                "status": "registered_pending",
+                "status": "indexed" if indexing_result is not None else "indexing_failed",
                 "document_id": result.document_id,
                 "document_version_id": result.document_version_id,
                 "version_number": result.version_number,
-                "version_status": result.status,
+                "version_status": (
+                    indexing_result.status if indexing_result is not None else "pending"
+                ),
                 "archived": result.archived,
+                "page_count": (
+                    indexing_result.page_count if indexing_result is not None else None
+                ),
+                "chunk_count": (
+                    indexing_result.chunk_count if indexing_result is not None else None
+                ),
+                "summary_sync_pending": (
+                    indexing_result.summary_sync_pending
+                    if indexing_result is not None else False
+                ),
+                "lifecycle_sync_pending": (
+                    indexing_result.lifecycle_sync_pending
+                    if indexing_result is not None else False
+                ),
+                "indexing_error": indexing_error,
             }
         except Exception:
+            if registration_committed:
+                # Never delete a permanent object after its DB record committed.
+                raise
             db.rollback()
             if copied:
                 try:

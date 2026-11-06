@@ -16,11 +16,18 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db, get_verified_firebase_claims
-from app.models import OrganizationDepartmentMembership, OrganizationMembership, User
+from app.models import (
+    Document,
+    DocumentVersion,
+    OrganizationDepartmentMembership,
+    OrganizationMembership,
+    User,
+)
 from app.schemas.v1.document_ingestion import (
     DocumentIngestionAnalysisResponse,
     DocumentIngestionFinalizeRequest,
     DocumentIngestionFinalizeResponse,
+    DocumentVersionIndexingResponse,
 )
 from app.services.document_ingestion.workflow_service import (
     DocumentIngestionWorkflowError,
@@ -303,4 +310,75 @@ def analyze_document_upload_stream(
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
+    )
+
+@router.post(
+    "/versions/{document_version_id}/index",
+    response_model=DocumentVersionIndexingResponse,
+    summary="Retry indexing for a pending document version",
+)
+def retry_document_version_indexing(
+    organization_id: UUID,
+    document_version_id: UUID,
+    db: Session = Depends(get_db),
+    firebase_claims: dict = Depends(get_verified_firebase_claims),
+):
+    user, membership = _current_member(db, organization_id, firebase_claims)
+    version = db.scalar(
+        select(DocumentVersion)
+        .join(Document, Document.id == DocumentVersion.document_id)
+        .where(
+            DocumentVersion.id == document_version_id,
+            Document.organization_id == organization_id,
+        )
+    )
+    if version is None:
+        raise HTTPException(status_code=404, detail="Document version not found.")
+    if version.status != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Only pending versions can be indexed; current status is {version.status}.",
+        )
+    if (
+        version.uploaded_by_user_id != user.id
+        and membership.role not in {"owner", "admin"}
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the uploader or an organization owner/admin can retry indexing.",
+        )
+
+    try:
+        from app.services.document_indexing.indexing_orchestrator import (
+            DocumentIndexingOrchestrator,
+        )
+
+        result = DocumentIndexingOrchestrator().index_pending_version(
+            document_version_id,
+            organization_id=organization_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    except Exception as exc:
+        logger.exception(
+            "Unexpected document indexing retry failure (organization_id=%s, version_id=%s).",
+            organization_id,
+            document_version_id,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Indexing is temporarily unavailable. You can retry this version again.",
+        ) from exc
+
+    return DocumentVersionIndexingResponse(
+        document_id=result.document_id,
+        document_version_id=result.document_version_id,
+        version_number=result.version_number,
+        version_status=result.status,
+        page_count=result.page_count,
+        ocr_page_count=result.ocr_page_count,
+        chunk_count=result.chunk_count,
+        summary_sync_pending=result.summary_sync_pending,
+        lifecycle_sync_pending=result.lifecycle_sync_pending,
     )
