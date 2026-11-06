@@ -4,7 +4,13 @@ from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db, get_verified_firebase_claims
-from app.schemas.v1.memberships import OrganizationMembershipCreateRequest, OrganizationMembershipResponse, OrganizationMembershipUpdateRequest
+from app.schemas.v1.memberships import (
+    OrganizationMemberRolesAssignRequest,
+    OrganizationMembershipCreateRequest,
+    OrganizationMembershipResponse,
+    OrganizationMembershipUpdateRequest,
+)
+from app.schemas.v1.organization_roles import OrganizationRoleResponse
 from app.services.membership_service import MembershipService
 
 router = APIRouter(prefix="/organizations/{organization_id}/members", tags=["Organization memberships"])
@@ -29,3 +35,19 @@ def update_member(organization_id: UUID, user_id: UUID, payload: OrganizationMem
 def remove_member(organization_id: UUID, user_id: UUID, session: Session = Depends(get_db), firebase_claims: dict = Depends(get_verified_firebase_claims)):
     MembershipService(session).remove_member(organization_id, user_id, firebase_claims)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+@router.post(
+    "/{user_id}/roles",
+    response_model=list[OrganizationRoleResponse],
+    summary="Assign multiple custom organization roles to a member",
+)
+def assign_member_roles(
+    organization_id: UUID,
+    user_id: UUID,
+    payload: OrganizationMemberRolesAssignRequest,
+    session: Session = Depends(get_db),
+    firebase_claims: dict = Depends(get_verified_firebase_claims),
+):
+    return MembershipService(session).assign_custom_roles(
+        organization_id, user_id, payload.role_ids, firebase_claims
+    )

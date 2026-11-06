@@ -30,6 +30,7 @@ class InvitationCreateResponse(BaseModel):
     email: str
     candidate_name: str
     role: str
+    custom_role: str = "Member"
     status: str
     expires_at: datetime
     email_sent_at: datetime
@@ -40,6 +41,7 @@ class InvitationListItem(BaseModel):
     email: str
     candidate_name: str
     role: str
+    custom_role: str = "Member"
     status: str
     created_at: datetime
     expires_at: datetime

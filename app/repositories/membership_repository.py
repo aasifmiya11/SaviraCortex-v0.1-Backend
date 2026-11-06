@@ -7,6 +7,8 @@ from app.models import (
     OrganizationDepartment,
     OrganizationDepartmentMembership,
     OrganizationMembership,
+    OrganizationRole,
+    UserRoleAssignment,
     User,
 )
 
@@ -29,12 +31,39 @@ class MembershipRepository:
 
     def list_members(self, organization_id: UUID):
         statement = (
-            select(OrganizationMembership, User.email, User.display_name)
+            select(
+                OrganizationMembership,
+                User.email,
+                User.display_name,
+                OrganizationRole.name,
+            )
             .join(User, User.id == OrganizationMembership.user_id)
+            .outerjoin(
+                UserRoleAssignment,
+                (UserRoleAssignment.organization_id == OrganizationMembership.organization_id)
+                & (UserRoleAssignment.user_id == OrganizationMembership.user_id),
+            )
+            .outerjoin(
+                OrganizationRole,
+                (OrganizationRole.organization_id == UserRoleAssignment.organization_id)
+                & (OrganizationRole.id == UserRoleAssignment.role_id),
+            )
             .where(OrganizationMembership.organization_id == organization_id)
-            .order_by(User.display_name, User.email)
+            .order_by(User.display_name, User.email, OrganizationRole.name)
         )
-        return list(self.session.execute(statement).all())
+        rows = self.session.execute(statement).all()
+        grouped = {}
+        for membership, email, display_name, role_name in rows:
+            item = grouped.setdefault(
+                membership.user_id,
+                [membership, email, display_name, []],
+            )
+            if role_name and role_name not in item[3]:
+                item[3].append(role_name)
+        return [
+            (membership, email, display_name, sorted(custom_roles))
+            for membership, email, display_name, custom_roles in grouped.values()
+        ]
 
     def add_membership(self, membership: OrganizationMembership) -> None:
         self.session.add(membership)

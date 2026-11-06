@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.models import Organization, OrganizationMembership
+from app.models import Organization, OrganizationMembership, OrganizationRole
 from app.repositories.organization_repository import OrganizationRepository
 from app.schemas.v1.organizations import (
     OrganizationCreateRequest,
@@ -63,8 +63,18 @@ class OrganizationService:
             user_id=user.id,
             role="owner",
         )
+        default_role = OrganizationRole(
+            id=uuid4(),
+            organization_id=organization.id,
+            name="Member",
+            description="Default role for organization members.",
+        )
         try:
             self.repository.create_organization(organization, membership)
+            # Persist the organization first so the default role's FK is valid
+            # on databases where unrelated pending objects are not dependency-sorted.
+            self.session.flush()
+            self.session.add(default_role)
             self.session.commit()
             self.session.refresh(organization)
         except Exception:

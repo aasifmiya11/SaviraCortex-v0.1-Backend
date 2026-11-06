@@ -13,7 +13,14 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.firebase import _firebase_app
-from app.models import Organization, OrganizationInvitation, OrganizationMembership, User
+from app.models import (
+    Organization,
+    OrganizationInvitation,
+    OrganizationMembership,
+    OrganizationRole,
+    User,
+    UserRoleAssignment,
+)
 from app.schemas.v1.invitations import (
     InvitationAcceptRequest,
     InvitationAcceptResponse,
@@ -25,6 +32,13 @@ from app.schemas.v1.invitations import (
 from app.services.invitation_mailer import send_invitation_email
 
 logger = logging.getLogger(__name__)
+
+
+def _as_utc(value: datetime) -> datetime:
+    """SQLite may return naive values for timezone-aware DateTime columns."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _hash_token(token: str) -> str:
@@ -118,6 +132,7 @@ class InvitationService:
             email=invitation.email,
             candidate_name=invitation.candidate_name,
             role=invitation.invited_role,
+            custom_role="Member",
             status=invitation.status,
             expires_at=invitation.expires_at,
             email_sent_at=invitation.email_sent_at,
@@ -137,7 +152,8 @@ class InvitationService:
                 email=row.email,
                 candidate_name=row.candidate_name,
                 role=row.invited_role,
-                status="expired" if row.status == "pending" and row.expires_at <= now else row.status,
+                custom_role="Member",
+                status="expired" if row.status == "pending" and _as_utc(row.expires_at) <= now else row.status,
                 created_at=row.created_at,
                 expires_at=row.expires_at,
                 email_sent_at=row.email_sent_at,
@@ -199,11 +215,40 @@ class InvitationService:
                 id=uuid4(),
                 organization_id=invitation.organization_id,
                 user_id=user.id,
-                role=invitation.invited_role,
+                # System-level access remains "member". The organization-specific
+                # default role is assigned separately as "Member" below.
+                role="member",
+            )
+            member_role = self.session.scalar(
+                select(OrganizationRole).where(
+                    OrganizationRole.organization_id == invitation.organization_id,
+                    OrganizationRole.name == "Member",
+                )
+            )
+            if member_role is None:
+                member_role = OrganizationRole(
+                    id=uuid4(),
+                    organization_id=invitation.organization_id,
+                    name="Member",
+                    description="Default role for organization members.",
+                )
+                self.session.add(member_role)
+                self.session.flush()
+            role_assignment = UserRoleAssignment(
+                id=uuid4(),
+                organization_id=invitation.organization_id,
+                user_id=user.id,
+                role_id=member_role.id,
             )
             invitation.status = "accepted"
             invitation.accepted_at = datetime.now(timezone.utc)
-            self.session.add_all([user, membership])
+            # Flush in FK dependency order; SQLite does not reliably infer the
+            # composite membership/role assignment dependencies from bare FKs.
+            self.session.add(user)
+            self.session.flush()
+            self.session.add(membership)
+            self.session.flush()
+            self.session.add(role_assignment)
             self.session.flush()
             custom_token = firebase_auth.create_custom_token(firebase_user.uid, app=app)
             self.session.commit()
