@@ -20,6 +20,8 @@ class DocumentRegistrationData:
     title: str
     document_type: str
     description: str | None = None
+    department_id: UUID | None = None
+    archived: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +35,7 @@ class VersionRegistrationData:
     effective_from: date | None = None
     effective_until: date | None = None
     page_count: int | None = None
+    uploaded_by_user_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +98,9 @@ class DocumentRegistrationService:
             ):
                 raise ValueError("Page count must be a positive integer.")
 
+        if data.uploaded_by_user_id is not None and not isinstance(data.uploaded_by_user_id, UUID):
+            raise ValueError("uploaded_by_user_id must be a UUID or None.")
+
         if (
             data.effective_from is not None
             and data.effective_until is not None
@@ -125,6 +131,7 @@ class DocumentRegistrationService:
     ) -> DocumentVersion:
         return self.version_repository.create(
             document_id=document_id,
+            uploaded_by_user_id=data.uploaded_by_user_id,
             version_number=version_number,
             original_filename=data.original_filename,
             storage_key=data.storage_key,
@@ -189,6 +196,8 @@ class DocumentRegistrationService:
                 uploaded_by_user_id=uploaded_by_user_id,
                 description=document_data.description,
                 document_id=document_id,
+                department=document_data.department_id,
+                archived=document_data.archived,
             )
 
             version = self._create_version(

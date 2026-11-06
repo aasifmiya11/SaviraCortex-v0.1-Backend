@@ -242,3 +242,33 @@ class FileStorage:
             },
             ExpiresIn=expiration_seconds,
         )
+    def build_ingestion_staging_key(
+        self, organization_id: UUID, ingestion_session_id: UUID
+    ) -> str:
+        if not isinstance(organization_id, UUID) or not isinstance(ingestion_session_id, UUID):
+            raise TypeError("Organization and ingestion session IDs must be UUIDs.")
+        return (
+            f"{self.prefix}staging/organizations/{organization_id}/"
+            f"document-ingestion/{ingestion_session_id}.pdf"
+        )
+
+    def copy_file(self, source_key: str, destination_key: str) -> dict:
+        """Copy an already-uploaded object inside the configured private B2 bucket."""
+        if not source_key or not destination_key or source_key == destination_key:
+            raise ValueError("Distinct source and destination storage keys are required.")
+        source_key = source_key.lstrip("/")
+        destination_key = destination_key.lstrip("/")
+        source = self.client.head_object(Bucket=self.bucket, Key=source_key)
+        self.client.copy_object(
+            Bucket=self.bucket,
+            Key=destination_key,
+            CopySource={"Bucket": self.bucket, "Key": source_key},
+            MetadataDirective="COPY",
+        )
+        copied = self.client.head_object(Bucket=self.bucket, Key=destination_key)
+        if copied.get("ContentLength") != source.get("ContentLength"):
+            try:
+                self.client.delete_object(Bucket=self.bucket, Key=destination_key)
+            finally:
+                raise IOError("B2 object copy verification failed.")
+        return {"storage_key": destination_key, "size": copied.get("ContentLength")}

@@ -26,6 +26,7 @@ class DocumentRepository:
         description: str | None = None,
         uploaded_by_user_id: UUID | None = None,
         document_id: UUID | None = None,
+        archived: bool = False,
     ) -> Document:
         department_id = None
         if department is not None:
@@ -60,6 +61,7 @@ class DocumentRepository:
             document_type=document_type,
             department_id=department_id,
             description=description,
+            archived=archived,
         )
     
         self.db.add(document)

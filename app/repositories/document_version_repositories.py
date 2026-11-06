@@ -38,6 +38,7 @@ class DocumentVersionRepository:
         supersedes_version_id: UUID | None = None,
         page_count: int | None = None,
         version_id: UUID | None = None,
+        uploaded_by_user_id: UUID | None = None,
         *,
         organization_id: UUID,
     ) -> DocumentVersion:
@@ -71,6 +72,7 @@ class DocumentVersionRepository:
         version = DocumentVersion(
             id=version_id,
             document_id=document_id,
+            uploaded_by_user_id=uploaded_by_user_id,
             version_number=version_number,
             version_label=version_label,
             original_filename=original_filename,

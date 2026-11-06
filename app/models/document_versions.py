@@ -147,6 +147,13 @@ class DocumentVersion(Base):
     # Version Information
     # =================================================
 
+    uploaded_by_user_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     version_number: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

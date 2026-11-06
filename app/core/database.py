@@ -87,6 +87,7 @@ def create_tables() -> None:
         OrganizationInvitation,
         Document,
         DocumentVersion,
+        DocumentIngestionSession,
     )
     Base.metadata.create_all(bind=engine)
 

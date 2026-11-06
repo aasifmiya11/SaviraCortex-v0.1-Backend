@@ -9,6 +9,7 @@ from .organization_roles import OrganizationRole
 from .user_role_assignments import UserRoleAssignment
 from .document_acl import DocumentACL
 from .organization_invitations import OrganizationInvitation
+from .document_ingestion_sessions import DocumentIngestionSession
 
 __all__ = [
     "User",
@@ -22,4 +23,5 @@ __all__ = [
     "UserRoleAssignment",
     "DocumentACL",
     "OrganizationInvitation",
+    "DocumentIngestionSession",
 ]
