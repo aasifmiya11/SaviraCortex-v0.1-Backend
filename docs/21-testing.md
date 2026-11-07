@@ -2,70 +2,77 @@
 
 ## Framework and configuration
 
-pytest is used for backend tests. The project uses asyncio-related pytest plugins and includes integration-oriented test areas. Check the current test configuration and fixtures before relying on commands in CI.
+pytest is used for backend tests. The backend test tree includes agent, evaluation, integration, RAG, service, storage and workflow coverage. Frontend scripts are defined in `frontend/package.json` (`npm run lint`, `npm run build`).
 
 ## Test organization
 
 - `tests/agent/`: agent behavior and structured-output tests.
-- `tests/workflows/`: LangGraph node adapters, routing and end-to-end graph tests.
+- `tests/workflows/`: LangGraph node adapters, routing and graph tests.
 - `tests/integration/`: indexing, summary-store and retrieval integration.
-- `tests/rag/` and `tests/rag/retrieval/`: dense, BM25/hybrid retrieval, fusion, reranking, adaptive-K and candidate generation.
-- `tests/services/`: ingestion, registration, indexing, lifecycle, retrieval and auth services.
-- Root-level tests: authorization, repositories, PDF handling, hashing, normalization, storage and API schema validation.
+- `tests/rag/`: retrieval algorithms, fusion, reranking, adaptive-K and vector-store tests.
+- `tests/services/`: ingestion, registration, indexing, lifecycle, retrieval, auth and document deletion services.
+- `tests/storage/`: object-storage behavior.
+- Root-level tests: authorization, repositories, PDF handling, hashing, normalization, storage and API contracts/endpoints.
 
 ## Running tests
 
-From `E:\\SaviraCortex\\backend` with the backend virtual environment active:
+From `E:\SaviraCortex\backend`:
 
 ```powershell
-python -m pytest
+uv run pytest
 ```
 
-Run the current focused authentication and department schema suite:
+Focused document-management tests:
 
 ```powershell
-python -m pytest tests/test_v1_department_schemas.py tests/test_v1_auth_schemas.py tests/services/test_auth_services.py -v
+uv run pytest tests/test_v1_documents_endpoints.py tests/services/test_document_deletion.py -v
 ```
 
-Run workflow tests:
+Focused ingestion tests:
 
 ```powershell
-python -m pytest tests/workflows -v
+uv run pytest tests/test_v1_document_ingestion_endpoints.py tests/services/test_document_ingestion_workflow.py -v
 ```
 
-Run a focused module:
+Workflow tests:
 
 ```powershell
-python -m pytest tests/workflows/test_graph.py -v
+uv run pytest tests/workflows -v
 ```
 
-## Verification checkpoints
+Frontend checks from `frontend/`:
 
-### Earlier RAG workflow checkpoint — 5 November 2026
+```powershell
+npm run lint
+npm run build
+```
 
-The user reported:
+## Historical verification checkpoints
+
+### RAG workflow checkpoint — 5 November 2026
+
+Previously reported by the user:
 - `uv run pytest tests/workflows -v`: 45 passed in 29.84 seconds.
 - `pytest -v`: 393 passed, 2 warnings in 163.43 seconds.
 - Retrieval-exclusion focused suite: 49 passed in 92.79 seconds.
 
-A local workflow E2E smoke-test runner was also used with a synthetic indexed policy PDF. Evidence availability differed across test identities/scenarios, leaving tenant-scoped retrieval behavior as an open investigation. These results do not establish production readiness or prove tenant isolation.
+These are historical results and do not establish that the current working tree passes.
 
-### Authentication and department schema checkpoint — 5 November 2026
+### Authentication/department schema checkpoint — 5 November 2026
 
-The user ran:
-
+Previously reported:
 ```powershell
 python -m pytest tests/test_v1_department_schemas.py tests/test_v1_auth_schemas.py tests/services/test_auth_services.py -v
 ```
+Result: 20 passed in 2.33 seconds.
 
-Reported result: **20 passed in 2.33 seconds**.
+This selection did not cover all current organization, invitation, ingestion, document-library or generation endpoint behavior.
 
-Breakdown:
-- 7 department request-schema cases (trimming, blank description normalization, short/blank names and rejection of unexpected fields).
-- 3 authentication request-schema cases.
-- 10 auth service/identity cases covering accepted verified identity claims, email normalization, unverified email rejection, missing UID, duplicate Firebase UID, rollback and profile membership behavior.
+## Current documentation checkpoint — 7 November 2026
 
-This run verifies these selected schema and authentication service tests. It does not include department service tests, database-backed department endpoint tests, frontend build/lint, live Firebase SMS delivery or deployment verification.
+No tests were run as part of this documentation refresh. The current workspace contains uncommitted backend and frontend implementation changes, including document-management and ingestion work. Do not report the historical results as verification of those changes.
+
+Before committing a feature, run the smallest relevant focused test selection, inspect `git diff --check`, and record the exact command and result. Run broader suites when requested or when the change scope warrants them.
 
 ## External dependencies and safety
 

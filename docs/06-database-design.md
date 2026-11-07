@@ -2,9 +2,11 @@
 
 ## Persistence
 
-The relational layer uses SQLAlchemy declarative models and a shared `Base`. The database engine is configured through the backend settings (PostgreSQL connection configuration). Sessions are created through the shared database module. Session dependencies yield a session and close it; services own transaction commits and rollbacks.
+The relational layer uses SQLAlchemy declarative models and a shared `Base`. The engine is configured through backend settings. Sessions are created through `app/core/database.py`; session dependencies close sessions, while services own transaction commits and rollbacks.
 
-## Entity catalogue
+## Current model catalogue
+
+The current `app/models/__init__.py` exports:
 
 | Model | Responsibility |
 |---|---|
@@ -13,14 +15,15 @@ The relational layer uses SQLAlchemy declarative models and a shared `Base`. The
 | OrganizationMembership | User membership and organization-level role |
 | OrganizationDepartment | Department belonging to an organization |
 | OrganizationDepartmentMembership | User-to-department assignment |
-| OrganizationRole | Organization-defined roles |
-| UserRoleAssignment | Assigns an organization role to a user |
-| DepartmentAccessPolicy | Department/role policy model |
-| Document | Logical document identity and organization ownership |
-| DocumentVersion | Version-specific file metadata, hashes, summary, page count and lifecycle status |
-| DocumentACL | Explicit allow/deny rules for user, role or department principals |
+| OrganizationRole | Organization-defined custom role |
+| UserRoleAssignment | Assigns custom organization roles to a user |
+| Document | Stable logical document identity and organization ownership |
+| DocumentVersion | Version-specific file metadata, hashes, summary and lifecycle status |
+| DocumentACL | Explicit access rules for user, role or department principals |
+| OrganizationInvitation | Invitation token metadata and lifecycle |
+| DocumentIngestionSession | Staged document ingestion state |
 
-Consult SQLAlchemy model declarations for exact foreign keys, nullability, indexes, uniqueness and cascade behavior. A model file existing on disk does not by itself prove that its table is registered in imported metadata or that a deployed database has the corresponding schema.
+Consult model declarations for exact foreign keys, nullability, indexes, uniqueness and cascade behavior.
 
 ## Organization and department relationships
 
@@ -37,30 +40,23 @@ erDiagram
  ORGANIZATION ||--o{ DOCUMENT : owns
  DOCUMENT ||--o{ DOCUMENT_VERSION : versions
  DOCUMENT ||--o{ DOCUMENT_ACL : protected_by
+ ORGANIZATION ||--o{ ORGANIZATION_INVITATION : invites
 ```
-
-### Department persistence contract
-
-The department feature reuses the existing `OrganizationDepartment` entity/table; it does not introduce a second department table.
-
-- A department belongs to one organization through `organization_id`.
-- The department stores a name, optional description and creation timestamp.
-- Department names are unique within an organization, not globally.
-- The existing `OrganizationDepartmentMembership` relationship remains the mechanism for assigning users to departments; the current department form does not yet assign members.
-- Department creation is committed by `DepartmentService`. An integrity error is rolled back and translated into HTTP 409.
 
 ## Document and version distinction
 
-A document is the stable logical identity. A document version represents one uploaded file revision and carries file-specific information such as original filename, storage key, hashes, summary, page count, version number and status. The model enforces unique version numbers per document and at most one active version per document through a partial unique index where supported.
+A document is the stable logical identity. A document version represents one uploaded file revision and carries version-specific metadata such as original filename, storage key, hashes, summary, page count, version number and status. Version lifecycle and active-version constraints are defined in the model/service implementation.
 
-## Version states
+Archiving is a logical-document state and should not be confused with a version status. Superseding creates a new version under the logical document; it is not the same as creating a new unrelated document.
 
-The service and repository code uses `pending`, `active`, and `superseded` statuses. Archiving is represented on the logical document and does not itself rewrite version status. Archived documents are excluded from authorization catalogues/retrieval eligibility.
+## Schema creation and database-reset policy
 
-## Schema creation and migrations
+`create_tables()` imports the model package and calls `Base.metadata.create_all()`. This creates missing registered tables; it does **not** alter existing table definitions or safely migrate an existing schema. The repository contains reset scripts that may drop data.
 
-The `migrations/` directory and actual database schema must be checked before assuming a new or modified table is present. SQLAlchemy `create_all()` creates missing tables known to imported metadata; it does not alter existing table definitions. The legacy database reset script is destructive and must not be used as a routine migration command.
+Project-owner instruction: do not introduce or run migrations without explicit approval. If a future feature requires a database schema change, update the SQLAlchemy models and model registration, explain the schema impact, and ask the owner to reset the currently empty development database if they approve. Never execute a destructive reset automatically.
 
-## Transaction conventions
+The document-library documentation refresh does not add or alter database tables; no database reset is required for this documentation work.
 
-Services explicitly call `commit`, `rollback`, or `flush` depending on workflow. A repository's `add` operation does not imply a commit. For department creation, the service owns the transaction and performs rollback on failure.
+## Transaction and cross-store conventions
+
+Services explicitly call `commit`, `rollback` or `flush` according to workflow. PostgreSQL transactions do not include Firebase, B2 or Qdrant. Ingestion and permanent deletion must therefore handle partial external failures with retryable/idempotent operations and clear failure reporting.

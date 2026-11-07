@@ -1,6 +1,7 @@
 
 import sys
 from pathlib import Path
+from uuid import UUID
 
 # Add project root
 project_root = Path(__file__).resolve().parents[3]
@@ -294,6 +295,32 @@ class QdrantVectorStoreClient:
     # --------------------------------------------------
     # DELETE COLLECTION
     # --------------------------------------------------
+
+    def delete_document(self, document_id: str | UUID) -> None:
+        """Delete all chunks for a logical document, including native BM25 data."""
+        normalized_id = str(document_id).strip()
+        if not normalized_id:
+            raise ValueError("document_id cannot be empty.")
+        if not self.client.collection_exists(self.collection_name):
+            return
+        # Newer points retain document_id inside metadata; older ingestion
+        # payloads may also expose it at the root. Remove both representations
+        # so a historical payload cannot leave orphaned dense/BM25 points.
+        for payload_key in ("metadata.document_id", "document_id"):
+            self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key=payload_key,
+                                match=models.MatchValue(value=normalized_id),
+                            )
+                        ]
+                    )
+                ),
+                wait=True,
+            )
 
     def delete_collection(self):
 

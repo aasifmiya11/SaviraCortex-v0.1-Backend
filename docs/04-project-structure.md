@@ -1,85 +1,86 @@
 # 4. Project Structure
 
-**Repository root:** `E:\\SaviraCortex`
+**Repository root:** `E:\SaviraCortex`
 
 ## 4.1 Repository map
 
 ```text
 SaviraCortex/
+├── README.md
 ├── backend/
 │   ├── app/
 │   │   ├── agents/                 # LLM agents and prompts
-│   │   ├── api/v1/
-│   │   │   ├── endpoints/          # auth, departments, health, home
-│   │   │   └── router.py
-│   │   ├── core/                   # settings, database, Firebase, dependencies
-│   │   ├── llm/                    # model clients
+│   │   ├── api/v1/endpoints/       # FastAPI route modules
+│   │   ├── core/                  # Settings, DB, Firebase, dependencies
+│   │   ├── guardrails/             # Input/output guardrail components
+│   │   ├── llm/                    # Model/provider clients
+│   │   ├── memory/                 # Memory-related components
 │   │   ├── models/                 # SQLAlchemy entities
-│   │   ├── rag/                    # PDF, ingestion, retrieval, vectors
-│   │   ├── repositories/           # database access
-│   │   ├── schemas/v1/             # auth and department contracts
-│   │   ├── services/
-│   │   │   ├── auth/
-│   │   │   ├── authorization/
-│   │   │   ├── department_service.py
-│   │   │   ├── document_indexing/
-│   │   │   ├── document_ingestion/
-│   │   │   ├── document_matching/
-│   │   │   ├── document_registration/
-│   │   │   └── retrieval/
-│   │   ├── storage/
-│   │   ├── validation/
-│   │   └── workflows/rag/
-│   ├── docs/                       # numbered technical documentation
-│   ├── evals/                      # evaluation assets and plans
-│   ├── migrations/
-│   ├── scripts/
-│   ├── tests/
-│   ├── app/main.py                 # FastAPI entry point
+│   │   ├── rag/                    # PDF, chunking, embeddings, retrieval, vectors
+│   │   ├── repositories/           # Relational persistence
+│   │   ├── schemas/v1/             # API contracts
+│   │   ├── services/               # Domain and workflow services
+│   │   ├── storage/                # B2/S3-compatible file storage
+│   │   ├── validation/             # Output/citation validation
+│   │   └── workflows/rag/          # LangGraph generation workflow
+│   ├── docs/                       # Numbered technical documentation
+│   ├── evals/                      # Golden synthesis and evaluation
+│   ├── scripts/                    # Setup and operational scripts
+│   ├── tests/                      # Unit, service, workflow, integration tests
 │   ├── pyproject.toml
 │   └── uv.lock
 └── frontend/
     ├── src/app/
-    │   ├── page.tsx                # public homepage
-    │   ├── login/page.tsx
-    │   ├── register/page.tsx
-    │   ├── dashboard/page.tsx
-    │   └── firebase.ts
+    │   ├── dashboard/              # Dashboard, ingestion, library, chat
+    │   ├── invitations/            # Invitation acceptance
+    │   ├── login/
+    │   ├── register/
+    │   ├── signup/
+    │   ├── page.tsx                # Public homepage
+    │   └── firebase.ts             # Browser Firebase configuration
     ├── public/
     ├── package.json
     └── package-lock.json
 ```
 
-This is a high-level map, not an exhaustive file listing. Preserve existing package capitalization and naming conventions when importing modules.
+This is a high-level map, not an exhaustive file listing. Ignore generated directories such as `.venv`, `node_modules`, `.next`, `__pycache__` and test caches when reasoning about source structure.
 
 ## 4.2 Backend package responsibilities
 
-- `app/api/v1/endpoints`: HTTP route declarations for authentication, departments, health and home.
+- `app/api/v1/endpoints`: authentication, organization, membership, invitation, ingestion, document-library and generation HTTP routes.
 - `app/api/v1/router.py`: versioned API router composition.
-- `app/core`: configuration, database session lifecycle, Firebase Admin setup and FastAPI dependencies.
+- `app/core`: configuration, database sessions, Firebase Admin and FastAPI dependencies.
 - `app/schemas/v1`: Pydantic request/response contracts.
 - `app/models`: SQLAlchemy database entities.
 - `app/repositories`: relational queries and persistence operations.
-- `app/services/auth`: organization signup and authenticated identity/profile resolution.
-- `app/services/department_service.py`: organization-scoped department authorization and creation.
-- `app/services/authorization`: document-level access calculations and related cache helper.
-- `app/services/document_ingestion`, `document_registration`, `document_indexing`: document lifecycle services.
-- `app/services/retrieval` and `app/rag/retrieval`: retrieval orchestration and retrieval algorithms.
-- `app/agents` and `app/workflows/rag`: LLM agents and end-to-end RAG graph.
+- `app/services/auth`: signup and authenticated identity/profile resolution.
+- `app/services/authorization`: document-level access decisions.
+- `app/services/document_ingestion`: PDF analysis and ingestion orchestration.
+- `app/services/document_registration`: logical document and version registration.
+- `app/services/document_indexing`: chunk/vector indexing and activation lifecycle.
+- `app/services/document_management`: document metadata, version summaries and deletion.
+- `app/services/retrieval` and `app/rag/retrieval`: retrieval orchestration and algorithms.
+- `app/agents`, `app/llm` and `app/workflows/rag`: agents, model adapters and end-to-end RAG graph.
 - `app/validation`: deterministic output/citation validation.
-- `app/storage`: object-storage abstraction.
+- `app/storage`: B2/S3-compatible object operations.
+- `evals`: dataset synthesis and evaluation entry points.
 
-## 4.3 Frontend routes
+## 4.3 Frontend routes and components
 
-| Route | Purpose |
+| Route/component | Purpose |
 |---|---|
-| `/` | SaviraCortex public homepage |
-| `/login` | Firebase sign-in UI |
-| `/register` | Firebase identity registration and organization signup |
-| `/dashboard` | Authenticated organization overview and department management |
-
-The dashboard consumes `GET /api/v1/auth/me` and organization-specific department endpoints. Firebase remains the browser-side identity SDK; backend API requests carry Firebase ID tokens.
+| `/` | Public homepage |
+| `/login` | Firebase sign-in |
+| `/register` | Firebase registration and organization onboarding |
+| `/signup` | Additional signup route |
+| `/dashboard` | Organization workspace and administration |
+| `/dashboard/chat` | RAG chat UI |
+| `/invitations/accept` | Invitation acceptance |
+| `dashboard/DocumentIngestionModal.tsx` | PDF ingestion UI |
+| `dashboard/DocumentLibrary.tsx` | Document list, detail and lifecycle UI |
+| `dashboard/InvitationPanel.tsx` | Organization invitation UI |
+| `BatchIngestionWidget.tsx` | Batch upload/progress presentation |
 
 ## 4.4 Documentation
 
-Technical documentation lives in `backend/docs/`. The numbered documents cover the system from project overview through context compression. The latest application/authentication checkpoint is [30-current-application-checkpoint.md](30-current-application-checkpoint.md). Update the relevant architecture, schema, authorization and testing pages when implementation changes.
+Project entry point: repository-root `README.md`. Detailed technical documentation lives in `backend/docs/`. The current project-wide checkpoint is [31-project-wide-current-state.md](31-project-wide-current-state.md). Update relevant subsystem pages and the checkpoint when implementation changes.

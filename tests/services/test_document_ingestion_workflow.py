@@ -194,7 +194,7 @@ def test_finalize_supersede_creates_next_version_under_matched_document(
     db_session.flush()
     staged = staged_session(
         organization_context,
-        classification="potential_match",
+        classification="exact_file_match",
         candidates=[{
             "document_id": str(existing.id),
             "version_id": str(previous.id),
@@ -431,7 +431,7 @@ def test_analyze_and_stage_runs_pipeline_and_stages_non_duplicate_pdf(
     assert saved.status == "awaiting_review"
 
 
-def test_analyze_and_stage_exact_duplicate_does_not_upload_staging_copy(
+def test_analyze_and_stage_exact_duplicate_is_staged_for_user_review(
     db_session, organization_context, tmp_path
 ):
     pdf = tmp_path / "duplicate.pdf"
@@ -470,10 +470,10 @@ def test_analyze_and_stage_exact_duplicate_does_not_upload_staging_copy(
         file_size=pdf.stat().st_size,
     )
 
-    assert result["status"] == "duplicate"
+    assert result["status"] == "ready_for_review"
     assert result["matching_candidates"][0]["matched_by"] == "file_hash"
-    assert storage.uploads == []
-    assert db_session.query(DocumentIngestionSession).count() == 0
+    assert len(storage.uploads) == 1
+    assert db_session.query(DocumentIngestionSession).count() == 1
 
 def test_analyze_rejects_duplicate_that_is_already_awaiting_review(
     db_session, organization_context, tmp_path
@@ -542,7 +542,7 @@ def test_finalize_rechecks_hashes_before_persisting_staged_upload(
     db_session.add(staged)
     db_session.commit()
 
-    with pytest.raises(ValueError, match="became an exact duplicate"):
+    with pytest.raises(ValueError, match="added while this upload awaited review"):
         workflow.finalize(
             db_session,
             organization_id=organization.id,
@@ -554,7 +554,7 @@ def test_finalize_rechecks_hashes_before_persisting_staged_upload(
             description="New description",
         )
 
-    assert staged.status == "rejected"
+    assert staged.status == "awaiting_review"
     assert storage.copies == []
-    assert storage.deletes == ["staging/upload.pdf"]
+    assert storage.deletes == []
     assert db_session.query(Document).count() == 1

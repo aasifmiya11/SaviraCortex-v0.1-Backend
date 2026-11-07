@@ -1,115 +1,96 @@
 # 2. System Architecture
 
 **Product:** SaviraCortex  
-**Checkpoint:** 5 November 2026
+**Checkpoint:** 7 November 2026
 
 ## 2.1 Architectural style
 
-SaviraCortex is a modular full-stack application. The backend separates FastAPI routing, Pydantic schemas, business services, repositories, SQLAlchemy models, RAG components, LLM agents and external infrastructure clients. The frontend is a Next.js App Router application.
+SaviraCortex is a modular full-stack application. The backend separates FastAPI routing, Pydantic schemas, domain services, repositories, SQLAlchemy models, RAG components, LLM agents and external infrastructure clients. The frontend is a Next.js App Router application.
 
-The HTTP layer is deliberately thin: endpoint functions validate/deserialize requests, resolve dependencies and delegate business operations to services. Services own authorization decisions and transaction behavior; repositories own database queries and persistence.
+HTTP endpoints should remain thin. Endpoints parse requests, resolve dependencies and translate service results/errors into HTTP responses. Services own domain authorization and transaction behavior; repositories own relational query/persistence details.
 
-## 2.2 Backend request architecture
+## 2.2 Logical architecture
 
 ```mermaid
 flowchart TD
-  Browser[Next.js browser app] -->|HTTPS / JSON + Firebase Bearer token| API[FastAPI app]
-  API --> Router[API v1 router]
-  Router --> Auth[Authentication endpoints]
-  Router --> Dept[Department endpoints]
-  Auth --> AuthSvc[Signup / identity services]
-  Dept --> DeptSvc[Department service]
-  AuthSvc --> AuthRepo[Auth repository]
-  DeptSvc --> DeptRepo[Department repository]
-  AuthSvc --> PG[(PostgreSQL)]
-  DeptSvc --> PG
-  API --> Firebase[Firebase Admin token verification]
+  Browser[Next.js browser app] -->|Firebase Bearer ID token| API[FastAPI /api/v1]
+  Browser <--> Firebase[Firebase Authentication]
+  API --> Verify[Firebase Admin verification]
+  API --> Domain[Organization, membership, invitation and document services]
+  Domain --> PG[(PostgreSQL)]
+  Domain --> B2[(Backblaze B2)]
+  Domain --> Qdrant[(Qdrant)]
+  API --> Generation[Generation service]
+  Generation --> RAG[LangGraph RAG workflow]
+  RAG --> Authz[Organization and document authorization]
+  RAG --> PG
+  RAG --> Qdrant
+  RAG --> LLM[LLM and embedding providers]
+  RAG --> B2
 ```
 
-### Application entry point
+This is a logical component view, not a deployment topology.
+
+## 2.3 Application and API
+
 - Entry point: `backend/app/main.py`.
 - FastAPI title: `SaviraCortex API`, version `1.0.0`.
 - API router prefix: `/api/v1`.
 - OpenAPI JSON: `/api/v1/openapi.json`.
 - Swagger UI: `/api/v1/docs`.
 - ReDoc: `/api/v1/redoc`.
-- Local CORS origins include `http://localhost:3000` and `http://127.0.0.1:3000`.
 
-### Current API routes
-| Method | Route | Responsibility |
-|---|---|---|
-| GET | `/api/v1/health` | Health endpoint |
-| GET | `/api/v1/auth/me` | Resolve authenticated SaviraCortex profile and organization memberships |
-| POST | `/api/v1/auth/organizations/signup` | Register an organization and its initial administrator |
-| GET | `/api/v1/organizations/{organization_id}/departments` | List departments after membership verification |
-| POST | `/api/v1/organizations/{organization_id}/departments` | Create a department for an owner/admin |
+The router currently includes home, health, auth, organizations, custom roles, organization memberships, departments, department memberships, invitations, document ingestion, document management and generation.
 
-The home endpoint is also registered. Consult the endpoint modules and generated OpenAPI schema for the precise current response contract.
+See [31 — Project-Wide Current State](31-project-wide-current-state.md) for route families and exact document/generation routes. The live OpenAPI schema is the contract authority for the running build.
 
-## 2.3 Authentication and request lifecycle
+## 2.4 Authentication and request lifecycle
 
-1. The frontend obtains a Firebase ID token.
+1. Frontend obtains a Firebase ID token.
 2. It sends `Authorization: Bearer <firebase-id-token>`.
 3. `get_verified_firebase_claims` verifies the token through Firebase Admin.
-4. Endpoint dependencies provide the SQLAlchemy session and verified claims.
-5. The service maps the Firebase `uid` to a SaviraCortex user and checks organization membership/role as required.
-6. The service commits or rolls back its transaction explicitly.
-7. FastAPI serializes the Pydantic response.
+4. Endpoint dependencies provide the database session and verified claims.
+5. Services resolve the Firebase UID to a SaviraCortex user and verify organization membership/role.
+6. Document operations additionally enforce the applicable document access policy.
+7. Services commit/rollback relational transactions explicitly.
+8. FastAPI serializes the response or streams SSE events.
 
-Firebase token verification is not a substitute for application membership authorization. A valid Firebase account that has no SaviraCortex user or organization membership must not gain access to organization data.
+A valid Firebase identity does not grant access to an organization unless application membership checks pass.
 
-## 2.4 Data and AI infrastructure
+## 2.5 Data and AI infrastructure
 
-- **PostgreSQL:** users, organizations, memberships, departments, roles, ACLs, documents and document versions.
-- **Qdrant:** chunk vectors and document-summary vectors.
-- **Backblaze B2:** original PDF objects, accessed through S3-compatible APIs.
-- **Redis-compatible service:** separate authorization cache helper; the current retrieval orchestrator has historically called AuthorizationService directly rather than using that cache wrapper.
-- **Firebase Authentication:** external identity provider and Firebase Admin token verification.
+- **PostgreSQL:** users, organizations, memberships, departments, custom roles, invitations, ACLs, documents, versions and ingestion sessions.
+- **Qdrant:** document chunk vectors and summary vectors.
+- **Backblaze B2:** original PDF objects through S3-compatible APIs.
+- **Redis-compatible service:** cache functionality; do not assume every retrieval path uses the cache wrapper.
+- **Firebase Authentication/Admin:** browser identity and backend token verification.
+- **LLM/embedding/OCR providers:** processing and generation dependencies.
 
-The document ingestion, indexing and RAG architecture remains modular and is described in documents 08–19 and 26–29.
+## 2.6 Main workflows
 
-## 2.5 Department request flow
+### Ingestion and indexing
+The ingestion service analyzes/stages or streams PDF uploads, persists confirmed document/version metadata, stores the source file, and coordinates indexing. A version should become active only after successful indexing. Failed indexing should remain retryable.
 
-```mermaid
-sequenceDiagram
-  participant UI as Dashboard
-  participant API as FastAPI
-  participant FB as Firebase Admin
-  participant S as DepartmentService
-  participant DB as PostgreSQL
-  UI->>API: GET/POST departments + Bearer token
-  API->>FB: Verify ID token
-  FB-->>API: Verified UID claims
-  API->>S: organization_id, payload, claims
-  S->>DB: Resolve user and organization membership
-  DB-->>S: Membership / no membership
-  alt Owner or admin creates department
-    S->>DB: Insert department and commit
-    DB-->>S: Persisted department
-    S-->>UI: 201 department response
-  else Member attempts creation
-    S-->>UI: 403 Forbidden
-  else No organization membership
-    S-->>UI: 404 Not found / not a member
-  end
-```
+### Document management and deletion
+Document library operations span relational metadata, B2 source objects and Qdrant indexes. These stores do not share a distributed transaction. Cleanup order, idempotency and retry behavior are therefore important. Do not claim permanent deletion is atomic across all stores.
 
-## 2.6 Transaction and cross-store boundaries
-
-PostgreSQL transactions do not form a distributed transaction with Qdrant, Firebase or object storage. Ingestion/indexing workflows must retain their explicit cleanup and reconciliation behavior. The department creation service commits the department row and rolls back on integrity or other database errors.
+### Retrieval and generation
+The RAG graph validates the query, retrieves organization/user-authorized evidence, evaluates sufficiency, optionally expands retrieval and compresses context, generates an answer, then validates output/citations. The generation API supports both ordinary JSON response and SSE streaming.
 
 ## 2.7 Runtime commands
 
-From the repository's backend directory:
+Backend:
 
 ```powershell
-uvicorn app.main:app --reload
+cd E:\SaviraCortex\backend
+uv run uvicorn app.main:app --reload
 ```
 
-From the frontend directory:
+Frontend:
 
 ```powershell
+cd E:\SaviraCortex\frontend
 npm run dev
 ```
 
-The frontend expects the backend base URL from `NEXT_PUBLIC_API_BASE_URL`, defaulting in the current pages to `http://localhost:8000`.
+Configuration and external-service requirements are documented in [05 — Configuration](05-configuration.md) and [22 — Setup Guide](22-setup-guide.md).

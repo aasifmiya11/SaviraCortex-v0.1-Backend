@@ -1,11 +1,11 @@
 # SaviraCortex — Backend Technical Documentation
 
 **Repository:** `E:\\SaviraCortex`  
-**Documentation baseline:** 5 November 2026
+**Documentation baseline:** 7 November 2026
 
-This documentation describes the implementation present in the SaviraCortex repository at the time of the latest checkpoint. It is an engineering reference, not a product specification. Planned work and unverified assumptions are identified separately. When source code and documentation disagree, the implementation is authoritative.
+This documentation describes the backend and its integration with the Next.js frontend. It is an engineering reference, not a product specification. Planned work and unverified assumptions are identified separately. When source code and documentation disagree, the implementation is authoritative.
 
-## Reading order
+## Start here
 
 1. [Project overview](01-project-overview.md)
 2. [System architecture](02-system-architecture.md)
@@ -37,39 +37,32 @@ This documentation describes the implementation present in the SaviraCortex repo
 28. [Remaining implementation roadmap](28-remaining-implementation-roadmap.md)
 29. [Context compression](29-context-compression.md)
 30. [Current application checkpoint](30-current-application-checkpoint.md)
+31. [Project-wide current state](31-project-wide-current-state.md)
 
 Architecture diagrams are collected in [diagrams/](diagrams/).
 
 ## Current application snapshot
 
-The backend now includes a FastAPI application and versioned API routes for health, authentication, organization signup and department management. Firebase Authentication provides Email/Password, Google and Phone identity; Firebase Admin verifies ID tokens on the backend. PostgreSQL stores SaviraCortex users, organizations, memberships and departments.
+SaviraCortex is an organization-aware document intelligence and RAG application. The backend exposes FastAPI routes for authentication, organizations, roles, memberships, departments, invitations, document ingestion, document management and generation. Firebase Admin verifies browser-issued Firebase ID tokens. PostgreSQL stores application and tenant records. Backblaze B2 stores source files; Qdrant stores chunk and summary vectors.
 
-The Next.js frontend contains a public homepage, login, registration and organization dashboard. The dashboard loads the authenticated profile and organization-specific departments and exposes department creation to owner/admin members.
-
-The earlier document ingestion, indexing, retrieval, LangGraph RAG, generation and static validation components remain part of the backend architecture. The latest implementation and verification boundaries are recorded in [30-current-application-checkpoint.md](30-current-application-checkpoint.md).
+The Next.js frontend provides the public homepage, login/registration, organization dashboard, invitation acceptance and chat. The dashboard includes member/role/department administration, invitation workflows, document ingestion and a document library. See [31 — Project-Wide Current State](31-project-wide-current-state.md) for the current route inventory and capability boundaries.
 
 ## Important implementation boundaries
 
 - A passing schema test is not proof of successful database persistence or endpoint integration.
 - Firebase authentication proves an external identity; SaviraCortex must still resolve the UID to an application user and verify organization membership/role.
 - Hiding a UI control is not authorization. The backend must enforce every organization and role check.
-- The presence of a SQLAlchemy model does not prove that the live database schema is migrated.
-- The current department form creates organization departments; it does not yet assign users to departments.
-- The current frontend pages do not yet constitute a complete chat/citation/document-viewer experience.
-- The previous retrieval E2E tenant-scope inconsistency remains an investigation item, not a confirmed vulnerability or a security pass.
+- The presence of a SQLAlchemy model does not prove that a live database schema is current.
+- PostgreSQL, Qdrant and B2 do not share a distributed transaction; ingestion and deletion workflows require retry/reconciliation behavior.
+- Browser progress state is not a durable background job queue.
+- A generation request that accepts conversation history does not prove persistent conversation storage.
+- The earlier retrieval tenant-scope investigation remains a separate security/testing concern; do not treat a smoke test as a security pass.
 - Local test results are recorded with the exact command and scope. They are not CI or production verification.
 
-## Latest reported verification
+## Verification policy
 
-On 5 November 2026 the user reported:
-
-```text
-python -m pytest tests/test_v1_department_schemas.py tests/test_v1_auth_schemas.py tests/services/test_auth_services.py -v
-20 passed in 2.33s
-```
-
-Earlier RAG workflow and full-suite results are retained in [Testing](21-testing.md). No frontend build/lint or department endpoint integration result is claimed by this documentation update.
+No tests were run as part of the 7 November 2026 documentation refresh. Historical test evidence is retained in [21 — Testing](21-testing.md) with its original scope. The current development workspace has uncommitted backend and frontend changes; see [31 — Project-Wide Current State](31-project-wide-current-state.md).
 
 ## Source-of-truth policy
 
-When code and this documentation disagree, code is authoritative. Update the relevant numbered page and the current checkpoint when implementation changes. Record the command, environment and result for verification; document uncertainty rather than inferring behavior.
+When code and this documentation disagree, code is authoritative. Update the relevant subsystem page and the current checkpoint when implementation changes. Record the command, environment and result for verification; document uncertainty rather than inferring behavior. Never commit credentials, Firebase service-account files, tokens, private keys or private document contents.

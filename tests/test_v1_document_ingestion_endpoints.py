@@ -228,3 +228,43 @@ def test_batch_upload_rejects_more_than_configured_queue_capacity(client, organi
     assert response.status_code == 413
     assert "at most 1 documents" in response.json()["detail"]
     client.app.dependency_overrides.pop(get_ingestion_workflow, None)
+
+
+def test_admin_can_explicitly_supersede_an_unmatched_document_from_library(
+    client, db_session, organization_context
+):
+    organization = organization_context["organization"]
+    owner = organization_context["owner"]
+    document = Document(
+        organization_id=organization.id,
+        uploaded_by_user_id=owner.id,
+        title="Current policy",
+        document_type="Policy",
+        description="Current version.",
+    )
+    db_session.add(document)
+    db_session.commit()
+
+    class CapturingWorkflow(FakeIngestionWorkflow):
+        def finalize(self, _db, **kwargs):
+            self.finalize_kwargs = kwargs
+            return super().finalize(_db, **kwargs)
+
+    workflow = CapturingWorkflow()
+    client.app.dependency_overrides[get_ingestion_workflow] = lambda: workflow
+    response = client.post(
+        f"/api/v1/organizations/{organization.id}/documents/ingestion-sessions/{uuid4()}/complete",
+        json={
+            "action": "supersede",
+            "target_document_id": str(document.id),
+            "title": "Current policy",
+            "document_type": "Policy",
+            "description": "Replacement version.",
+            "department_id": None,
+            "archived": False,
+        },
+    )
+
+    assert response.status_code == 200
+    assert workflow.finalize_kwargs["target_document_id"] == document.id
+    assert workflow.finalize_kwargs["allow_unmatched_supersede"] is True

@@ -220,6 +220,70 @@ class FileStorage:
             Key=storage_key,
         )
 
+    def delete_file_permanently(self, storage_key: str) -> None:
+        """Permanently remove every B2/S3 object version and delete marker for a key.
+
+        A plain DeleteObject can create a delete marker in a versioned bucket
+        while leaving older PDF versions billable and recoverable. Enumerate
+        all exact-key versions first, then delete each version explicitly.
+        """
+        if not storage_key or not storage_key.strip():
+            raise ValueError("Storage key cannot be empty.")
+
+        storage_key = storage_key.lstrip("/")
+        versions_to_delete: list[dict[str, str]] = []
+        key_marker = None
+        version_id_marker = None
+
+        while True:
+            arguments = {
+                "Bucket": self.bucket,
+                "Prefix": storage_key,
+            }
+            if key_marker:
+                arguments["KeyMarker"] = key_marker
+            if version_id_marker:
+                arguments["VersionIdMarker"] = version_id_marker
+
+            response = self.client.list_object_versions(**arguments)
+            for version in response.get("Versions", []):
+                if version.get("Key") == storage_key and version.get("VersionId") is not None:
+                    versions_to_delete.append({
+                        "Key": storage_key,
+                        "VersionId": version["VersionId"],
+                    })
+            for marker in response.get("DeleteMarkers", []):
+                if marker.get("Key") == storage_key and marker.get("VersionId") is not None:
+                    versions_to_delete.append({
+                        "Key": storage_key,
+                        "VersionId": marker["VersionId"],
+                    })
+
+            if not response.get("IsTruncated"):
+                break
+            key_marker = response.get("NextKeyMarker")
+            version_id_marker = response.get("NextVersionIdMarker")
+            if not key_marker:
+                raise RuntimeError("B2 version listing was truncated without a continuation key.")
+
+        if not versions_to_delete:
+            try:
+                self.client.head_object(Bucket=self.bucket, Key=storage_key)
+            except ClientError as exc:
+                error_code = exc.response.get("Error", {}).get("Code")
+                if error_code in {"404", "NoSuchKey", "NotFound"}:
+                    return
+                raise
+            self.delete_file(storage_key)
+            return
+
+        for version in versions_to_delete:
+            self.client.delete_object(
+                Bucket=self.bucket,
+                Key=version["Key"],
+                VersionId=version["VersionId"],
+            )
+
     def generate_download_url(
         self,
         storage_key: str,

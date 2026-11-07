@@ -207,7 +207,7 @@ class DocumentIngestionWorkflowService:
                 DocumentIngestionSession.file_hash == file_hash,
             ).limit(1)
         )
-        if existing_matches or staged_match is not None:
+        if staged_match is not None:
             candidates = [
                 {
                     "document_id": str(version.document_id),
@@ -332,25 +332,8 @@ class DocumentIngestionWorkflowService:
             f"Duplicate check completed: {matching.classification.replace('_', ' ')}.",
         )
 
-        if matching.classification in {"exact_file_match", "exact_content_match"}:
-            db.commit()
-            return {
-                "status": "duplicate",
-                "ingestion_session_id": None,
-                "original_filename": original_filename,
-                "file_size": file_size,
-                "file_hash": file_hash,
-                "content_hash": content_hash,
-                "page_count": len(normalized_pages),
-                "title": summary_output.title,
-                "document_type": summary_output.document_type,
-                "description": summary_output.description,
-                "summary": summary_output.summary,
-                "matching_classification": matching.classification,
-                "matching_candidates": candidates,
-                "validation_warnings": validation.warnings,
-                "expires_at": None,
-            }
+        # Exact file/content matches are matching evidence, not an automatic rejection.
+        # Stage them so the uploader can choose supersede, independent ingest, or reject.
 
         session_id = uuid4()
         staging_key = self.file_storage.build_ingestion_staging_key(
@@ -429,6 +412,7 @@ class DocumentIngestionWorkflowService:
         department_id: UUID | None = None,
         archived: bool = False,
         target_document_id: UUID | None = None,
+        allow_unmatched_supersede: bool = False,
     ) -> dict:
         staged = db.scalar(
             select(DocumentIngestionSession)
@@ -471,17 +455,36 @@ class DocumentIngestionWorkflowService:
             raise ValueError("Unsupported document ingestion decision.")
 
         classification = staged.matching_classification
-        if action == "new" and classification != "no_match":
+        has_match = classification != "no_match"
+        if action == "new" and has_match:
             raise ValueError("The new-document action is only valid when no match was found.")
-        if action in {"supersede", "independent"} and classification != "potential_match":
-            raise ValueError("Supersede or independent ingest is only valid for a potential match.")
+        if action == "independent" and not has_match:
+            raise ValueError("Independent ingest requires a matching document.")
+        if action == "supersede" and not has_match and not allow_unmatched_supersede:
+            raise ValueError("Superseding an unmatched document requires organization manager permission.")
         if action == "supersede":
             allowed_targets = {
                 UUID(item["document_id"])
                 for item in staged.matching_candidates
                 if item.get("document_id")
             }
-            if target_document_id is None or target_document_id not in allowed_targets:
+            if target_document_id is None:
+                raise ValueError("Choose a document to supersede.")
+            if target_document_id not in allowed_targets and not allow_unmatched_supersede:
+                raise ValueError("Choose one of the suggested matching documents to supersede.")
+            target_document = db.scalar(
+                select(Document)
+                .where(
+                    Document.id == target_document_id,
+                    Document.organization_id == organization_id,
+                )
+                .with_for_update()
+            )
+            if target_document is None:
+                raise LookupError("The selected document no longer exists in this organization.")
+            if target_document.archived:
+                raise ValueError("An archived document cannot be superseded.")
+            if target_document_id not in allowed_targets and not allow_unmatched_supersede:
                 raise ValueError("Choose one of the suggested matching documents to supersede.")
             if archived:
                 raise ValueError("A superseding version cannot be archived during ingestion.")
@@ -514,14 +517,8 @@ class DocumentIngestionWorkflowService:
             )
             .limit(1)
         )
-        if duplicate_version_id is not None:
-            staged.status = "rejected"
-            db.commit()
-            try:
-                self.file_storage.delete_file(staged.staging_storage_key)
-            except Exception:
-                pass
-            raise ValueError("This PDF became an exact duplicate while awaiting review and has been rejected.")
+        if duplicate_version_id is not None and classification == "no_match":
+            raise ValueError("An identical document was added while this upload awaited review. Please upload it again to review the matching document.")
 
         document_id = target_document_id if action == "supersede" else uuid4()
         version_id = uuid4()

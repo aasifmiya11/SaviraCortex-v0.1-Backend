@@ -151,6 +151,20 @@ def finalize_document_ingestion(
     workflow: DocumentIngestionWorkflowService = Depends(get_ingestion_workflow),
 ):
     user, membership = _current_member(db, organization_id, firebase_claims)
+    if payload.action == "supersede" and payload.target_document_id is not None:
+        from app.repositories.authorization_repository import AuthorizationRepository
+
+        authorized_document_ids = set(
+            AuthorizationRepository(db).get_authorized_document_ids(
+                organization_id=organization_id,
+                user_id=user.id,
+            )
+        )
+        if payload.target_document_id not in authorized_document_ids:
+            raise HTTPException(
+                status_code=404,
+                detail="The selected document was not found or you do not have permission to supersede it.",
+            )
     workflow = workflow or DocumentIngestionWorkflowService()
     if payload.department_id is not None and membership.role == "member":
         department_assignment = db.get(
@@ -175,6 +189,7 @@ def finalize_document_ingestion(
             department_id=payload.department_id,
             archived=payload.archived,
             target_document_id=payload.target_document_id,
+            allow_unmatched_supersede=membership.role in {"owner", "admin"},
         )
     except LookupError as exc:
         db.rollback()

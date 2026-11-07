@@ -3,38 +3,66 @@
 ## Prerequisites
 
 - Python 3.11 or newer.
-- uv (recommended because the repository includes `uv.lock`), or another compatible Python environment manager.
-- Access to configured PostgreSQL, Redis-compatible, Qdrant and Backblaze B2 services for workflows that use them.
-- An LLM API endpoint/key/model.
-- OCR system dependencies and language data for the selected OCR engine.
+- `uv` (recommended; the repository includes `uv.lock`).
+- Node.js and npm compatible with the Next.js version in `frontend/package.json`.
+- A configured PostgreSQL database.
+- Firebase project with the required Authentication providers.
+- Qdrant and Backblaze B2 credentials for document ingestion/indexing and retrieval.
+- Redis-compatible service where cache functionality is used.
+- LLM provider credentials and the OCR system dependencies/language data required by the selected PDF loader.
 
-## Create environment
+## Backend setup
+
+From `E:\SaviraCortex\backend`:
 
 ```powershell
 uv sync
 ```
 
-Alternatively, create and activate a virtual environment and install the project dependencies from `pyproject.toml` using your package manager.
+Create a local `.env` using [05 — Configuration](05-configuration.md). Fill credentials locally; do not commit the file. The backend configuration is loaded when `app/core/config.py` is imported.
 
-## Configure environment
+Start the API:
 
-Create a local `.env` file using the template in [Configuration](05-configuration.md). Populate credentials locally; do not commit the file. Database access is required when importing/using the database module. Redis is required when `get_redis()` is called. Qdrant/B2/model settings are required for their corresponding workflows.
+```powershell
+uv run uvicorn app.main:app --reload
+```
 
-## Database schema warning
+The API documentation is at `http://localhost:8000/api/v1/docs`.
 
-The repository has no checked-in migration history. Do **not** assume `scripts/create_tables.py` is a safe create-only command: it calls `scripts/database.py`, which drops and recreates all SQLAlchemy-managed tables after interactive confirmation, deleting their data. Review the script and target database carefully; use only against a disposable/empty development database when a reset is intended. `Base.metadata.create_all()` in the database helper only creates missing registered tables and does not migrate existing schemas.
+## Frontend setup
+
+1. Create a Firebase Web app in the same Firebase project used by the backend Admin SDK.
+2. Enable the providers used by the app: Email/Password, Google and Phone.
+3. Copy `frontend/firebase-config.example.txt` to `frontend/.env.local`.
+4. Populate the `NEXT_PUBLIC_FIREBASE_*` values from Firebase Web app configuration.
+5. Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` (or the intended backend URL).
+6. From `frontend/`, run:
+
+```powershell
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`. Restart Next.js after changing `.env.local`.
+
+Never put the Firebase Admin service-account JSON or private key in frontend configuration.
+
+## Database schema safety
+
+The SQLAlchemy helper `Base.metadata.create_all()` creates missing registered tables only; it does not modify existing table definitions. The repository's reset scripts may be destructive. Do not run a reset script unless the target is confirmed to be a disposable/empty development database and the project owner explicitly approves the reset.
+
+The project owner has instructed that migrations should not be introduced without approval. If a feature needs schema changes, update models and model registration, explain the impact, and ask the owner to reset the empty development database. Do not perform the reset automatically.
 
 ## Verify setup
 
-1. Confirm Python and package installation.
-2. Confirm the configured database URI points to the intended environment.
-3. Initialize/reset a disposable development schema only when explicitly intended.
-4. Check Redis connectivity with the project helper if using the cache service.
-5. Confirm Qdrant collection configuration and credentials.
-6. Confirm B2 bucket permissions.
-7. Confirm the selected OCR engine and language packs are installed.
-8. Run focused tests with external-service tests excluded where appropriate.
+1. Confirm Python/uv and Node/npm versions.
+2. Confirm the backend `.env` points to the intended database and external services.
+3. Confirm Firebase Admin project ID and service-account project match the Firebase Web app project.
+4. Confirm Qdrant collections and credentials.
+5. Confirm B2 bucket permissions.
+6. Confirm OCR engine and language packs.
+7. Start backend and frontend in separate terminals.
+8. Open API docs and verify the health endpoint.
+9. Run focused tests before exercising workflows that use external services.
 
-## Limitations
-
-The repository currently has no complete application server entry point or API route layer. Installing dependencies and configuring services does not by itself start a usable web application.
+Real Firebase SMS delivery requires the appropriate billing configuration. Firebase test phone numbers do not prove live SMS readiness.

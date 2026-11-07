@@ -5,6 +5,7 @@ from app.api.v1.endpoints import (
     department_memberships,
     departments,
     document_ingestion,
+    documents,
     generation,
     health,
     home,
@@ -25,4 +26,5 @@ api_router.include_router(memberships.router)
 api_router.include_router(department_memberships.router)
 api_router.include_router(invitations.router)
 api_router.include_router(document_ingestion.router)
+api_router.include_router(documents.router)
 api_router.include_router(generation.router)

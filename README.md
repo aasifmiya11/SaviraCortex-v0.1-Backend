@@ -4,10 +4,11 @@ FastAPI backend and document-intelligence/RAG services for SaviraCortex.
 
 ## Run locally
 
-Activate the backend virtual environment, then from this directory:
+From this directory:
 
 ```powershell
-uvicorn app.main:app --reload
+uv sync
+uv run uvicorn app.main:app --reload
 ```
 
 API documentation:
@@ -17,16 +18,10 @@ API documentation:
 ## Run tests
 
 ```powershell
-python -m pytest
+uv run pytest
 ```
 
-Latest focused auth/department schema checkpoint (5 November 2026):
-
-```powershell
-python -m pytest tests/test_v1_department_schemas.py tests/test_v1_auth_schemas.py tests/services/test_auth_services.py -v
-```
-
-Reported result: 20 passed in 2.33 seconds. This is not a full-suite result.
+Use focused tests while developing and record the exact command and result. See [Testing](docs/21-testing.md).
 
 ## Configuration
 
@@ -34,4 +29,15 @@ Configure backend environment variables in a local `.env` file. Firebase Admin u
 
 ## Technical documentation
 
-The numbered engineering documentation is in [docs/](docs/README.md). Start with [the current application checkpoint](docs/30-current-application-checkpoint.md) for the latest implementation status, test evidence and next steps.
+- [Documentation index](docs/README.md)
+- [Project overview](docs/01-project-overview.md)
+- [System architecture](docs/02-system-architecture.md)
+- [Configuration](docs/05-configuration.md)
+- [Database design](docs/06-database-design.md)
+- [Authorization](docs/07-authorization.md)
+- [Document ingestion](docs/09-document-ingestion.md)
+- [Retrieval architecture](docs/15-retrieval-architecture.md)
+- [Generation pipeline](docs/26-generation-pipeline.md)
+- [Project-wide current state](docs/31-project-wide-current-state.md)
+
+The companion frontend is maintained in the [SaviraCortex Frontend repository](https://github.com/miyasajid19/SaviraCortex-Frontend).
