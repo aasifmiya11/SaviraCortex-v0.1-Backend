@@ -1,6 +1,6 @@
 # 31. Project-Wide Current State
 
-**Checkpoint:** 7 November 2026  
+**Checkpoint:** 7 November 2026
 **Scope:** Backend, frontend, identity, organization administration, document lifecycle, RAG, evaluation and local development.
 
 This document supersedes the older application snapshot where it conflicts with the current source. It is a source-oriented engineering checkpoint, not a claim that every feature has passed integration testing or is deployed. The source tree is authoritative.
