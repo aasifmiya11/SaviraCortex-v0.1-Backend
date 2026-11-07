@@ -5,14 +5,13 @@ from langchain_core.runnables import RunnableLambda
 from pydantic import ValidationError
 
 from app.agents.Generation import (
-    AnswerSegment,
-    CitationValidationError,
     GenerationAgent,
     GenerationConfig,
     GenerationOutput,
     GenerationStatus,
     GenerationStreamEventType,
 )
+from app.agents.Generation.schemas import AnswerSegment
 
 
 @pytest.fixture
@@ -55,40 +54,17 @@ def sample_candidates():
     ]
 
 
-@pytest.fixture
-def expected_output():
-    return GenerationOutput(
-        status=GenerationStatus.ANSWERED,
-        segments=[
-            AnswerSegment(
-                text="Employees receive 20 days of annual leave per year.",
-                citations=["E1"],
-            ),
-            AnswerSegment(
-                text="Up to 5 unused days can be carried forward.",
-                citations=["E2"],
-            ),
-        ],
-    )
-
-
 def make_agent():
     return GenerationAgent(
-        model=RunnableLambda(lambda _: GenerationOutput(
-            status=GenerationStatus.ANSWERED,
-            segments=[
-                AnswerSegment(
-                    text="The retrieved documents support this answer.",
-                    citations=["E1"],
-                )
-            ],
-        ))
+        model=RunnableLambda(lambda _: "A supported answer[1].")
     )
 
 
-def test_generate_returns_structured_output(sample_candidates, expected_output):
+def test_generate_returns_plain_markdown_with_validated_numeric_citations(sample_candidates):
     agent = make_agent()
-    agent.chain = RunnableLambda(lambda _: expected_output)
+    agent.chain = RunnableLambda(
+        lambda _: "## Annual leave\n\nEmployees receive 20 days per year[1]."
+    )
 
     result = agent.generate(
         current_query="How many annual leave days do employees receive?",
@@ -97,10 +73,11 @@ def test_generate_returns_structured_output(sample_candidates, expected_output):
 
     assert isinstance(result, GenerationOutput)
     assert result.status == GenerationStatus.ANSWERED
+    assert result.segments[0].text.startswith("## Annual leave")
     assert result.segments[0].citations == ["E1"]
 
 
-def test_prompt_uses_ranked_evidence_and_selected_metadata(sample_candidates):
+def test_prompt_uses_ranked_evidence_and_requests_markdown_citations(sample_candidates):
     agent = make_agent()
     evidence = agent._prepare_evidence(sample_candidates)
 
@@ -118,6 +95,10 @@ def test_prompt_uses_ranked_evidence_and_selected_metadata(sample_candidates):
     assert '"page": 4' in rendered
     assert "Leave Carry Forward" in rendered
     assert "20 days of annual leave" in rendered
+    assert "Markdown" in rendered
+    assert "Cite evidence item E1 with the inline Markdown marker [1]" in rendered
+    assert "Return only the Markdown answer" in rendered
+    assert "format_instructions" not in rendered
 
     # Backend-only identifiers and retrieval scores must not enter the prompt.
     assert "internal-document-id" not in rendered
@@ -139,12 +120,7 @@ def test_history_is_passed_without_modification(sample_candidates):
 
     def fake_chain(payload):
         captured.update(payload)
-        return GenerationOutput(
-            status=GenerationStatus.ANSWERED,
-            segments=[
-                AnswerSegment(text="Supported answer.", citations=["E1"])
-            ],
-        )
+        return "The policy grants 20 days[1]."
 
     agent.chain = RunnableLambda(fake_chain)
     agent.generate(
@@ -167,7 +143,6 @@ def test_empty_retrieval_returns_insufficient_evidence_without_llm_call():
         raise AssertionError("LLM should not be called without evidence.")
 
     agent.chain = RunnableLambda(unexpected_call)
-
     result = agent.generate(
         current_query="What is the annual leave policy?",
         retrieved_documents=[],
@@ -180,58 +155,31 @@ def test_empty_retrieval_returns_insufficient_evidence_without_llm_call():
 
 
 @pytest.mark.asyncio
-async def test_async_generation(sample_candidates):
+async def test_async_generation_returns_markdown_and_partial_status(sample_candidates):
     agent = make_agent()
-    expected = GenerationOutput(
-        status=GenerationStatus.PARTIAL,
-        segments=[
-            AnswerSegment(
-                text="The available chunk confirms annual leave entitlement.",
-                citations=["E1"],
-            )
-        ],
-    )
-    agent.chain = RunnableLambda(lambda _: expected)
+    agent.chain = RunnableLambda(lambda _: "The evidence confirms the entitlement[1].")
 
     result = await agent.agenerate(
         current_query="Explain annual leave.",
         retrieved_documents=sample_candidates,
+        status=GenerationStatus.PARTIAL,
     )
 
-    assert result == expected
+    assert result.status == GenerationStatus.PARTIAL
+    assert result.segments[0].text == "The evidence confirms the entitlement[1]."
+    assert result.segments[0].citations == ["E1"]
 
 
 @pytest.mark.asyncio
-async def test_streaming_emits_text_then_complete_validated_output(
-    sample_candidates,
-    expected_output,
-):
+async def test_streaming_emits_markdown_deltas_then_validated_output(sample_candidates):
     agent = make_agent()
 
     class FakeStreamingChain:
         async def astream(self, _payload, config=None):
-            yield {
-                "status": "answered",
-                "segments": [
-                    {"text": "Employees receive", "citations":[]},
-                ],
-            }
-            yield {
-                "status": "answered",
-                "segments": [
-                    {
-                        "text": "Employees receive 20 days of annual leave per year.",
-                        "citations": ["E1"],
-                    },
-                    {
-                        "text": "Up to 5 unused days can be carried forward.",
-                        "citations": ["E2"],
-                    },
-                ],
-            }
+            yield "## Annual leave\n\nEmployees receive "
+            yield "20 days per year[1]."
 
     agent.streaming_chain = FakeStreamingChain()
-
     events = [
         event
         async for event in agent.astream_generate(
@@ -249,51 +197,29 @@ async def test_streaming_emits_text_then_complete_validated_output(
         if event.event_type == GenerationStreamEventType.COMPLETED
     ]
 
-    first_segment_text = "".join(
-        event.delta
-        for event in content_events
-        if event.segment_index == 0
+    assert "".join(event.delta for event in content_events) == (
+        "## Annual leave\n\nEmployees receive 20 days per year[1]."
     )
-    second_segment_text = "".join(
-        event.delta
-        for event in content_events
-        if event.segment_index == 1
-    )
-
-    assert first_segment_text == expected_output.segments[0].text
-    assert second_segment_text == expected_output.segments[1].text
     assert len(completed_events) == 1
-    assert completed_events[0].output == expected_output
+    assert completed_events[0].output.segments[0].citations == ["E1"]
     assert events[-1].event_type == GenerationStreamEventType.COMPLETED
 
 
 @pytest.mark.asyncio
-async def test_streaming_rejects_unknown_citation_after_content_was_streamed(
+async def test_streaming_rejects_unknown_numeric_citation_after_emitting_markdown(
     sample_candidates,
 ):
     agent = make_agent()
 
     class FakeStreamingChain:
         async def astream(self, _payload, config=None):
-            yield {
-                "status": "answered",
-                "segments": [
-                    {"text": "This answer cites an unknown source.", "citations":[]},
-                ],
-            }
-            yield {
-                "status": "answered",
-                "segments": [
-                    {
-                        "text": "This answer cites an unknown source.",
-                        "citations": ["E99"],
-                    },
-                ],
-            }
+            yield "This answer cites an unknown source[99]."
 
     agent.streaming_chain = FakeStreamingChain()
-
     events = []
+
+    from app.agents.Generation import CitationValidationError
+
     with pytest.raises(CitationValidationError) as exc_info:
         async for event in agent.astream_generate(
             current_query="Question?",
@@ -312,33 +238,9 @@ async def test_streaming_rejects_unknown_citation_after_content_was_streamed(
     )
 
 
-def test_non_streaming_generation_rejects_unknown_citation(sample_candidates):
-    agent = make_agent()
-    agent.chain = RunnableLambda(
-        lambda _: GenerationOutput(
-            status=GenerationStatus.ANSWERED,
-            segments=[
-                AnswerSegment(
-                    text="This answer cites an unknown source.",
-                    citations=["E99"],
-                )
-            ],
-        )
-    )
-
-    with pytest.raises(CitationValidationError) as exc_info:
-        agent.generate(
-            current_query="Question?",
-            retrieved_documents=sample_candidates,
-        )
-
-    assert exc_info.value.invalid_citations == ("E99",)
-
-
 @pytest.mark.asyncio
 async def test_streaming_without_evidence_emits_only_completed_event():
     agent = make_agent()
-
     events = [
         event
         async for event in agent.astream_generate(
@@ -355,7 +257,6 @@ async def test_streaming_without_evidence_emits_only_completed_event():
 def test_config_rejects_invalid_values():
     with pytest.raises(ValueError):
         GenerationConfig(temperature=2.1)
-
     with pytest.raises(ValueError):
         GenerationConfig(max_output_tokens=0)
 

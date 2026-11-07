@@ -18,6 +18,7 @@ class FakeGenerationAgent:
         current_query,
         retrieved_documents,
         conversation_history=None,
+        status=None,
     ):
         self.received = {
             "current_query": current_query,

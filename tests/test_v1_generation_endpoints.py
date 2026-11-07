@@ -2,12 +2,8 @@ from uuid import uuid4
 
 from app.api.v1.endpoints.generation import get_generation_service
 from app.core.dependencies import get_verified_firebase_claims
-from app.agents.Generation.schemas import (
-    AnswerSegment,
-    GenerationOutput,
-    GenerationStatus,
-)
-from app.models import Organization, OrganizationMembership, User
+from app.agents.Generation.schemas import GenerationStatus
+from app.models import OrganizationMembership, User
 from app.schemas.v1.generation import GenerationResponse
 from app.validation.schemas import CitationReference
 
@@ -20,15 +16,8 @@ class FakeGenerationService:
         self.kwargs = kwargs
         return GenerationResponse(
             query=kwargs["query"],
-            answer=GenerationOutput(
-                status=GenerationStatus.ANSWERED,
-                segments=[
-                    AnswerSegment(
-                        text="The policy provides 20 annual leave days.",
-                        citations=["E1"],
-                    )
-                ],
-            ),
+            answer="The policy provides 20 annual leave days[1].\n\n## References\n\n- **[1]** **Leave Policy** — page 4",
+            status=GenerationStatus.ANSWERED,
             citations=[
                 CitationReference(
                     evidence_id="E1",
@@ -44,8 +33,15 @@ class FakeGenerationService:
             evidence_count=1,
         )
 
+    async def generate_stream(self, **kwargs):
+        self.kwargs = kwargs
+        kwargs["on_event"]({"type": "delta", "delta": "The policy provides 20 annual leave days[1]."})
+        result = await self.generate(**kwargs)
+        kwargs["on_event"]({"type": "completed", "result": result.model_dump(mode="json")})
+        return result
 
-def test_organization_member_can_generate_a_cited_answer(
+
+def test_organization_member_can_generate_a_markdown_answer_with_citations(
     client, organization_context
 ):
     fake_service = FakeGenerationService()
@@ -58,8 +54,10 @@ def test_organization_member_can_generate_a_cited_answer(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["answer"]["status"] == "answered"
-    assert payload["answer"]["segments"][0]["citations"] == ["E1"]
+    assert payload["status"] == "answered"
+    assert isinstance(payload["answer"], str)
+    assert "20 annual leave days[1]" in payload["answer"]
+    assert "## References" in payload["answer"]
     assert payload["citations"][0]["document_title"] == "Leave Policy"
     assert fake_service.kwargs["user_id"] == organization_context["owner"].id
     client.app.dependency_overrides.pop(get_generation_service, None)
@@ -77,9 +75,6 @@ def test_generation_endpoint_rejects_non_members(
     db_session.add(other_user)
     db_session.commit()
 
-    # Authenticate this request as the unrelated user. The default client
-    # fixture authenticates as the organization owner, which would make this
-    # a valid member request and incorrectly exercise the success path.
     client.app.dependency_overrides[get_verified_firebase_claims] = (
         lambda: {"uid": other_user.firebase_uid}
     )
@@ -108,4 +103,23 @@ def test_generation_endpoint_rejects_invalid_request_shape(
 
     assert response.status_code == 422
     assert fake_service.kwargs is None
+    client.app.dependency_overrides.pop(get_generation_service, None)
+
+
+def test_generation_stream_endpoint_emits_markdown_and_validated_references(
+    client, organization_context
+):
+    fake_service = FakeGenerationService()
+    client.app.dependency_overrides[get_generation_service] = lambda: fake_service
+
+    response = client.post(
+        f"/api/v1/organizations/{organization_context['organization'].id}/generation/stream",
+        json={"query": "How many annual leave days?"},
+    )
+
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers["content-type"]
+    assert "event: delta" in response.text
+    assert "event: completed" in response.text
+    assert "Leave Policy" in response.text
     client.app.dependency_overrides.pop(get_generation_service, None)

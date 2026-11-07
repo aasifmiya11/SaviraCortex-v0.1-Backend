@@ -31,7 +31,7 @@ def valid_result():
         status=GenerationStatus.ANSWERED,
         segments=[
             AnswerSegment(
-                text="The policy provides 20 annual leave days.",
+                text="The policy provides 20 annual leave days[1].",
                 citations=["E1"],
             )
         ],
@@ -63,10 +63,9 @@ def valid_result():
 
 
 @pytest.mark.asyncio
-async def test_generation_service_runs_graph_and_returns_validated_citations():
+async def test_generation_service_returns_markdown_and_trusted_references():
     graph = FakeGraph(valid_result())
-    session = object()
-    service = GenerationService(session, graph_factory=lambda supplied: graph)
+    service = GenerationService(object(), graph_factory=lambda supplied: graph)
 
     response = await service.generate(
         query="How many annual leave days?",
@@ -77,7 +76,10 @@ async def test_generation_service_runs_graph_and_returns_validated_citations():
         ],
     )
 
-    assert response.answer.status == GenerationStatus.ANSWERED
+    assert response.status == GenerationStatus.ANSWERED
+    assert response.answer.startswith("The policy provides 20 annual leave days[1].")
+    assert "## References" in response.answer
+    assert "**[1]** **Leave Policy** - page 4" in response.answer
     assert response.citations[0].evidence_id == "E1"
     assert response.retrieval_attempts == 2
     assert response.evidence_count == 1
@@ -86,12 +88,10 @@ async def test_generation_service_runs_graph_and_returns_validated_citations():
 
 @pytest.mark.asyncio
 async def test_generation_service_rejects_invalid_query_before_response():
-    graph = FakeGraph(
-        {
-            "is_valid": False,
-            "validation_error": "Please enter a meaningful question.",
-        }
-    )
+    graph = FakeGraph({
+        "is_valid": False,
+        "validation_error": "Please enter a meaningful question.",
+    })
     service = GenerationService(object(), graph_factory=lambda _session: graph)
 
     with pytest.raises(InvalidGenerationQueryError):
@@ -119,3 +119,23 @@ async def test_generation_service_never_returns_an_answer_that_fails_validation(
             organization_id=uuid4(),
             user_id=uuid4(),
         )
+
+
+@pytest.mark.asyncio
+async def test_generation_service_stream_emits_markdown_and_validated_references():
+    graph = FakeGraph(valid_result())
+    events = []
+    service = GenerationService(object(), graph_factory=lambda _session: graph)
+
+    response = await service.generate_stream(
+        query="How many annual leave days?",
+        organization_id=uuid4(),
+        user_id=uuid4(),
+        on_event=events.append,
+    )
+
+    assert response.status == GenerationStatus.ANSWERED
+    assert "## References" in response.answer
+    assert events[-1]["type"] == "completed"
+    assert events[-1]["result"]["citations"][0]["evidence_id"] == "E1"
+    assert events[-1]["result"]["answer"] == response.answer

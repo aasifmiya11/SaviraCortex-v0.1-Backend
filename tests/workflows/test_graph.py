@@ -7,6 +7,8 @@ from app.agents.Generation.schemas import (
     AnswerSegment,
     GenerationOutput,
     GenerationStatus,
+    GenerationStreamEvent,
+    GenerationStreamEventType,
 )
 from app.validation.schemas import GenerationValidationResult
 from app.workflows.rag.graph import create_rag_graph
@@ -303,3 +305,48 @@ async def test_graph_surfaces_candidate_generation_failure_as_operational_error(
                 "user_id": uuid4(),
             }
         )
+
+
+
+class StreamingFakeGenerationAgent:
+    async def astream_generate(self, **kwargs):
+        output = GenerationOutput(
+            status=GenerationStatus.ANSWERED,
+            segments=[AnswerSegment(text="The annual leave entitlement is 20 days.", citations=["E1"])],
+        )
+        yield GenerationStreamEvent(
+            event_type=GenerationStreamEventType.CONTENT_DELTA,
+            segment_index=0,
+            delta="The annual leave entitlement is 20 days.",
+        )
+        yield GenerationStreamEvent(
+            event_type=GenerationStreamEventType.COMPLETED,
+            output=output,
+        )
+
+
+@pytest.mark.asyncio
+async def test_graph_forwards_generation_deltas_without_skipping_final_validation():
+    events = []
+    graph = create_rag_graph(
+        retriever=FakeRetriever(),
+        evaluator=FakeEvaluator(),
+        retrieval_expansion_agent=FakeExpansionAgent(),
+        context_compression_agent=FakeCompressionAgent(),
+        generation_agent=StreamingFakeGenerationAgent(),
+        validator=FakeValidator(),
+        generation_event_callback=events.append,
+    )
+
+    result = await graph.ainvoke({
+        "query": "How many annual leave days are provided?",
+        "organization_id": uuid4(),
+        "user_id": uuid4(),
+    })
+
+    assert events == [{
+        "type": "delta",
+        "segment_index": 0,
+        "delta": "The annual leave entitlement is 20 days.",
+    }]
+    assert result["validation_result"].is_valid is True
