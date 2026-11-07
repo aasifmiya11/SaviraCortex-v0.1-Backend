@@ -52,7 +52,7 @@ def test_missing_indexes_are_created():
 
     ensure_payload_indexes(qdrant_client, COLLECTION_NAME)
 
-    assert qdrant_client.create_payload_index.call_count == 6
+    assert qdrant_client.create_payload_index.call_count == 7
     for field_name, expected_type in REQUIRED_PAYLOAD_INDEXES.items():
         qdrant_client.create_payload_index.assert_any_call(
             collection_name=COLLECTION_NAME,
@@ -80,7 +80,7 @@ def test_existing_and_missing_indexes_are_combined():
 
     ensure_payload_indexes(qdrant_client, COLLECTION_NAME)
 
-    assert qdrant_client.create_payload_index.call_count == 5
+    assert qdrant_client.create_payload_index.call_count == 6
     created_fields = {
         call.kwargs["field_name"]
         for call in qdrant_client.create_payload_index.call_args_list
@@ -104,3 +104,16 @@ def test_incompatible_index_is_rejected_before_creation():
         ensure_payload_indexes(qdrant_client, COLLECTION_NAME)
 
     qdrant_client.create_payload_index.assert_not_called()
+
+
+def test_root_document_id_index_is_created_for_legacy_payloads():
+    qdrant_client = make_qdrant_client()
+
+    ensure_payload_indexes(qdrant_client, COLLECTION_NAME)
+
+    qdrant_client.create_payload_index.assert_any_call(
+        collection_name=COLLECTION_NAME,
+        field_name="document_id",
+        field_schema=models.PayloadSchemaType.KEYWORD,
+        wait=True,
+    )

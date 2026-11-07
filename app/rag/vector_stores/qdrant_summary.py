@@ -66,7 +66,14 @@ class QdrantSummaryStore:
         )
         existing_schema = collection_info.payload_schema or {}
 
-        for field_name in ("organization_id", "document_version_id"):
+        # delete_document filters on the root-level document_id payload field.
+        # Index it on the dedicated summary collection as well as the fields
+        # used by summary search; the chunk collection has its own indexes.
+        for field_name in (
+            "organization_id",
+            "document_version_id",
+            "document_id",
+        ):
             if field_name not in existing_schema:
                 self.client.create_payload_index(
                     collection_name=self.collection_name,
@@ -230,6 +237,29 @@ class QdrantSummaryStore:
             collection_name=self.collection_name,
             points_selector=models.PointIdsList(
                 points=[self._normalize_id(document_version_id)]
+            ),
+            wait=True,
+        )
+
+    def delete_document(self, document_id: UUID | str) -> None:
+        """Delete every version summary belonging to a logical document."""
+        normalized_document_id = self._normalize_id(document_id)
+        if not normalized_document_id.strip():
+            raise ValueError("document_id cannot be empty.")
+        if not self.client.collection_exists(self.collection_name):
+            return
+
+        self.client.delete(
+            collection_name=self.collection_name,
+            points_selector=models.FilterSelector(
+                filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="document_id",
+                            match=models.MatchValue(value=normalized_document_id),
+                        )
+                    ]
+                )
             ),
             wait=True,
         )
