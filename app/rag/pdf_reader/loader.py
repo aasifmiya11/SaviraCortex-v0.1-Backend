@@ -265,7 +265,9 @@ class PDFLoader:
 
             final_text = native_text
             if should_ocr:
-                ocr_document = self._run_page_ocr(path, page_number)
+                from app.services.document_ingestion.batch_config import OCR_SLOTS
+                with OCR_SLOTS:
+                    ocr_document = self._run_page_ocr(path, page_number)
                 ocr_text = ocr_document.page_content or ""
                 ocr_length = self._text_length(ocr_text)
                 metadata.update(dict(ocr_document.metadata or {}))

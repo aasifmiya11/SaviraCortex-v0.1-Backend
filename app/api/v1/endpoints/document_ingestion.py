@@ -382,3 +382,177 @@ def retry_document_version_indexing(
         summary_sync_pending=result.summary_sync_pending,
         lifecycle_sync_pending=result.lifecycle_sync_pending,
     )
+
+
+@router.post(
+    "/ingestion-batches/stream",
+    summary="Upload and analyze a bounded batch of PDF documents",
+)
+def analyze_document_batch_stream(
+    organization_id: UUID,
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    firebase_claims: dict = Depends(get_verified_firebase_claims),
+    workflow_override: DocumentIngestionWorkflowService | None = Depends(get_ingestion_workflow),
+):
+    """Analyze a batch with a process-wide bounded worker pool.
+
+    Each item is isolated: one failure or duplicate never cancels other items.
+    The SSE connection only transports progress; minimizing the UI does not
+    cancel the request or its worker tasks.
+    """
+    from concurrent.futures import as_completed
+    from uuid import uuid4
+    from app.services.document_ingestion.batch_config import (
+        DOCUMENT_EXECUTOR,
+        MAX_BATCH_UPLOAD_BYTES,
+        MAX_QUEUED_DOCUMENTS,
+        MAX_DOCUMENT_WORKERS,
+        QUEUE_SLOTS,
+    )
+
+    user, _membership = _current_member(db, organization_id, firebase_claims)
+    if not files:
+        raise HTTPException(status_code=422, detail="Select at least one PDF.")
+    if len(files) > MAX_QUEUED_DOCUMENTS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"A batch can contain at most {MAX_QUEUED_DOCUMENTS} documents.",
+        )
+
+    batch_id = uuid4()
+    staged_files: list[dict] = []
+    temporary_paths: list[str] = []
+    total_bytes = 0
+    try:
+        for index, upload in enumerate(files):
+            filename = (upload.filename or "").replace("\\", "/").split("/")[-1].strip()
+            if not filename or not filename.lower().endswith(".pdf"):
+                raise HTTPException(status_code=422, detail=f"{filename or 'A selected file'} is not a PDF.")
+            path = None
+            size = 0
+            with tempfile.NamedTemporaryFile(prefix="savira-batch-", suffix=".pdf", delete=False) as temporary:
+                path = temporary.name
+                temporary_paths.append(path)
+                while True:
+                    chunk = upload.file.read(CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    total_bytes += len(chunk)
+                    if size > MAX_UPLOAD_BYTES:
+                        raise HTTPException(status_code=413, detail=f"{filename} exceeds the 25 MB per-file limit.")
+                    if total_bytes > MAX_BATCH_UPLOAD_BYTES:
+                        raise HTTPException(status_code=413, detail="The batch exceeds the configured total upload limit.")
+                    temporary.write(chunk)
+            if size == 0:
+                raise HTTPException(status_code=422, detail=f"{filename} is empty.")
+            staged_files.append({"index": index, "filename": filename[:500], "path": path, "size": size})
+    except Exception:
+        for temporary_path in temporary_paths:
+            try:
+                os.remove(temporary_path)
+            except OSError:
+                pass
+        raise
+    finally:
+        for upload in files:
+            upload.file.close()
+
+    reserved = 0
+    try:
+        for _item in staged_files:
+            if not QUEUE_SLOTS.acquire(blocking=False):
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"The ingestion queue is full. It supports {MAX_QUEUED_DOCUMENTS} waiting documents plus {MAX_DOCUMENT_WORKERS} active workers; retry this batch shortly.",
+                )
+            reserved += 1
+    except HTTPException:
+        for _ in range(reserved):
+            QUEUE_SLOTS.release()
+        for item in staged_files:
+            try:
+                os.remove(item["path"])
+            except OSError:
+                pass
+        raise
+
+    events: queue.Queue = queue.Queue()
+    user_id = user.id
+
+    def process_item(item: dict) -> dict:
+        try:
+            with SessionLocal() as worker_db:
+                workflow = workflow_override or DocumentIngestionWorkflowService()
+
+                def report(payload: dict) -> None:
+                    events.put({
+                        "type": "progress",
+                        "batch_id": str(batch_id),
+                        "item_id": item["index"],
+                        "filename": item["filename"],
+                        **payload,
+                    })
+
+                result = workflow.analyze_and_stage(
+                    worker_db,
+                    item["path"],
+                    organization_id=organization_id,
+                    uploaded_by_user_id=user_id,
+                    original_filename=item["filename"],
+                    file_size=item["size"],
+                    progress_callback=report,
+                )
+                return {"item_id": item["index"], "filename": item["filename"], "status": result.get("status", "ready_for_review"), "data": result}
+        except DocumentIngestionWorkflowError as exc:
+            return {"item_id": item["index"], "filename": item["filename"], "status": "failed", "error": str(exc)}
+        except Exception:
+            logger.exception("Batch document ingestion failed (batch_id=%s, filename=%s)", batch_id, item["filename"])
+            return {"item_id": item["index"], "filename": item["filename"], "status": "failed", "error": "Document analysis or temporary storage failed. Please retry this document."}
+        finally:
+            try:
+                os.remove(item["path"])
+            except OSError:
+                pass
+            QUEUE_SLOTS.release()
+
+    def run_batch() -> None:
+        try:
+            futures = [DOCUMENT_EXECUTOR.submit(process_item, item) for item in staged_files]
+            for future in as_completed(futures):
+                try:
+                    events.put({"type": "item_result", "batch_id": str(batch_id), "data": future.result()})
+                except Exception:
+                    logger.exception("Unexpected batch worker failure (batch_id=%s)", batch_id)
+                    events.put({"type": "item_result", "batch_id": str(batch_id), "data": {"status": "failed", "error": "Unexpected ingestion worker failure."}})
+        finally:
+            events.put({"type": "completed", "batch_id": str(batch_id), "total": len(staged_files)})
+            events.put(None)
+
+    coordinator = threading.Thread(target=run_batch, name=f"document-batch-{batch_id}", daemon=True)
+    coordinator.start()
+
+    async def event_stream():
+        yield "data: " + json.dumps({
+            "type": "batch_started",
+            "batch_id": str(batch_id),
+            "total": len(staged_files),
+            "max_workers": MAX_DOCUMENT_WORKERS,
+            "max_queued": MAX_QUEUED_DOCUMENTS,
+        }) + "\n\n"
+        while True:
+            try:
+                item = await asyncio.to_thread(events.get, True, 15)
+            except queue.Empty:
+                yield ": keep-alive\n\n"
+                continue
+            if item is None:
+                break
+            yield "data: " + json.dumps(item, default=str) + "\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )

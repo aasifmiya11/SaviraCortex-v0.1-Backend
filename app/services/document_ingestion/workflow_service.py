@@ -187,8 +187,63 @@ class DocumentIngestionWorkflowService:
         file_hash = self.hash_service.calculate_file_hash(path)
         report("hash_pdf", "completed", "SHA-256 fingerprint calculated.")
 
+        # Cheap exact-file duplicate checks happen before PDF parsing, OCR, or
+        # LLM summarization. The final advisory-lock recheck below remains the
+        # concurrency authority immediately before staging the upload.
+        existing_matches = db.execute(
+            select(DocumentVersion, Document.title)
+            .join(Document, Document.id == DocumentVersion.document_id)
+            .where(
+                Document.organization_id == organization_id,
+                DocumentVersion.file_hash == file_hash,
+            )
+            .limit(20)
+        ).all()
+        staged_match = db.scalar(
+            select(DocumentIngestionSession.id).where(
+                DocumentIngestionSession.organization_id == organization_id,
+                DocumentIngestionSession.status == "awaiting_review",
+                DocumentIngestionSession.expires_at > datetime.now(timezone.utc),
+                DocumentIngestionSession.file_hash == file_hash,
+            ).limit(1)
+        )
+        if existing_matches or staged_match is not None:
+            candidates = [
+                {
+                    "document_id": str(version.document_id),
+                    "version_id": str(version.id),
+                    "version_number": version.version_number,
+                    "title": title or "",
+                    "status": version.status,
+                    "similarity_score": None,
+                    "matched_by": "file_hash",
+                }
+                for version, title in existing_matches
+            ]
+            db.commit()
+            report("duplicate_check", "completed", "An identical PDF already exists or is awaiting review.")
+            return {
+                "status": "duplicate",
+                "ingestion_session_id": None,
+                "original_filename": original_filename,
+                "file_size": file_size,
+                "file_hash": file_hash,
+                "content_hash": "",
+                "page_count": validation.page_count,
+                "title": None,
+                "document_type": None,
+                "description": None,
+                "summary": None,
+                "matching_classification": "exact_file_match",
+                "matching_candidates": candidates,
+                "validation_warnings": validation.warnings,
+                "expires_at": None,
+            }
+
         report("parse_pdf", "started", "Extracting PDF text and applying configured OCR.")
-        extracted_pages = self.loader.load_pdf(path)
+        from app.services.document_ingestion.batch_config import PDF_EXTRACTION_SLOTS
+        with PDF_EXTRACTION_SLOTS:
+            extracted_pages = self.loader.load_pdf(path)
         report("parse_pdf", "completed", f"Extracted {len(extracted_pages)} PDF pages.")
         if len(extracted_pages) != validation.page_count:
             raise DocumentIngestionWorkflowError(
@@ -223,7 +278,9 @@ class DocumentIngestionWorkflowService:
 
         report("summarize", "started", "Generating document metadata and summary.")
         summarizer = self.summarizer or DocumentSummarizerAgent()
-        summary_output = summarizer.summarize(sampled_pages)
+        from app.services.document_ingestion.batch_config import LLM_SLOTS
+        with LLM_SLOTS:
+            summary_output = summarizer.summarize(sampled_pages)
         report("summarize", "completed", "Document metadata and summary generated.")
 
         report("duplicate_check", "started", "Checking exact hashes and semantic similarity.")
@@ -532,10 +589,12 @@ class DocumentIngestionWorkflowService:
             indexing_result = None
             indexing_error = None
             try:
-                indexing_result = self._get_indexing_orchestrator().index_pending_version(
-                    version_id,
-                    organization_id=organization_id,
-                )
+                from app.services.document_ingestion.batch_config import INDEXING_SLOTS
+                with INDEXING_SLOTS:
+                    indexing_result = self._get_indexing_orchestrator().index_pending_version(
+                        version_id,
+                        organization_id=organization_id,
+                    )
             except Exception:
                 logger.exception(
                     "Document was registered but indexing failed "

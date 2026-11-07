@@ -10,7 +10,7 @@ from app.models import Document, DocumentVersion, Organization, OrganizationMemb
 class FakeIngestionWorkflow:
     def analyze_and_stage(self, _db, file_path, **kwargs):
         assert file_path
-        assert kwargs["original_filename"] == "sample.pdf"
+        assert kwargs["original_filename"].lower().endswith(".pdf")
         progress_callback = kwargs.get("progress_callback")
         if progress_callback:
             progress_callback({"stage": "validate_pdf", "state": "started", "message": "Validating."})
@@ -18,7 +18,7 @@ class FakeIngestionWorkflow:
         return {
             "status": "ready_for_review",
             "ingestion_session_id": uuid4(),
-            "original_filename": "sample.pdf",
+            "original_filename": kwargs["original_filename"],
             "file_size": kwargs["file_size"],
             "file_hash": "a" * 64,
             "content_hash": "b" * 64,
@@ -191,3 +191,40 @@ def test_pending_document_version_can_be_retried_by_its_uploader(
     assert response.status_code == 200
     assert response.json()["version_status"] == "active"
     assert response.json()["chunk_count"] == 5
+
+
+def test_batch_upload_stream_processes_multiple_pdfs_independently(client, organization_context):
+    client.app.dependency_overrides[get_ingestion_workflow] = FakeIngestionWorkflow
+    response = client.post(
+        f"/api/v1/organizations/{organization_context['organization'].id}/documents/ingestion-batches/stream",
+        files=[
+            ("files", ("first.pdf", b"%PDF-1.7 first", "application/pdf")),
+            ("files", ("second.pdf", b"%PDF-1.7 second", "application/pdf")),
+        ],
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert '"type": "batch_started"' in response.text
+    assert '"type": "item_result"' in response.text
+    assert '"filename": "first.pdf"' in response.text
+    assert '"filename": "second.pdf"' in response.text
+    assert '"status": "ready_for_review"' in response.text
+    assert '"type": "completed"' in response.text
+    client.app.dependency_overrides.pop(get_ingestion_workflow, None)
+
+
+def test_batch_upload_rejects_more_than_configured_queue_capacity(client, organization_context, monkeypatch):
+    import app.services.document_ingestion.batch_config as batch_config
+
+    monkeypatch.setattr(batch_config, "MAX_QUEUED_DOCUMENTS", 1)
+    client.app.dependency_overrides[get_ingestion_workflow] = FakeIngestionWorkflow
+    response = client.post(
+        f"/api/v1/organizations/{organization_context['organization'].id}/documents/ingestion-batches/stream",
+        files=[
+            ("files", ("first.pdf", b"%PDF-1.7 first", "application/pdf")),
+            ("files", ("second.pdf", b"%PDF-1.7 second", "application/pdf")),
+        ],
+    )
+    assert response.status_code == 413
+    assert "at most 1 documents" in response.json()["detail"]
+    client.app.dependency_overrides.pop(get_ingestion_workflow, None)
