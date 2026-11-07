@@ -81,4 +81,13 @@ def verify_firebase_id_token(token: str) -> dict[str, Any]:
     import firebase_admin.auth
 
     app = _firebase_app()
-    return firebase_admin.auth.verify_id_token(token, app=app, check_revoked=True)
+    # Allow a very small clock difference between the client and this server.
+    # Firebase ID tokens are issued with second-level timestamps; a server that
+    # is one second behind can otherwise reject a freshly issued valid token.
+    # Keep this tolerance narrow and retain signature, expiry, and revocation checks.
+    return firebase_admin.auth.verify_id_token(
+        token,
+        app=app,
+        check_revoked=True,
+        clock_skew_seconds=5,
+    )
