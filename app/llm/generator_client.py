@@ -20,6 +20,7 @@ class GeneratorLLMClient:
             api_key=settings.OPENAI_API_KEY,
             temperature=temperature,
             max_tokens=max_output_tokens,
+            streaming=True,
         )
 
 
