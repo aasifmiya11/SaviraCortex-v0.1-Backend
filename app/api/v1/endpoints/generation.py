@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -108,3 +111,73 @@ async def generate_answer(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="The generation service is temporarily unavailable. Please try again.",
         ) from exc
+
+
+@router.post(
+    "/stream",
+    summary="Stream an organization-grounded conversational RAG answer",
+)
+async def generate_answer_stream(
+    organization_id: UUID,
+    payload: GenerationRequest,
+    db: Session = Depends(get_db),
+    firebase_claims: dict = Depends(get_verified_firebase_claims),
+    generation_service: GenerationService = Depends(get_generation_service),
+) -> StreamingResponse:
+    user = _current_member(db, organization_id, firebase_claims)
+
+    async def event_stream():
+        queue: asyncio.Queue[dict | None] = asyncio.Queue()
+
+        async def run_generation() -> None:
+            try:
+                await generation_service.generate_stream(
+                    query=payload.query,
+                    organization_id=organization_id,
+                    user_id=user.id,
+                    conversation_history=payload.conversation_history,
+                    on_event=queue.put_nowait,
+                )
+            except InvalidGenerationQueryError as exc:
+                await queue.put({"type": "error", "code": "invalid_query", "message": str(exc)})
+            except GenerationValidationError:
+                await queue.put({"type": "error", "code": "citation_validation_failed", "message": "The answer failed citation validation. Please retry."})
+            except Exception:
+                logger.exception(
+                    "Streaming generation failed (organization_id=%s, user_id=%s).",
+                    organization_id, user.id,
+                )
+                await queue.put({"type": "error", "code": "generation_unavailable", "message": "The generation service is temporarily unavailable. Please try again."})
+            finally:
+                await queue.put(None)
+
+        task = asyncio.create_task(run_generation())
+        yield "event: status\ndata: {\"stage\":\"retrieving\",\"message\":\"Searching authorized documents…\"}\n\n"
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=15)
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+                    continue
+                if item is None:
+                    break
+                event_type = item.get("type", "message")
+                yield f"event: {event_type}\ndata: {json.dumps(item, ensure_ascii=False)}\n\n"
+        finally:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )

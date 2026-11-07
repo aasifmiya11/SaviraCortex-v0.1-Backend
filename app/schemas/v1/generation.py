@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.agents.Generation.schemas import GenerationOutput
+from app.agents.Generation.schemas import GenerationStatus
 from app.validation.schemas import CitationReference
 
 
@@ -53,12 +53,13 @@ class GenerationRequest(BaseModel):
 
 
 class GenerationResponse(BaseModel):
-    """A generated answer plus trusted, request-scoped citation metadata."""
+    """Markdown answer plus trusted, request-scoped citation metadata."""
 
     model_config = ConfigDict(extra="forbid")
 
     query: str
-    answer: GenerationOutput
+    answer: str
+    status: GenerationStatus
     citations: list[CitationReference] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     missing_information: list[str] = Field(default_factory=list)
