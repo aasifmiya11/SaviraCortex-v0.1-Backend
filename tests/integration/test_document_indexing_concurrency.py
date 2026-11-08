@@ -18,6 +18,9 @@ from app.services.document_indexing.indexing_orchestrator import (
 )
 
 
+
+pytestmark = pytest.mark.integration
+
 @contextmanager
 def independent_session():
     """Give each worker its own PostgreSQL session."""

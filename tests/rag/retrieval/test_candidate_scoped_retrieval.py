@@ -97,9 +97,7 @@ def _document(version_id: str, chunk_index: int):
     )
 
 
-def test_pipeline_passes_candidates_without_active_status_and_limits_rrf(
-    monkeypatch,
-):
+def test_pipeline_passes_candidates_without_active_status_and_limits_rrf():
     dense = FakeRetriever([
         (_document("version-1", index), 1.0)
         for index in range(6)
@@ -108,16 +106,12 @@ def test_pipeline_passes_candidates_without_active_status_and_limits_rrf(
         (_document("version-1", index), 1.0)
         for index in range(6, 12)
     ])
-    monkeypatch.setattr(
-        "app.rag.retrieval.pipeline.dense_retriever",
-        dense,
-    )
-    monkeypatch.setattr(
-        "app.rag.retrieval.pipeline.bm25_retriever",
-        bm25,
+    pipeline = HybridRetrievalPipeline(
+        dense_retriever=dense,
+        bm25_retriever=bm25,
     )
 
-    result = HybridRetrievalPipeline().search(
+    result = pipeline.search(
         query="policy",
         organization_id="org-1",
         candidate_document_version_ids=["version-1"],

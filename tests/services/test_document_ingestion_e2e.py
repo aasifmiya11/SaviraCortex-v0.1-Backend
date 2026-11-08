@@ -14,6 +14,9 @@ from app.services.document_ingestion import DocumentIngestionService
 from app.storage.file_storage import FileStorage
 
 
+
+pytestmark = pytest.mark.integration
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
 

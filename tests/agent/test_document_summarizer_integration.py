@@ -15,6 +15,9 @@ from app.rag.ingestion.pdf_sampler import PDFSampler
 from app.rag.pdf_reader.loader import PDFLoader
 
 
+
+pytestmark = pytest.mark.integration
+
 def test_real_document_summarization():
 
     pdf_path = Path(__file__).parents[2] / "data" / "sample.pdf"

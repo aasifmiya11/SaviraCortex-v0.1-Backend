@@ -52,7 +52,9 @@ def test_missing_indexes_are_created():
 
     ensure_payload_indexes(qdrant_client, COLLECTION_NAME)
 
-    assert qdrant_client.create_payload_index.call_count == 7
+    assert qdrant_client.create_payload_index.call_count == (
+        len(REQUIRED_PAYLOAD_INDEXES) + 1
+    )
     for field_name, expected_type in REQUIRED_PAYLOAD_INDEXES.items():
         qdrant_client.create_payload_index.assert_any_call(
             collection_name=COLLECTION_NAME,
@@ -80,7 +82,9 @@ def test_existing_and_missing_indexes_are_combined():
 
     ensure_payload_indexes(qdrant_client, COLLECTION_NAME)
 
-    assert qdrant_client.create_payload_index.call_count == 6
+    assert qdrant_client.create_payload_index.call_count == len(
+        REQUIRED_PAYLOAD_INDEXES
+    )
     created_fields = {
         call.kwargs["field_name"]
         for call in qdrant_client.create_payload_index.call_args_list

@@ -3,7 +3,6 @@ import pytest
 
 from langchain_core.documents import Document
 
-from app.rag.retrieval import pipeline as pipeline_module
 from app.rag.retrieval.fusion import reciprocal_rank_fusion
 from app.rag.retrieval.pipeline import HybridRetrievalPipeline
 
@@ -39,14 +38,14 @@ class FakeRetriever:
         return self.results
 
 
-def test_hybrid_pipeline_forwards_status_to_both_retrievers(monkeypatch):
+def test_hybrid_pipeline_forwards_status_to_both_retrievers():
     bm25 = FakeRetriever()
     dense = FakeRetriever()
 
-    monkeypatch.setattr(pipeline_module, "bm25_retriever", bm25)
-    monkeypatch.setattr(pipeline_module, "dense_retriever", dense)
-
-    pipeline = HybridRetrievalPipeline()
+    pipeline = HybridRetrievalPipeline(
+        bm25_retriever=bm25,
+        dense_retriever=dense,
+    )
 
     pipeline.search(
         query="machine learning",
@@ -69,7 +68,6 @@ def test_hybrid_pipeline_forwards_status_to_both_retrievers(monkeypatch):
     ],
 )
 def test_pipeline_calls_only_requested_retrievers(
-    monkeypatch,
     mode,
     expected_bm25_calls,
     expected_dense_calls,
@@ -77,10 +75,10 @@ def test_pipeline_calls_only_requested_retrievers(
     bm25 = FakeRetriever()
     dense = FakeRetriever()
 
-    monkeypatch.setattr(pipeline_module, "bm25_retriever", bm25)
-    monkeypatch.setattr(pipeline_module, "dense_retriever", dense)
-
-    pipeline = HybridRetrievalPipeline()
+    pipeline = HybridRetrievalPipeline(
+        bm25_retriever=bm25,
+        dense_retriever=dense,
+    )
     pipeline.search(
         "machine learning",
         organization_id="org-1",
@@ -91,14 +89,16 @@ def test_pipeline_calls_only_requested_retrievers(
     assert len(dense.calls) == expected_dense_calls
 
 
-def test_pipeline_uses_active_status_by_default(monkeypatch):
+def test_pipeline_uses_active_status_by_default():
     bm25 = FakeRetriever()
     dense = FakeRetriever()
 
-    monkeypatch.setattr(pipeline_module, "bm25_retriever", bm25)
-    monkeypatch.setattr(pipeline_module, "dense_retriever", dense)
+    pipeline = HybridRetrievalPipeline(
+        bm25_retriever=bm25,
+        dense_retriever=dense,
+    )
 
-    HybridRetrievalPipeline().search(
+    pipeline.search(
         "machine learning",
         organization_id="org-1",
     )
@@ -109,16 +109,18 @@ def test_pipeline_uses_active_status_by_default(monkeypatch):
     assert dense.calls[0]["organization_id"] == "org-1"
 
 
-def test_pipeline_preserves_result_structure(monkeypatch):
+def test_pipeline_preserves_result_structure():
     document = make_document("Machine learning content")
 
     bm25 = FakeRetriever([(document, 0.8)])
     dense = FakeRetriever([(document, 0.9)])
 
-    monkeypatch.setattr(pipeline_module, "bm25_retriever", bm25)
-    monkeypatch.setattr(pipeline_module, "dense_retriever", dense)
+    pipeline = HybridRetrievalPipeline(
+        bm25_retriever=bm25,
+        dense_retriever=dense,
+    )
 
-    result = HybridRetrievalPipeline().search(
+    result = pipeline.search(
         "machine learning",
         organization_id="org-1",
     )
@@ -206,13 +208,15 @@ def test_rrf_validates_k():
 
 
 
-def test_pipeline_forwards_exclusion_to_both_retrievers(monkeypatch):
+def test_pipeline_forwards_exclusion_to_both_retrievers():
     bm25 = FakeRetriever()
     dense = FakeRetriever()
-    monkeypatch.setattr(pipeline_module, "bm25_retriever", bm25)
-    monkeypatch.setattr(pipeline_module, "dense_retriever", dense)
+    pipeline = HybridRetrievalPipeline(
+        bm25_retriever=bm25,
+        dense_retriever=dense,
+    )
 
-    HybridRetrievalPipeline().search(
+    pipeline.search(
         query="machine learning",
         organization_id="org-1",
         exclude=True,

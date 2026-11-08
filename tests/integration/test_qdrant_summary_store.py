@@ -6,6 +6,9 @@ from app.core.config import settings
 from app.rag.vector_stores.qdrant_summary import QdrantSummaryStore
 
 
+
+pytestmark = pytest.mark.integration
+
 @pytest.fixture
 def summary_store():
     return QdrantSummaryStore()
@@ -16,7 +19,7 @@ def test_summary_collection_exists(summary_store):
         summary_store.collection_name
     )
 
-    assert summary_store.collection_name == "voice_ai_summaries"
+    assert summary_store.collection_name == settings.QDRANT_SUMMARY_COLLECTION_NAME
 
     # The existing chunk collection must remain separate and untouched.
     assert summary_store.collection_name != settings.QDRANT_COLLECTION_NAME

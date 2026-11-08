@@ -73,7 +73,7 @@ def test_signup_accepts_verified_email_google_and_phone(claims):
     result = service.signup(payload, claims)
 
     assert result.message == "Organization registered successfully."
-    assert result.role == "admin"
+    assert result.role == "owner"
     assert session.committed is True
     assert session.rolled_back is False
 

@@ -11,6 +11,9 @@ from app.rag.retrieval.global_fusion import GlobalResultFusion
 from app.services.retrieval.retrieval_service import RetrievalOrchestrator
 
 
+
+pytestmark = pytest.mark.integration
+
 def catalogue_entry(version_id: str) -> dict:
     return {
         "document_id": "doc-1",
