@@ -14,7 +14,7 @@ from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient, models
 from langchain_core.documents import Document
 
-from ..embeddings.huggingface_embeddings import embedding_model
+from ..embeddings.jina_embeddings import embedding_model
 from ...core.config import settings
 from .qdrant_payload_indexes import ensure_payload_indexes
 

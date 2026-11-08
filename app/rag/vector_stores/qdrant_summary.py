@@ -7,7 +7,7 @@ from uuid import UUID
 from qdrant_client import QdrantClient, models
 
 from ...core.config import settings
-from ..embeddings.huggingface_embeddings import embedding_client
+from ..embeddings.jina_embeddings import embedding_client
 
 
 class QdrantSummaryStore:

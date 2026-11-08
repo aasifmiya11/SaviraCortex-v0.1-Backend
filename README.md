@@ -25,7 +25,14 @@ Use focused tests while developing and record the exact command and result. See 
 
 ## Configuration
 
-Configure backend environment variables in a local `.env` file. Firebase Admin uses the backend-only service-account JSON configured by `FIREBASE_SERVICE_ACCOUNT_PATH` (default: `app/secrets/firebase-service-account.json`). Never commit that credential file.
+Configure backend environment variables in a local `.env` file. Route Jina embeddings and reranking through the standalone API gateway with these backend-owned settings:
+
+```dotenv
+JINA_API_BASE_URL=http://127.0.0.1:8090/v1
+JINA_API_KEY=<copy the gateway GATEWAY_API_KEY into this backend-only variable>
+```
+
+The backend key is the gateway client credential, not a Jina provider key. Keep the value independently in `backend/.env`; do not load or synchronize `api-gateway/.env` at runtime. The code defaults to the local gateway URL if `JINA_API_BASE_URL` is omitted. Firebase Admin uses the backend-only service-account JSON configured by `FIREBASE_SERVICE_ACCOUNT_PATH` (default: `app/secrets/firebase-service-account.json`). Never commit credential files.
 
 ## Technical documentation
 

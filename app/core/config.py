@@ -1,7 +1,10 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Backend settings are loaded only from backend/.env, independent of the gateway.
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(_BACKEND_ROOT / ".env", override=False)
 
 
 def get_bool(name: str, default: bool = False) -> bool:
@@ -14,6 +17,22 @@ def get_bool(name: str, default: bool = False) -> bool:
 
 
 class Settings:
+    # Embedding and reranking are routed through the standalone API gateway.
+    # Keep the gateway credential in backend/.env; never load api-gateway/.env here.
+    JINA_API_KEY = os.getenv("JINA_API_KEY")
+    JINA_API_BASE_URL = os.getenv(
+        "JINA_API_BASE_URL", "http://127.0.0.1:8090/v1"
+    )
+    JINA_EMBEDDING_MODEL = os.getenv(
+        "JINA_EMBEDDING_MODEL", "jina-embeddings-v5-text-small"
+    )
+    JINA_EMBEDDING_DIMENSIONS = int(os.getenv("JINA_EMBEDDING_DIMENSIONS", "1024"))
+    JINA_RERANKER_MODEL = os.getenv(
+        "JINA_RERANKER_MODEL", "jina-reranker-v2-base-multilingual"
+    )
+    JINA_API_TIMEOUT_SECONDS = float(os.getenv("JINA_API_TIMEOUT_SECONDS", "120"))
+    JINA_EMBEDDING_BATCH_SIZE = int(os.getenv("JINA_EMBEDDING_BATCH_SIZE", "64"))
+
     OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_MODEL = os.getenv("OPENAI_MODEL")
@@ -31,7 +50,28 @@ class Settings:
 
     QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
     QDRANT_API_ENDPOINT = os.getenv("QDRANT_API_ENDPOINT")
-    QDRANT_COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME")
+
+    # Embedding dimensions/model changes require isolated vector collections.
+    # Keep the previous collections untouched for rollback and re-indexing.
+    LEGACY_QDRANT_COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME")
+    LEGACY_QDRANT_SUMMARY_COLLECTION_NAME = os.getenv(
+        "QDRANT_SUMMARY_COLLECTION_NAME"
+    )
+    QDRANT_COLLECTION_NAME = os.getenv("JINA_QDRANT_COLLECTION_NAME") or (
+        f"{LEGACY_QDRANT_COLLECTION_NAME}_jina_v5_1024"
+        if LEGACY_QDRANT_COLLECTION_NAME else None
+    )
+    QDRANT_SUMMARY_COLLECTION_NAME = (
+        os.getenv("JINA_QDRANT_SUMMARY_COLLECTION_NAME")
+        or (
+            f"{LEGACY_QDRANT_SUMMARY_COLLECTION_NAME}_jina_v5_1024"
+            if LEGACY_QDRANT_SUMMARY_COLLECTION_NAME
+            else (
+                f"{QDRANT_COLLECTION_NAME}_summaries"
+                if QDRANT_COLLECTION_NAME else None
+            )
+        )
+    )
 
     # Firebase Admin SDK configuration for server-side ID-token verification.
     FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID")
@@ -73,11 +113,6 @@ class Settings:
     B2_REGION = os.getenv("B2_REGION")
     B2_ENDPOINT_URL = os.getenv("B2_ENDPOINT_URL")
     B2_STORAGE_PREFIX = os.getenv("B2_STORAGE_PREFIX", "voice-ai/")
-
-    QDRANT_SUMMARY_COLLECTION_NAME = os.getenv(
-        "QDRANT_SUMMARY_COLLECTION_NAME",
-        f"{QDRANT_COLLECTION_NAME}_summaries" if QDRANT_COLLECTION_NAME else None,
-    )
 
     # Isolated retrieval-evaluation resources. Keep these separate from the
     # production Qdrant collections and B2 storage prefix.

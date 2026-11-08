@@ -20,11 +20,11 @@ Object keys should be treated as opaque identifiers. Do not expose bucket creden
 
 ## Qdrant chunk collection
 
-`app/rag/vector_stores/qdrant.py` manages the chunk vector collection. Payload indexes are managed by `qdrant_payload_indexes.py`. Chunk payloads contain page content and LangChain metadata used for organization, document, version, page, chunk and lifecycle filtering. The configured local Hugging Face embedding model is `sentence-transformers/all-MiniLM-L6-v2` by default, with CUDA selected when available and CPU otherwise.
+`app/rag/vector_stores/qdrant.py` manages the chunk vector collection. Payload indexes are managed by `qdrant_payload_indexes.py`. Chunk payloads contain page content and LangChain metadata used for organization, document, version, page, chunk and lifecycle filtering. `JinaEmbeddingClient` calls the hosted `jina-embeddings-v5-text-small` API and returns 1024-dimensional normalized vectors by default; no embedding model is downloaded or loaded on the application host.
 
 ## Qdrant summary collection
 
-`qdrant_summary.py` manages document-version summary vectors in a separate collection. Each summary point is keyed by the document-version ID and stores organization/document/version identifiers, version number, title, summary and lifecycle status. Its configured name is `QDRANT_SUMMARY_COLLECTION_NAME`, defaulting to the chunk collection name plus `_summaries` when available.
+`qdrant_summary.py` manages document-version summary vectors in a separate collection. Each summary point is keyed by the document-version ID and stores organization/document/version identifiers, version number, title, summary and lifecycle status. Summary vectors use the same Jina embedding client and dimensions as chunk vectors. The new summary collection is configured by `JINA_QDRANT_SUMMARY_COLLECTION_NAME`; by default, `_jina_v5_1024` is appended to the legacy summary collection name.
 
 ## Redis-compatible cache
 

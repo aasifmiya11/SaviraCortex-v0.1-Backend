@@ -1,4 +1,4 @@
-"""DeepEval adapter around SaviraCortex's existing Hugging Face embeddings."""
+"""DeepEval adapter around SaviraCortex's Jina API embeddings."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from typing import List
 
 from deepeval.models import DeepEvalBaseEmbeddingModel
 
-from app.rag.embeddings.huggingface_embeddings import embedding_client
+from app.rag.embeddings.jina_embeddings import embedding_client
 
 
 class SaviraDeepEvalEmbeddings(DeepEvalBaseEmbeddingModel):
-    """Use the same Hugging Face embedding model as SaviraCortex retrieval."""
+    """Use the same Jina embedding model as SaviraCortex retrieval."""
 
     def __init__(self) -> None:
         self._embedding_client = embedding_client

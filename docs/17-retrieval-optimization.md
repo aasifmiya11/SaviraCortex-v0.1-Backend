@@ -4,7 +4,7 @@ The retrieval path combines first-stage dense/lexical search, rank fusion, a cro
 
 ## Dense retrieval
 
-`dense.py` queries the configured Qdrant chunk collection using the local Hugging Face embedding model. Filters include organization ID, optional document/user filters, lifecycle status and candidate version IDs. The orchestrator supplies the exact authorized candidate version IDs and disables the second status filter because candidate generation has already applied lifecycle scope.
+`dense.py` queries the configured Qdrant chunk collection using `JinaEmbeddingClient`. Passage vectors use Jina's `retrieval.passage` task and search queries use `retrieval.query`; the configured default is `jina-embeddings-v5-text-small` with 1024 dimensions. Filters include organization ID, optional document/user filters, lifecycle status and candidate version IDs. The orchestrator supplies the exact authorized candidate version IDs and disables the second status filter because candidate generation has already applied lifecycle scope.
 
 ## Lexical retrieval
 
@@ -18,7 +18,7 @@ RRF combines rank positions rather than assuming raw scores from different retri
 
 ## Cross-encoder reranking
 
-`CrossEncoderReranker` defaults to `BAAI/bge-reranker-v2-m3`, batch size 16 and maximum input length 512. It scores query/chunk pairs, sorts by reranker score, and preserves global rank and provenance metadata. The model is initialized when the reranker is constructed unless a model is injected.
+`CrossEncoderReranker` sends the query and fused candidate texts to Jina's `/rerank` endpoint using `jina-reranker-v2-base-multilingual` by default. It requests scores for all candidates, maps API result indices back to the original candidate records, sorts by relevance score, and preserves global rank and provenance metadata. An injectable scorer remains available for isolated tests.
 
 ## Adaptive selection and query expansion
 

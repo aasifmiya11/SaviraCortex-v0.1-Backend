@@ -134,3 +134,80 @@ def test_reranker_rejects_invalid_top_k(top_k):
             [_candidate("chunk-1", "content", 1)],
             top_k=top_k,
         )
+
+
+class FakeHTTPResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.payload
+
+
+class FakeHTTPSession:
+    def __init__(self, payload):
+        self.payload = payload
+        self.calls = []
+
+    def post(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return FakeHTTPResponse(self.payload)
+
+
+def test_jina_reranker_sends_documents_and_maps_api_indices():
+    session = FakeHTTPSession({
+        "results": [
+            {"index": 1, "relevance_score": 0.95},
+            {"index": 0, "relevance_score": 0.25},
+        ]
+    })
+    reranker = CrossEncoderReranker(
+        api_key="test-key",
+        model_name="jina-reranker-v2-base-multilingual",
+        session=session,
+    )
+    candidates = [
+        _candidate("chunk-1", "first", 1),
+        _candidate("chunk-2", "second", 2),
+    ]
+
+    result = reranker.rerank("find the second", candidates)
+
+    assert [item["chunk_id"] for item in result] == ["chunk-2", "chunk-1"]
+    assert [item["reranker_score"] for item in result] == [0.95, 0.25]
+    url, request = session.calls[0]
+    assert url.endswith("/rerank")
+    assert request["headers"]["Authorization"] == "Bearer test-key"
+    assert request["json"]["query"] == "find the second"
+    assert request["json"]["documents"] == ["first", "second"]
+    assert request["json"]["top_n"] == 2
+    assert request["json"]["return_documents"] is False
+
+
+def test_jina_reranker_rejects_missing_api_key():
+    reranker = CrossEncoderReranker(api_key="", session=FakeHTTPSession({"results": []}))
+
+    with pytest.raises(RuntimeError, match="JINA_API_KEY"):
+        reranker.rerank("query", [_candidate("chunk-1", "text", 1)])
+
+
+def test_jina_reranker_rejects_duplicate_result_indices():
+    session = FakeHTTPSession({
+        "results": [
+            {"index": 0, "relevance_score": 0.8},
+            {"index": 0, "relevance_score": 0.7},
+        ]
+    })
+    reranker = CrossEncoderReranker(api_key="test-key", session=session)
+
+    with pytest.raises(ValueError, match="duplicate"):
+        reranker.rerank(
+            "query",
+            [
+                _candidate("chunk-1", "first", 1),
+                _candidate("chunk-2", "second", 2),
+            ],
+        )

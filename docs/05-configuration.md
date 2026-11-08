@@ -20,8 +20,17 @@ The helper `get_bool(name, default=False)` treats `true`, `1`, `yes` and `on` (c
 | `AIVEN_REDIS_URI` | Redis-compatible connection URI | Required when Redis accessor is used |
 | `QDRANT_API_KEY` | Qdrant credential | Secret |
 | `QDRANT_API_ENDPOINT` | Qdrant endpoint | Required by Qdrant integrations |
-| `QDRANT_COLLECTION_NAME` | Chunk collection | Environment-specific |
-| `QDRANT_SUMMARY_COLLECTION_NAME` | Summary collection | Defaults to chunk collection plus `_summaries` |
+| `QDRANT_COLLECTION_NAME` | Legacy/base chunk collection name | Used to derive the new Jina collection name unless an explicit Jina collection override is set |
+| `QDRANT_SUMMARY_COLLECTION_NAME` | Legacy/base summary collection name | Used to derive the new Jina summary collection name unless an explicit Jina override is set |
+| `JINA_API_KEY` | Jina API credential | Required for embedding and reranking; secret |
+| `JINA_API_BASE_URL` | Jina API base URL | Defaults to `https://api.jina.ai/v1` |
+| `JINA_EMBEDDING_MODEL` | Jina embedding model | Defaults to `jina-embeddings-v5-text-small` |
+| `JINA_EMBEDDING_DIMENSIONS` | Embedding vector size | Defaults to 1024; must match the Jina model and Qdrant collection |
+| `JINA_RERANKER_MODEL` | Jina reranker model | Defaults to `jina-reranker-v2-base-multilingual` |
+| `JINA_API_TIMEOUT_SECONDS` | HTTP timeout for Jina requests | Defaults to 120 seconds |
+| `JINA_EMBEDDING_BATCH_SIZE` | Number of passages per embedding request | Defaults to 64 |
+| `JINA_QDRANT_COLLECTION_NAME` | New Jina chunk collection | Optional; default appends `_jina_v5_1024` to the legacy chunk collection name |
+| `JINA_QDRANT_SUMMARY_COLLECTION_NAME` | New Jina summary collection | Optional; default appends `_jina_v5_1024` to the legacy summary collection name |
 | `B2_KEY_ID` | Backblaze key ID | Secret |
 | `B2_APPLICATION_KEY` | Backblaze application key | Secret |
 | `B2_BUCKET_NAME` | Backblaze bucket | Environment-specific |
@@ -74,8 +83,19 @@ AIVEN_REDIS_URI=
 
 QDRANT_API_KEY=
 QDRANT_API_ENDPOINT=
-QDRANT_COLLECTION_NAME=
-QDRANT_SUMMARY_COLLECTION_NAME=
+QDRANT_COLLECTION_NAME=voiceai-local
+QDRANT_SUMMARY_COLLECTION_NAME=voiceai-local_summaries
+
+JINA_API_KEY=
+JINA_API_BASE_URL=https://api.jina.ai/v1
+JINA_EMBEDDING_MODEL=jina-embeddings-v5-text-small
+JINA_EMBEDDING_DIMENSIONS=1024
+JINA_RERANKER_MODEL=jina-reranker-v2-base-multilingual
+JINA_API_TIMEOUT_SECONDS=120
+JINA_EMBEDDING_BATCH_SIZE=64
+# Optional overrides; otherwise a _jina_v5_1024 suffix is added.
+JINA_QDRANT_COLLECTION_NAME=
+JINA_QDRANT_SUMMARY_COLLECTION_NAME=
 
 B2_KEY_ID=
 B2_APPLICATION_KEY=

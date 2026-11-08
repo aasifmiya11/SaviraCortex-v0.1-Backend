@@ -145,7 +145,7 @@ Qdrant deletion filters depend on payload indexes. The current vector-store code
 
 ## 31.9 Retrieval and answer generation
 
-The RAG system is modular. Its documented retrieval path includes candidate generation using dense and lexical signals, fusion, reranking and adaptive top-K selection. Authorization filtering is part of retrieval and must remain organization/user scoped.
+The RAG system is modular. Its retrieval path includes candidate generation using dense and lexical signals, fusion, reranking and adaptive top-K selection. Dense vectors use the hosted Jina `jina-embeddings-v5-text-small` model with separate passage/query task modes; fused candidates are reranked through `jina-reranker-v2-base-multilingual`. Authorization filtering is part of retrieval and must remain organization/user scoped.
 
 The LangGraph generation workflow coordinates:
 - Query and input validation.
@@ -176,7 +176,7 @@ The current SQLAlchemy model package exports:
 - `OrganizationInvitation`
 - `DocumentIngestionSession`
 
-PostgreSQL is the authoritative relational store. Backblaze B2 stores source files. Qdrant stores vectorized document chunks and summaries. Redis-compatible infrastructure supports cache functionality. Firebase manages external identity.
+PostgreSQL is the authoritative relational store. Backblaze B2 stores source files. Qdrant stores vectorized document chunks and summaries. Jina AI provides hosted embedding and reranking APIs; the current embedding default is 1024 dimensions. The Jina-backed Qdrant collections use a `_jina_v5_1024` suffix derived from the legacy collection names (or explicit `JINA_QDRANT_*` overrides), leaving old 384-dimensional collections untouched. Redis-compatible infrastructure supports cache functionality. Firebase manages external identity.
 
 The database helper's `create_tables()` uses `Base.metadata.create_all` after importing models. This creates missing registered tables; it does not alter existing table definitions. The repository's reset scripts may be destructive. Do not run them casually. If a future code change requires schema changes, follow the project owner's instruction to update models/registration and explicitly request a database reset only after explaining the requirement; do not introduce migrations without approval.
 
@@ -232,7 +232,7 @@ npm run build
 
 ## 31.13 Verification status and known limitations
 
-No test suite was run as part of this documentation-only update. Earlier test results in [21 — Testing](21-testing.md) are historical and scoped to their exact commands.
+Jina embedding and reranker adapter tests were run with `uv run --no-sync python -m pytest -s -vv --confcutdir=tests/rag tests/rag/embeddings/test_jina_embeddings.py tests/rag/retrieval/test_cross_encoder_reranker.py`: 25 passed. These tests mock the HTTP responses; they do not verify live Jina credentials, billing, API availability or production Qdrant re-indexing. Earlier test results in [21 — Testing](21-testing.md) are historical and scoped to their exact commands.
 
 The inspected development workspace contains uncommitted changes in both repositories:
 - Backend: ingestion workflow/API, router, Qdrant, B2 storage, tests, and untracked document-management endpoint/schema/service/tests.

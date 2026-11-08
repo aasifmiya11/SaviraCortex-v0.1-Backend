@@ -22,7 +22,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from qdrant_client import models
 from langchain_qdrant import QdrantVectorStore
-from app.rag.embeddings.huggingface_embeddings import embedding_model
+from app.rag.embeddings.jina_embeddings import embedding_model
 from app.rag.vector_stores.qdrant import client as qdrant_client
 
 

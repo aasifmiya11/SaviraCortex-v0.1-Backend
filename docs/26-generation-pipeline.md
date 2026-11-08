@@ -323,7 +323,7 @@ A subsequent run with a different organization/user identity returned no evidenc
 
 The script currently counts successful workflow completion and Static Validation, not full semantic answer correctness. A `3/3` script summary must not be interpreted as all three responses being fully answered or independently quality-reviewed.
 
-Warnings observed during local runs included unauthenticated Hugging Face Hub requests and the deprecated `fitz` API. They did not stop the reported workflow run; the full test suite also reported a LangChain community-package deprecation warning.
+Historical local runs before the Jina API migration included unauthenticated Hugging Face Hub requests and the deprecated `fitz` API. The embedding and reranking path now uses Jina's hosted APIs; the `fitz` and LangChain deprecation warnings are separate cleanup items.
 
 ## 26.15 Current workflow verification
 
