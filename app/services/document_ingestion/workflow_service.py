@@ -6,14 +6,17 @@ import logging
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from sqlalchemy import or_, select, text
+from sqlalchemy import delete, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.agents.Document_summarizer.agent import DocumentSummarizerAgent
 from app.models.document_ingestion_sessions import DocumentIngestionSession
+from app.models.document_acl import DocumentACL
 from app.models.documents import Document
 from app.models.document_versions import DocumentVersion
 from app.models.organization_departments import OrganizationDepartment
+from app.models.organization_memberships import OrganizationMembership
+from app.models.organization_roles import OrganizationRole
 from app.services.document_registration.registration_service import (
     DocumentRegistrationData,
     DocumentRegistrationService,
@@ -157,6 +160,10 @@ class DocumentIngestionWorkflowService:
         uploaded_by_user_id: UUID,
         original_filename: str,
         file_size: int,
+        department_ids: list[UUID] | None = None,
+        access_user_ids: list[UUID] | None = None,
+        access_role_ids: list[UUID] | None = None,
+        organization_wide_access: bool = False,
         progress_callback=None,
     ) -> dict:
         def report(stage: str, state: str, message: str | None = None) -> None:
@@ -366,6 +373,10 @@ class DocumentIngestionWorkflowService:
                 summary=summary_output.summary,
                 matching_classification=matching.classification,
                 matching_candidates=candidates,
+                department_ids=[str(value) for value in (department_ids or [])],
+                access_user_ids=[str(value) for value in (access_user_ids or [])],
+                access_role_ids=[str(value) for value in (access_role_ids or [])],
+                organization_wide_access=organization_wide_access,
                 status="awaiting_review",
                 expires_at=expires_at,
             )
@@ -441,15 +452,32 @@ class DocumentIngestionWorkflowService:
                 pass
             raise TimeoutError("This ingestion session expired. Upload the PDF again.")
 
-        if department_id is not None:
-            department = db.scalar(
-                select(OrganizationDepartment).where(
-                    OrganizationDepartment.id == department_id,
-                    OrganizationDepartment.organization_id == organization_id,
-                )
-            )
-            if department is None:
-                raise ValueError("The selected department does not belong to this organization.")
+        selected_department_ids = [UUID(value) for value in (staged.department_ids or [])]
+        if not selected_department_ids and department_id is not None:
+            selected_department_ids = [department_id]
+        if selected_department_ids:
+            valid_departments = set(db.scalars(select(OrganizationDepartment.id).where(
+                OrganizationDepartment.organization_id == organization_id,
+                OrganizationDepartment.id.in_(selected_department_ids),
+            )).all())
+            if valid_departments != set(selected_department_ids):
+                raise ValueError("One or more selected departments no longer belong to this organization.")
+        if staged.access_role_ids:
+            selected_role_ids = [UUID(value) for value in staged.access_role_ids]
+            valid_roles = set(db.scalars(select(OrganizationRole.id).where(
+                OrganizationRole.organization_id == organization_id,
+                OrganizationRole.id.in_(selected_role_ids),
+            )).all())
+            if valid_roles != set(selected_role_ids):
+                raise ValueError("One or more selected roles no longer belong to this organization.")
+        if staged.access_user_ids:
+            selected_user_ids = [UUID(value) for value in staged.access_user_ids]
+            valid_users = set(db.scalars(select(OrganizationMembership.user_id).where(
+                OrganizationMembership.organization_id == organization_id,
+                OrganizationMembership.user_id.in_(selected_user_ids),
+            )).all())
+            if valid_users != set(selected_user_ids):
+                raise ValueError("One or more selected members are no longer in this organization.")
 
         if action not in {"new", "supersede", "independent", "reject"}:
             raise ValueError("Unsupported document ingestion decision.")
@@ -563,14 +591,14 @@ class DocumentIngestionWorkflowService:
                 document.title = title
                 document.document_type = document_type
                 document.description = description
-                document.department_id = department_id
+                document.department_id = selected_department_ids[0] if selected_department_ids else None
             else:
                 result = registration.register_new_document(
                     document_data=DocumentRegistrationData(
                         title=title,
                         document_type=document_type,
                         description=description,
-                        department_id=department_id,
+                        department_id=(UUID(staged.department_ids[0]) if staged.department_ids else department_id),
                         archived=archived,
                     ),
                     version_data=version_data,
@@ -579,6 +607,33 @@ class DocumentIngestionWorkflowService:
                     document_id=document_id,
                     version_id=version_id,
                 )
+            document_record = db.scalar(select(Document).where(
+                Document.id == document_id,
+                Document.organization_id == organization_id,
+            ))
+            if document_record is None:
+                raise LookupError("The document record could not be found after registration.")
+            document_record.organization_wide_access = bool(staged.organization_wide_access)
+            if action == "supersede":
+                db.execute(delete(DocumentACL).where(
+                    DocumentACL.organization_id == organization_id,
+                    DocumentACL.document_id == document_id,
+                ))
+            for department_value in (str(value) for value in selected_department_ids):
+                db.add(DocumentACL(
+                    organization_id=organization_id, document_id=document_id,
+                    principal_type="department", department_id=UUID(department_value), effect="allow",
+                ))
+            for user_value in staged.access_user_ids:
+                db.add(DocumentACL(
+                    organization_id=organization_id, document_id=document_id,
+                    principal_type="user", user_id=UUID(user_value), effect="allow",
+                ))
+            for role_value in staged.access_role_ids:
+                db.add(DocumentACL(
+                    organization_id=organization_id, document_id=document_id,
+                    principal_type="role", role_id=UUID(role_value), effect="allow",
+                ))
             staged.status = "completed"
             db.commit()
             registration_committed = True

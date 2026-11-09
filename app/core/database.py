@@ -28,6 +28,8 @@ if not settings.AIVEN_POSTGRES_URI:
 
 engine = create_engine(
     settings.AIVEN_POSTGRES_URI,
+    pool_pre_ping=True,
+    pool_recycle=1800,
 )
 
 

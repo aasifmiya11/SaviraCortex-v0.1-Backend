@@ -53,6 +53,10 @@ class DocumentIngestionSession(Base):
     matching_candidates: Mapped[list[dict]] = mapped_column(
         JSON, nullable=False, default=list
     )
+    department_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    access_user_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    access_role_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    organization_wide_access: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="awaiting_review", server_default="awaiting_review"
     )

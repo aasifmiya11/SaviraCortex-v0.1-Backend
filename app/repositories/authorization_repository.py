@@ -85,7 +85,7 @@ class AuthorizationRepository:
         has_allow = (
             true()
             if membership.role in {"owner", "admin"}
-            else or_(has_acl_allow, department_assignment_grant)
+            else or_(Document.organization_wide_access.is_(True), has_acl_allow, department_assignment_grant)
         )
 
         has_deny = exists(

@@ -51,3 +51,20 @@ The organization identifier is validated as a UUID. Extracted pages are normaliz
 If upload or registration fails, the service rolls back and attempts object cleanup when applicable. Cleanup errors are retained alongside the primary ingestion failure. Tests cover upload failure, registration failure and cleanup failure.
 
 The tests exercise result fields such as status, filename, file hash, content hash, page count, storage key and optional registration result. The service is not exposed by an implemented HTTP route in the reviewed repository.
+
+
+## Current two-phase batch ingestion workflow
+
+The active HTTP workflow is implemented by `app/services/document_ingestion/workflow_service.py` and `app/api/v1/endpoints/document_ingestion.py`.
+
+1. Before upload, the manager selects organization-wide visibility and/or specific departments, custom roles and individual members. Departments are saved as tags and department ACL grants.
+2. The batch endpoint accepts up to the configured batch limit and streams per-file validation, SHA-256 hashing, PDF extraction/OCR, content hashing, summary generation, duplicate matching and private staging progress.
+3. Each successfully analyzed PDF is staged in private object storage with a 24-hour review session. It is not indexed or made available to the assistant yet.
+4. The reviewer checks the AI metadata/summary, page count, file/content hashes and matching candidates.
+5. The reviewer can reject, ingest as a new document, ingest independently when a match exists, or supersede a matching document with a new version. Indexing begins only after this decision.
+
+Access selections are persisted on the staging session and revalidated against the organization at finalization. The resulting document stores department ACL entries, role/user ACL entries, and an organization-wide visibility flag. The authorization repository enforces those grants when building the member's document catalogue. Organization-wide visibility includes future organization members; role and department grants follow the user's current assignments.
+
+### Database migration
+
+Apply `migrations/0003_document_ingestion_access.sql` to the PostgreSQL database before deploying this version. It adds access selections to staging sessions and the organization-wide visibility flag to documents. Existing documents retain their previous authorization behavior because the new flag defaults to false.

@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.dependencies import get_db, get_verified_firebase_claims
-from app.models import Document, DocumentVersion, OrganizationDepartment, OrganizationMembership, User
+from app.models import Document, DocumentACL, DocumentVersion, OrganizationDepartment, OrganizationMembership, User
 from app.repositories.authorization_repository import AuthorizationRepository
 from app.schemas.v1.documents import (
     DocumentLibraryItem,

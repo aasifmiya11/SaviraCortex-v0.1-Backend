@@ -27,6 +27,7 @@ class DocumentLibraryItem(BaseModel):
     description: str | None = None
     department_id: UUID | None = None
     department_name: str | None = None
+    department_tags: list[str] = Field(default_factory=list)
     archived: bool
     created_at: datetime
     active_version_id: UUID | None = None
