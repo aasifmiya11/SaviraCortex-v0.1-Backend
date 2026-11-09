@@ -7,7 +7,6 @@ requires-python = ">=3.11"
 dependencies = [
     "boto3>=1.43.123",
     "chromadb>=0.5.0",
-    "easyocr>=1.7.2",
     "fastapi>=0.162.0",
     "firebase-admin>=6.5.0",
     "langchain>=1.4.7",
@@ -24,7 +23,6 @@ dependencies = [
     "psycopg2-binary>=2.9.13",
     "pydantic[email]>=2.14.2",
     "pymupdf>=2.0",
-    "pytesseract>=0.3.13",
     "pytest>=9.2.0",
     "pytest-asyncio>=1.4.1.post1",
     "pytest-trio>=0.8.0",

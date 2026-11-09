@@ -45,8 +45,6 @@ class Settings:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_MODEL = os.getenv("OPENAI_MODEL")
 
-    OCR_ENGINE = os.getenv("OCR_ENGINE")
-    OCR_LANGS = os.getenv("OCR_LANGS")
 
     RENDER_DPI = int(os.getenv("RENDER_DPI", "300"))
     MIN_NATIVE_CHARS = int(os.getenv("MIN_NATIVE_CHARS", "50"))

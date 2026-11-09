@@ -16,7 +16,7 @@ def sample_pdf() -> Path:
 
 
 def test_pdf_loader_normalizes_pages(sample_pdf):
-    loader = PDFLoader(text_threshold=100, ocr_engine="easyocr")
+    loader = PDFLoader(text_threshold=100)
     documents = loader.load_pdf(sample_pdf)
 
     assert documents

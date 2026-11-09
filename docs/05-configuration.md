@@ -37,13 +37,11 @@ The helper `get_bool(name, default=False)` treats `true`, `1`, `yes` and `on` (c
 | `B2_REGION` | Backblaze region | Environment-specific |
 | `B2_ENDPOINT_URL` | S3-compatible endpoint | Environment-specific |
 | `B2_STORAGE_PREFIX` | Object key namespace | Defaults to `voice-ai/` |
-| `OCR_ENGINE` | OCR backend selector | Loader supports EasyOCR, Tesseract or FastOCR |
-| `OCR_LANGS` | OCR languages | Loader default is English |
 | `RENDER_DPI` | PDF render resolution | Defaults to 300 |
 | `MIN_NATIVE_CHARS` | Native text threshold | Defaults to 50 |
 | `OCR_ALL_PAGES` | OCR every page | Defaults to false |
 | `OCR_MERGE_WITH_NATIVE` | Merge OCR and native text | Defaults to false |
-| `FASTOCR_API_KEY` | FastOCR credential | Required only when selected |
+| `FASTOCR_API_KEY` | FastOCR credential | Required when a page needs OCR; secret |
 
 Evaluation-specific settings are prefixed with `SAVIRACORTEX_EVAL_` and isolate evaluation organization/user IDs, Qdrant collections and B2 storage prefix from ordinary application resources.
 
@@ -104,8 +102,6 @@ B2_REGION=
 B2_ENDPOINT_URL=
 B2_STORAGE_PREFIX=
 
-OCR_ENGINE=easyocr
-OCR_LANGS=en
 RENDER_DPI=300
 MIN_NATIVE_CHARS=50
 OCR_ALL_PAGES=false

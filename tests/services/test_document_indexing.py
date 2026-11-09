@@ -26,7 +26,7 @@ def pages():
             metadata={
                 "page": 2,
                 "ocr_used": True,
-                "extraction_method": "easyocr",
+                "extraction_method": "fastocr",
             },
         ),
     ]

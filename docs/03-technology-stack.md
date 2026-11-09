@@ -24,7 +24,7 @@
 | langgraph | Graph-based agent/workflow execution |
 | requests | HTTP client for hosted embedding and reranking APIs |
 | Jina AI API | Hosted text embeddings and cross-encoder reranking |
-| PyMuPDF, EasyOCR, pytesseract | PDF parsing and OCR |
+| PyMuPDF, Pillow, FastOCR API | Native PDF text extraction, page rendering and hosted OCR |
 | redis | Redis-compatible client used by cache components |
 | pytest and plugins | Backend unit, service, workflow and integration tests |
 

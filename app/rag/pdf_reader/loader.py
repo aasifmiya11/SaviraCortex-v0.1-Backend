@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from langchain_core.documents import Document
 
@@ -18,43 +18,14 @@ from ..ingestion.text_normalizer import TextNormalizer
 from ...core.config import settings
 
 
-OCREngine = Literal["easyocr", "tesseract", "fastocr"]
-
-
-def _language_codes(value: str | None) -> list[str]:
-    return [
-        language.strip()
-        for language in (value or "en").split(",")
-        if language.strip()
-    ]
-
-
-def _tesseract_language(value: str | None) -> str:
-    mapping = {
-        "en": "eng",
-        "hi": "hin",
-        "ne": "nep",
-        "fr": "fra",
-        "de": "deu",
-        "es": "spa",
-        "zh": "chi_sim",
-        "ja": "jpn",
-    }
-    return "+".join(
-        mapping.get(language, language)
-        for language in _language_codes(value)
-    )
-
-
 class PDFLoader:
-    """Extract native text first and OCR selected pages when configured."""
+    """Extract native text first and send selected pages to the FastOCR API."""
 
-    SUPPORTED_OCR_ENGINES = {"easyocr", "tesseract", "fastocr"}
+    OCR_ENGINE = "fastocr"
 
     def __init__(
         self,
         text_threshold: int | None = None,
-        ocr_engine: OCREngine | None = None,
         ocr_options: dict[str, Any] | None = None,
         *,
         ocr_all_pages: bool | None = None,
@@ -65,33 +36,17 @@ class PDFLoader:
             if text_threshold is None
             else text_threshold
         )
-        engine = (
-            (settings.OCR_ENGINE or "easyocr").strip().lower()
-            if ocr_engine is None
-            else ocr_engine
-        )
 
         if isinstance(threshold, bool) or not isinstance(threshold, int):
             raise TypeError("text_threshold must be an integer.")
         if threshold < 0:
             raise ValueError("text_threshold cannot be negative.")
-        if engine not in self.SUPPORTED_OCR_ENGINES:
-            raise ValueError(
-                f"Unsupported OCR engine {engine!r}. "
-                f"Choose from: {', '.join(sorted(self.SUPPORTED_OCR_ENGINES))}."
-            )
 
-        configured_languages = _language_codes(settings.OCR_LANGS)
-        defaults = {
-            "dpi": settings.RENDER_DPI,
-            "language": _tesseract_language(settings.OCR_LANGS),
-            "languages": ",".join(configured_languages),
-            "config": "--psm 3",
-        }
+        defaults = {"dpi": settings.RENDER_DPI}
         defaults.update(ocr_options or {})
 
         self.text_threshold = threshold
-        self.ocr_engine = engine
+        self.ocr_engine = self.OCR_ENGINE
         self.ocr_options = defaults
         self.ocr_all_pages = (
             settings.OCR_ALL_PAGES
@@ -193,29 +148,11 @@ class PDFLoader:
         )
 
     def _run_page_ocr(self, pdf_path: Path, page_number: int) -> Document:
-        options = self.ocr_options
-
-        if self.ocr_engine == "easyocr":
-            result = ocr_client.easyocr_pdf_page(
-                pdf_path,
-                page_number=page_number,
-                dpi=options.get("dpi"),
-            )
-        elif self.ocr_engine == "tesseract":
-            result = ocr_client.tesseract_pdf_page(
-                pdf_path,
-                page_number=page_number,
-                dpi=options.get("dpi"),
-                language=options.get("language", "eng"),
-                config=options.get("config", "--psm 3"),
-            )
-        else:
-            result = ocr_client.fastocr_pdf_page(
-                pdf_path,
-                page_number=page_number,
-                dpi=options.get("dpi"),
-                languages=options.get("languages", "en"),
-            )
+        result = ocr_client.fastocr_pdf_page(
+            pdf_path,
+            page_number=page_number,
+            dpi=self.ocr_options.get("dpi"),
+        )
 
         if isinstance(result, Document):
             return result
