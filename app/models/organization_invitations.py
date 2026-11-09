@@ -9,11 +9,13 @@ from sqlalchemy import (
     DDL,
     ForeignKey,
     Index,
+    JSON,
     String,
     Uuid,
     event,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..core.database import Base
@@ -36,46 +38,36 @@ class OrganizationInvitation(Base):
         Index("ix_org_invitations_expiry", "expires_at"),
     )
 
-    id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), primary_key=True, default=uuid4
-    )
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     organization_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("organizations.id", ondelete="CASCADE"),
-        nullable=False,
+        Uuid(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
     invited_by_user_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True),
-        ForeignKey("users.id", ondelete="RESTRICT"),
-        nullable=False,
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
     email: Mapped[str] = mapped_column(String(320), nullable=False)
     candidate_name: Mapped[str] = mapped_column(String(255), nullable=False)
     invited_role: Mapped[str] = mapped_column(
         String(20), nullable=False, default="member", server_default="member"
     )
-    token_hash: Mapped[str] = mapped_column(
-        String(64), nullable=False, unique=True
+    assigned_role_ids: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list, server_default="[]"
     )
+    assigned_department_ids: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list, server_default="[]"
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending", server_default="pending"
     )
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    accepted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    email_sent_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-# PostgreSQL runs cleanup after each invitation INSERT or UPDATE. The API
-# independently checks expires_at so an expired link is rejected immediately.
 event.listen(
     OrganizationInvitation.__table__,
     "after_create",
@@ -90,7 +82,7 @@ event.listen(
             WHERE expires_at <= CURRENT_TIMESTAMP;
             RETURN NULL;
         END;
-        $$
+        $$;
         """
     ).execute_if(dialect="postgresql"),
 )

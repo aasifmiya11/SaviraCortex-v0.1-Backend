@@ -29,7 +29,9 @@ class DepartmentService:
         return membership
 
     def list_departments(self, organization_id: UUID, firebase_claims: dict) -> list[DepartmentResponse]:
-        self._authorized_membership(organization_id, firebase_claims)
+        membership = self._authorized_membership(organization_id, firebase_claims)
+        if membership.role not in {"owner", "admin"}:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only organization owners and admins can view department management.")
         return [DepartmentResponse.model_validate(item) for item in self.repository.list_departments(organization_id)]
 
     def create_department(self, organization_id: UUID, payload: DepartmentCreateRequest, firebase_claims: dict) -> DepartmentResponse:
@@ -39,6 +41,7 @@ class DepartmentService:
         department = OrganizationDepartment(
             id=uuid4(), organization_id=organization_id,
             name=payload.name, description=payload.description,
+            created_by=membership.user_id,
         )
         try:
             self.repository.create_department(department)

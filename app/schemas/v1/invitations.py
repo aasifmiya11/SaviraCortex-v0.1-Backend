@@ -10,6 +10,8 @@ class InvitationCreateRequest(BaseModel):
     email: EmailStr
     candidate_name: str = Field(min_length=2, max_length=255)
     role: Literal["admin", "member"] = "member"
+    role_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    department_ids: list[UUID] = Field(default_factory=list, max_length=100)
 
     @field_validator("email")
     @classmethod
@@ -22,6 +24,13 @@ class InvitationCreateRequest(BaseModel):
         value = " ".join(value.split())
         if len(value) < 2:
             raise ValueError("Candidate name must contain at least 2 characters.")
+        return value
+
+    @field_validator("role_ids", "department_ids")
+    @classmethod
+    def unique_ids(cls, value: list[UUID]) -> list[UUID]:
+        if len(value) != len(set(value)):
+            raise ValueError("Duplicate selections are not allowed.")
         return value
 
 

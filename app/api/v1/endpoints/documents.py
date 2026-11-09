@@ -165,6 +165,7 @@ def list_documents(
     firebase_claims: dict = Depends(get_verified_firebase_claims),
 ):
     user, membership = _current_member(db, organization_id, firebase_claims)
+    _require_manager(membership)
     show_archived = include_archived and membership.role in {"owner", "admin"}
     statement = _document_query(
         db,
@@ -217,6 +218,7 @@ def get_document(
     firebase_claims: dict = Depends(get_verified_firebase_claims),
 ):
     user, membership = _current_member(db, organization_id, firebase_claims)
+    _require_manager(membership)
     statement = _document_query(
         db,
         organization_id=organization_id,

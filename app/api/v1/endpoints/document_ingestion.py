@@ -66,6 +66,14 @@ def _current_member(
     return user, membership
 
 
+def _require_manager(membership: OrganizationMembership) -> None:
+    if membership.role not in {"owner", "admin"}:
+        raise HTTPException(
+            status_code=403,
+            detail="Only organization owners and admins can ingest or index documents.",
+        )
+
+
 @router.post(
     "/ingestion-sessions",
     response_model=DocumentIngestionAnalysisResponse,
@@ -79,7 +87,8 @@ def analyze_document_upload(
     firebase_claims: dict = Depends(get_verified_firebase_claims),
     workflow: DocumentIngestionWorkflowService = Depends(get_ingestion_workflow),
 ):
-    user, _membership = _current_member(db, organization_id, firebase_claims)
+    user, membership = _current_member(db, organization_id, firebase_claims)
+    _require_manager(membership)
     workflow = workflow or DocumentIngestionWorkflowService()
     filename = (file.filename or "").replace("\\", "/").split("/")[-1].strip()
     if not filename or not filename.lower().endswith(".pdf"):
@@ -151,6 +160,7 @@ def finalize_document_ingestion(
     workflow: DocumentIngestionWorkflowService = Depends(get_ingestion_workflow),
 ):
     user, membership = _current_member(db, organization_id, firebase_claims)
+    _require_manager(membership)
     if payload.action == "supersede" and payload.target_document_id is not None:
         from app.repositories.authorization_repository import AuthorizationRepository
 
@@ -227,7 +237,8 @@ def analyze_document_upload_stream(
     firebase_claims: dict = Depends(get_verified_firebase_claims),
     workflow_override: DocumentIngestionWorkflowService | None = Depends(get_ingestion_workflow),
 ):
-    user, _membership = _current_member(db, organization_id, firebase_claims)
+    user, membership = _current_member(db, organization_id, firebase_claims)
+    _require_manager(membership)
     filename = (file.filename or "").replace("\\", "/").split("/")[-1].strip()
     if not filename or not filename.lower().endswith(".pdf"):
         file.file.close()
@@ -339,6 +350,7 @@ def retry_document_version_indexing(
     firebase_claims: dict = Depends(get_verified_firebase_claims),
 ):
     user, membership = _current_member(db, organization_id, firebase_claims)
+    _require_manager(membership)
     version = db.scalar(
         select(DocumentVersion)
         .join(Document, Document.id == DocumentVersion.document_id)
@@ -426,7 +438,8 @@ def analyze_document_batch_stream(
         QUEUE_SLOTS,
     )
 
-    user, _membership = _current_member(db, organization_id, firebase_claims)
+    user, membership = _current_member(db, organization_id, firebase_claims)
+    _require_manager(membership)
     if not files:
         raise HTTPException(status_code=422, detail="Select at least one PDF.")
     if len(files) > MAX_QUEUED_DOCUMENTS:

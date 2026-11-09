@@ -57,7 +57,7 @@ class MembershipService:
         )
 
     def list_members(self, organization_id: UUID, claims: dict) -> list[OrganizationMembershipResponse]:
-        self._actor_membership(organization_id, claims)
+        self._require_manager(organization_id, claims)
         return [self._membership_response(*item) for item in self.repository.list_members(organization_id)]
 
     def add_member(self, organization_id: UUID, user_id: UUID, role: str, claims: dict) -> OrganizationMembershipResponse:
@@ -165,7 +165,7 @@ class MembershipService:
             raise
 
     def list_department_members(self, organization_id: UUID, department_id: UUID, claims: dict) -> list[DepartmentMembershipResponse]:
-        self._actor_membership(organization_id, claims)
+        self._require_manager(organization_id, claims)
         if self.repository.get_department(organization_id, department_id) is None:
             raise HTTPException(status_code=404, detail="Department not found in this organization.")
         return [self._department_response(*item) for item in self.repository.list_department_members(organization_id, department_id)]

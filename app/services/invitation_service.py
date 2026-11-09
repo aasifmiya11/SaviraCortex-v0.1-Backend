@@ -4,7 +4,7 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -15,6 +15,8 @@ from app.core.config import settings
 from app.core.firebase import _firebase_app
 from app.models import (
     Organization,
+    OrganizationDepartment,
+    OrganizationDepartmentMembership,
     OrganizationInvitation,
     OrganizationMembership,
     OrganizationRole,
@@ -70,6 +72,24 @@ class InvitationService:
         if payload.role == "admin" and manager.role != "owner":
             raise HTTPException(status_code=403, detail="Only the organization owner can invite an administrator.")
 
+        # Validate every selected role and department against this organization.
+        selected_roles = list(self.session.scalars(
+            select(OrganizationRole).where(
+                OrganizationRole.organization_id == organization_id,
+                OrganizationRole.id.in_(payload.role_ids),
+            )
+        ).all()) if payload.role_ids else []
+        if len(selected_roles) != len(payload.role_ids):
+            raise HTTPException(status_code=422, detail="One or more selected roles do not belong to this organization.")
+        selected_departments = list(self.session.scalars(
+            select(OrganizationDepartment).where(
+                OrganizationDepartment.organization_id == organization_id,
+                OrganizationDepartment.id.in_(payload.department_ids),
+            )
+        ).all()) if payload.department_ids else []
+        if len(selected_departments) != len(payload.department_ids):
+            raise HTTPException(status_code=422, detail="One or more selected departments do not belong to this organization.")
+
         organization = self.session.get(Organization, organization_id)
         if organization is None:
             raise HTTPException(status_code=404, detail="Organization not found.")
@@ -98,6 +118,8 @@ class InvitationService:
             email=email,
             candidate_name=payload.candidate_name,
             invited_role=payload.role,
+            assigned_role_ids=[str(role.id) for role in selected_roles],
+            assigned_department_ids=[str(department.id) for department in selected_departments],
             token_hash=_hash_token(raw_token),
             status="pending",
             expires_at=now + timedelta(days=settings.INVITATION_EXPIRY_DAYS),
@@ -215,9 +237,8 @@ class InvitationService:
                 id=uuid4(),
                 organization_id=invitation.organization_id,
                 user_id=user.id,
-                # System-level access remains "member". The organization-specific
-                # default role is assigned separately as "Member" below.
-                role="member",
+                # Admin access is owner-granted during invitation setup.
+                role=invitation.invited_role,
             )
             member_role = self.session.scalar(
                 select(OrganizationRole).where(
@@ -234,12 +255,27 @@ class InvitationService:
                 )
                 self.session.add(member_role)
                 self.session.flush()
-            role_assignment = UserRoleAssignment(
-                id=uuid4(),
-                organization_id=invitation.organization_id,
-                user_id=user.id,
-                role_id=member_role.id,
-            )
+            selected_role_ids = {
+                UUID(str(role_id)) for role_id in (invitation.assigned_role_ids or [])
+            }
+            selected_role_ids.add(member_role.id)
+            role_assignments = [
+                UserRoleAssignment(
+                    id=uuid4(),
+                    organization_id=invitation.organization_id,
+                    user_id=user.id,
+                    role_id=role_id,
+                )
+                for role_id in selected_role_ids
+            ]
+            department_assignments = [
+                OrganizationDepartmentMembership(
+                    organization_id=invitation.organization_id,
+                    user_id=user.id,
+                    department_id=UUID(str(department_id)),
+                )
+                for department_id in (invitation.assigned_department_ids or [])
+            ]
             invitation.status = "accepted"
             invitation.accepted_at = datetime.now(timezone.utc)
             # Flush in FK dependency order; SQLite does not reliably infer the
@@ -248,7 +284,9 @@ class InvitationService:
             self.session.flush()
             self.session.add(membership)
             self.session.flush()
-            self.session.add(role_assignment)
+            self.session.add_all(role_assignments)
+            if department_assignments:
+                self.session.add_all(department_assignments)
             self.session.flush()
             custom_token = firebase_auth.create_custom_token(firebase_user.uid, app=app)
             self.session.commit()

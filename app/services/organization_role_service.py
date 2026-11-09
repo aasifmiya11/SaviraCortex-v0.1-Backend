@@ -31,7 +31,9 @@ class OrganizationRoleService:
         return membership
 
     def list_roles(self, organization_id: UUID, claims: dict) -> list[OrganizationRoleResponse]:
-        self._membership(organization_id, claims)
+        membership = self._membership(organization_id, claims)
+        if membership.role not in {"owner", "admin"}:
+            raise HTTPException(status_code=403, detail="Only organization owners and admins can view role management.")
         return [
             OrganizationRoleResponse.model_validate(role)
             for role in self.roles.list_for_organization(organization_id)
