@@ -57,7 +57,7 @@ The tests exercise result fields such as status, filename, file hash, content ha
 
 The active HTTP workflow is implemented by `app/services/document_ingestion/workflow_service.py` and `app/api/v1/endpoints/document_ingestion.py`.
 
-1. Before upload, the manager selects organization-wide visibility and/or specific departments, custom roles and individual members. Departments are saved as tags and department ACL grants.
+1. Before upload, the manager selects organization-wide visibility and any user-, role-, or department-level allow and deny rules. A document may be assigned to multiple departments, roles, and members; a matching deny always wins.
 2. The batch endpoint accepts up to the configured batch limit and streams per-file validation, SHA-256 hashing, PDF extraction/OCR, content hashing, summary generation, duplicate matching and private staging progress.
 3. Each successfully analyzed PDF is staged in private object storage with a 24-hour review session. It is not indexed or made available to the assistant yet.
 4. The reviewer checks the AI metadata/summary, page count, file/content hashes and matching candidates.
@@ -65,6 +65,6 @@ The active HTTP workflow is implemented by `app/services/document_ingestion/work
 
 Access selections are persisted on the staging session and revalidated against the organization at finalization. The resulting document stores department ACL entries, role/user ACL entries, and an organization-wide visibility flag. The authorization repository enforces those grants when building the member's document catalogue. Organization-wide visibility includes future organization members; role and department grants follow the user's current assignments.
 
-### Database migration
+### Fresh database schema
 
-Apply `migrations/0003_document_ingestion_access.sql` to the PostgreSQL database before deploying this version. It adds access selections to staging sessions and the organization-wide visibility flag to documents. Existing documents retain their previous authorization behavior because the new flag defaults to false.
+The current schema is defined by SQLAlchemy models. Initialize a fresh PostgreSQL database with python -m scripts.init_database from the backend directory; this creates all registered tables, including the document ACL and ingestion-session allow/deny lists. No incremental migration is provided for this fresh-database workflow. See 07-authorization.md for the exact retrieval formula.

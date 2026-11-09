@@ -163,6 +163,9 @@ class DocumentIngestionWorkflowService:
         department_ids: list[UUID] | None = None,
         access_user_ids: list[UUID] | None = None,
         access_role_ids: list[UUID] | None = None,
+        deny_department_ids: list[UUID] | None = None,
+        deny_user_ids: list[UUID] | None = None,
+        deny_role_ids: list[UUID] | None = None,
         organization_wide_access: bool = False,
         progress_callback=None,
     ) -> dict:
@@ -376,6 +379,9 @@ class DocumentIngestionWorkflowService:
                 department_ids=[str(value) for value in (department_ids or [])],
                 access_user_ids=[str(value) for value in (access_user_ids or [])],
                 access_role_ids=[str(value) for value in (access_role_ids or [])],
+                deny_department_ids=[str(value) for value in (deny_department_ids or [])],
+                deny_user_ids=[str(value) for value in (deny_user_ids or [])],
+                deny_role_ids=[str(value) for value in (deny_role_ids or [])],
                 organization_wide_access=organization_wide_access,
                 status="awaiting_review",
                 expires_at=expires_at,
@@ -420,7 +426,6 @@ class DocumentIngestionWorkflowService:
         title: str,
         document_type: str,
         description: str,
-        department_id: UUID | None = None,
         archived: bool = False,
         target_document_id: UUID | None = None,
         allow_unmatched_supersede: bool = False,
@@ -453,8 +458,6 @@ class DocumentIngestionWorkflowService:
             raise TimeoutError("This ingestion session expired. Upload the PDF again.")
 
         selected_department_ids = [UUID(value) for value in (staged.department_ids or [])]
-        if not selected_department_ids and department_id is not None:
-            selected_department_ids = [department_id]
         if selected_department_ids:
             valid_departments = set(db.scalars(select(OrganizationDepartment.id).where(
                 OrganizationDepartment.organization_id == organization_id,
@@ -462,22 +465,34 @@ class DocumentIngestionWorkflowService:
             )).all())
             if valid_departments != set(selected_department_ids):
                 raise ValueError("One or more selected departments no longer belong to this organization.")
-        if staged.access_role_ids:
-            selected_role_ids = [UUID(value) for value in staged.access_role_ids]
+        selected_role_ids = [UUID(value) for value in (staged.access_role_ids or []) + (staged.deny_role_ids or [])]
+        if selected_role_ids:
             valid_roles = set(db.scalars(select(OrganizationRole.id).where(
                 OrganizationRole.organization_id == organization_id,
                 OrganizationRole.id.in_(selected_role_ids),
             )).all())
             if valid_roles != set(selected_role_ids):
                 raise ValueError("One or more selected roles no longer belong to this organization.")
-        if staged.access_user_ids:
-            selected_user_ids = [UUID(value) for value in staged.access_user_ids]
+        selected_user_ids = [UUID(value) for value in (staged.access_user_ids or []) + (staged.deny_user_ids or [])]
+        if selected_user_ids:
             valid_users = set(db.scalars(select(OrganizationMembership.user_id).where(
                 OrganizationMembership.organization_id == organization_id,
                 OrganizationMembership.user_id.in_(selected_user_ids),
             )).all())
             if valid_users != set(selected_user_ids):
                 raise ValueError("One or more selected members are no longer in this organization.")
+        selected_department_ids = list(dict.fromkeys(selected_department_ids + [
+            UUID(value) for value in (staged.deny_department_ids or [])
+        ]))
+        if selected_department_ids:
+            valid_departments = set(db.scalars(select(OrganizationDepartment.id).where(
+                OrganizationDepartment.organization_id == organization_id,
+                OrganizationDepartment.id.in_(selected_department_ids),
+            )).all())
+            if valid_departments != set(selected_department_ids):
+                raise ValueError("One or more selected departments no longer belong to this organization.")
+        selected_department_allow_ids = [UUID(value) for value in (staged.department_ids or [])]
+        selected_department_deny_ids = [UUID(value) for value in (staged.deny_department_ids or [])]
 
         if action not in {"new", "supersede", "independent", "reject"}:
             raise ValueError("Unsupported document ingestion decision.")
@@ -591,14 +606,12 @@ class DocumentIngestionWorkflowService:
                 document.title = title
                 document.document_type = document_type
                 document.description = description
-                document.department_id = selected_department_ids[0] if selected_department_ids else None
             else:
                 result = registration.register_new_document(
                     document_data=DocumentRegistrationData(
                         title=title,
                         document_type=document_type,
                         description=description,
-                        department_id=(UUID(staged.department_ids[0]) if staged.department_ids else department_id),
                         archived=archived,
                     ),
                     version_data=version_data,
@@ -619,20 +632,35 @@ class DocumentIngestionWorkflowService:
                     DocumentACL.organization_id == organization_id,
                     DocumentACL.document_id == document_id,
                 ))
-            for department_value in (str(value) for value in selected_department_ids):
+            for department_value in selected_department_allow_ids:
                 db.add(DocumentACL(
                     organization_id=organization_id, document_id=document_id,
-                    principal_type="department", department_id=UUID(department_value), effect="allow",
+                    principal_type="department", department_id=department_value, effect="allow",
                 ))
-            for user_value in staged.access_user_ids:
+            for department_value in selected_department_deny_ids:
+                db.add(DocumentACL(
+                    organization_id=organization_id, document_id=document_id,
+                    principal_type="department", department_id=department_value, effect="deny",
+                ))
+            for user_value in staged.access_user_ids or []:
                 db.add(DocumentACL(
                     organization_id=organization_id, document_id=document_id,
                     principal_type="user", user_id=UUID(user_value), effect="allow",
                 ))
-            for role_value in staged.access_role_ids:
+            for user_value in staged.deny_user_ids or []:
+                db.add(DocumentACL(
+                    organization_id=organization_id, document_id=document_id,
+                    principal_type="user", user_id=UUID(user_value), effect="deny",
+                ))
+            for role_value in staged.access_role_ids or []:
                 db.add(DocumentACL(
                     organization_id=organization_id, document_id=document_id,
                     principal_type="role", role_id=UUID(role_value), effect="allow",
+                ))
+            for role_value in staged.deny_role_ids or []:
+                db.add(DocumentACL(
+                    organization_id=organization_id, document_id=document_id,
+                    principal_type="role", role_id=UUID(role_value), effect="deny",
                 ))
             staged.status = "completed"
             db.commit()

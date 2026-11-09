@@ -37,14 +37,17 @@ def _identity(db, *, membership_role="member"):
     dept_a = OrganizationDepartment(
         organization_id=organization.id,
         name="Department A",
+        created_by=user.id,
     )
     dept_b = OrganizationDepartment(
         organization_id=organization.id,
         name="Department B",
+        created_by=user.id,
     )
     dept_c = OrganizationDepartment(
         organization_id=organization.id,
         name="Department C",
+        created_by=user.id,
     )
     db.add_all([dept_a, dept_b, dept_c])
     db.flush()
@@ -60,12 +63,11 @@ def _identity(db, *, membership_role="member"):
     return organization, user, membership, dept_a, dept_b, dept_c
 
 
-def _document(db, organization, title, department_id=None):
+def _document(db, organization, title):
     document = Document(
         organization_id=organization.id,
         title=title,
         document_type="policy",
-        department_id=department_id,
     )
     db.add(document)
     db.flush()
@@ -135,12 +137,8 @@ def test_grants_are_union_of_user_role_and_multiple_departments(db):
     direct_doc = _document(db, organization, "Direct grant")
     role_doc = _document(db, organization, "Role grant")
     dept_doc = _document(db, organization, "Department ACL grant")
-    automatic_doc = _document(
-        db, organization, "Department assignment grant", dept_b.id
-    )
-    unrelated_doc = _document(
-        db, organization, "Unrelated department", dept_c.id
-    )
+    automatic_doc = _document(db, organization, "Department ACL grant from second department")
+    unrelated_doc = _document(db, organization, "Unrelated department")
 
     _acl(
         db, organization, direct_doc,
@@ -153,7 +151,17 @@ def test_grants_are_union_of_user_role_and_multiple_departments(db):
     _acl(
         db, organization, dept_doc,
         principal_type="department", effect="allow",
+        department_id=dept_a.id,
+    )
+    _acl(
+        db, organization, automatic_doc,
+        principal_type="department", effect="allow",
         department_id=dept_b.id,
+    )
+    _acl(
+        db, organization, unrelated_doc,
+        principal_type="department", effect="allow",
+        department_id=dept_c.id,
     )
 
     authorized = set(
@@ -177,11 +185,15 @@ def test_any_matching_explicit_deny_overrides_other_allows(db, deny_type):
     role = _assign_role(db, organization, user)
     _assign_department(db, organization, user, dept_b)
 
-    document = _document(db, organization, "Deny precedence", dept_b.id)
-    # A direct allow and the department assignment both grant access.
+    document = _document(db, organization, "Deny precedence")
+    # A direct allow and a department allow both grant access.
     _acl(
         db, organization, document,
         principal_type="user", effect="allow", user_id=user.id,
+    )
+    _acl(
+        db, organization, document,
+        principal_type="department", effect="allow", department_id=dept_b.id,
     )
 
     deny_kwargs = {
@@ -237,12 +249,54 @@ def test_owner_implicit_allow_is_still_overridden_by_explicit_deny(db):
     assert denied_document.id not in authorized
 
 
-def test_membership_without_department_or_acl_has_no_access(db):
+def test_document_without_any_allow_rules_is_visible_to_all_members(db):
     organization, user, _, _, _, _ = _identity(db)
     document = _document(db, organization, "Unassigned")
+    assert document.id in AuthorizationRepository(
+        db
+    ).get_authorized_document_ids(organization.id, user.id)
+
+
+def test_membership_is_required_even_for_organization_wide_documents(db):
+    organization = Organization(name="No Membership Organization")
+    user = User(email=f"{uuid4()}@example.test")
+    db.add_all([organization, user])
+    db.flush()
+    document = Document(
+        organization_id=organization.id,
+        title="Organization-wide but caller is not a member",
+        document_type="policy",
+        organization_wide_access=True,
+    )
+    db.add(document)
+    db.flush()
+
     assert AuthorizationRepository(db).get_authorized_document_ids(
         organization.id, user.id
     ) == []
-    assert document.id not in AuthorizationRepository(
-        db
-    ).get_authorized_document_ids(organization.id, user.id)
+
+
+def test_deny_only_document_remains_visible_to_other_members(db):
+    organization, denied_user, _, _, _, _ = _identity(db)
+    other_user = User(email=f"{uuid4()}@example.test")
+    db.add(other_user)
+    db.flush()
+    db.add(OrganizationMembership(
+        organization_id=organization.id,
+        user_id=other_user.id,
+        role="member",
+    ))
+    db.flush()
+    document = _document(db, organization, "Deny one member only")
+    _acl(
+        db, organization, document,
+        principal_type="user", effect="deny", user_id=denied_user.id,
+    )
+
+    repository = AuthorizationRepository(db)
+    assert document.id not in repository.get_authorized_document_ids(
+        organization.id, denied_user.id
+    )
+    assert document.id in repository.get_authorized_document_ids(
+        organization.id, other_user.id
+    )

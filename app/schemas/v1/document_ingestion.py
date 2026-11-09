@@ -42,7 +42,6 @@ class DocumentIngestionFinalizeRequest(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     document_type: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=10000)
-    department_id: UUID | None = None
     archived: bool = False
     target_document_id: UUID | None = None
 

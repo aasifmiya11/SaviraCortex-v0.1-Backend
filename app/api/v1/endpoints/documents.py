@@ -8,12 +8,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.dependencies import get_db, get_verified_firebase_claims
-from app.models import Document, DocumentACL, DocumentVersion, OrganizationDepartment, OrganizationMembership, User
-from app.repositories.authorization_repository import AuthorizationRepository
+from app.models import Document, DocumentACL, DocumentVersion, OrganizationDepartment, OrganizationMembership, OrganizationRole, User
 from app.schemas.v1.documents import (
     DocumentLibraryItem,
     DocumentLibraryResponse,
     DocumentUpdateRequest,
+    DocumentAccessUpdateRequest,
     DocumentVersionLibraryItem,
     DocumentVersionSummaryUpdateRequest,
     DocumentVersionSummaryUpdateResponse,
@@ -59,44 +59,19 @@ def _current_member(
     return user, membership
 
 
-def _document_access_conditions(
-    db: Session,
-    *,
-    organization_id: UUID,
-    user_id: UUID,
-):
-    conditions = AuthorizationRepository(db)._build_access_conditions(
-        organization_id=organization_id,
-        user_id=user_id,
-    )
-    if conditions is None:
-        raise HTTPException(status_code=404, detail="Organization not found.")
-    return conditions
-
-
 def _document_query(
     db: Session,
     *,
     organization_id: UUID,
-    user_id: UUID,
     include_archived: bool,
 ):
-    has_allow, has_deny = _document_access_conditions(
-        db,
-        organization_id=organization_id,
-        user_id=user_id,
-    )
     statement = (
         select(Document)
         .options(
             selectinload(Document.versions),
-            joinedload(Document.department),
+            selectinload(Document.acl_entries).joinedload(DocumentACL.department),
         )
-        .where(
-            Document.organization_id == organization_id,
-            has_allow,
-            ~has_deny,
-        )
+        .where(Document.organization_id == organization_id)
     )
     if not include_archived:
         statement = statement.where(Document.archived.is_(False))
@@ -118,8 +93,37 @@ def _serialize_document(document: Document) -> DocumentLibraryItem:
         title=document.title,
         document_type=document.document_type,
         description=document.description,
-        department_id=document.department_id,
-        department_name=document.department.name if document.department else None,
+        department_ids=[
+            entry.department_id
+            for entry in document.acl_entries
+            if entry.principal_type == "department" and entry.effect == "allow" and entry.department_id
+        ],
+        department_tags=[
+            entry.department.name
+            for entry in document.acl_entries
+            if entry.principal_type == "department" and entry.effect == "allow" and entry.department is not None
+        ],
+        department_deny_ids=[
+            entry.department_id for entry in document.acl_entries
+            if entry.principal_type == "department" and entry.effect == "deny" and entry.department_id
+        ],
+        role_allow_ids=[
+            entry.role_id for entry in document.acl_entries
+            if entry.principal_type == "role" and entry.effect == "allow" and entry.role_id
+        ],
+        role_deny_ids=[
+            entry.role_id for entry in document.acl_entries
+            if entry.principal_type == "role" and entry.effect == "deny" and entry.role_id
+        ],
+        user_allow_ids=[
+            entry.user_id for entry in document.acl_entries
+            if entry.principal_type == "user" and entry.effect == "allow" and entry.user_id
+        ],
+        user_deny_ids=[
+            entry.user_id for entry in document.acl_entries
+            if entry.principal_type == "user" and entry.effect == "deny" and entry.user_id
+        ],
+        organization_wide_access=document.organization_wide_access,
         archived=document.archived,
         created_at=document.created_at,
         active_version_id=active_version.id if active_version else None,
@@ -164,24 +168,17 @@ def list_documents(
     db: Session = Depends(get_db),
     firebase_claims: dict = Depends(get_verified_firebase_claims),
 ):
-    user, membership = _current_member(db, organization_id, firebase_claims)
+    _user, membership = _current_member(db, organization_id, firebase_claims)
     _require_manager(membership)
     show_archived = include_archived and membership.role in {"owner", "admin"}
     statement = _document_query(
         db,
         organization_id=organization_id,
-        user_id=user.id,
         include_archived=show_archived,
     )
     count_statement = select(func.count(Document.id)).where(
         Document.organization_id == organization_id,
     )
-    has_allow, has_deny = _document_access_conditions(
-        db,
-        organization_id=organization_id,
-        user_id=user.id,
-    )
-    count_statement = count_statement.where(has_allow, ~has_deny)
     if not show_archived:
         count_statement = count_statement.where(Document.archived.is_(False))
 
@@ -217,12 +214,11 @@ def get_document(
     db: Session = Depends(get_db),
     firebase_claims: dict = Depends(get_verified_firebase_claims),
 ):
-    user, membership = _current_member(db, organization_id, firebase_claims)
+    _user, membership = _current_member(db, organization_id, firebase_claims)
     _require_manager(membership)
     statement = _document_query(
         db,
         organization_id=organization_id,
-        user_id=user.id,
         include_archived=membership.role in {"owner", "admin"},
     ).where(Document.id == document_id)
     document = db.scalars(statement).unique().first()
@@ -250,33 +246,16 @@ def update_document(
         _document_query(
             db,
             organization_id=organization_id,
-            user_id=_user.id,
             include_archived=True,
         )
         .where(Document.id == document_id)
-        # The query eager-loads the optional department with a LEFT OUTER JOIN.
-        # PostgreSQL cannot lock the nullable side of that join, so lock only
-        # the document row while leaving the department relationship unlocked.
+        # Lock only the document row while replacing metadata.
         .with_for_update(of=Document)
     ).unique().first()
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found.")
 
     changes = payload.model_dump(exclude_unset=True)
-    department_id = changes.get("department_id")
-    if department_id is not None:
-        department = db.scalar(
-            select(OrganizationDepartment).where(
-                OrganizationDepartment.id == department_id,
-                OrganizationDepartment.organization_id == organization_id,
-            )
-        )
-        if department is None:
-            raise HTTPException(
-                status_code=422,
-                detail="The selected department does not belong to this organization.",
-            )
-
     for field, value in changes.items():
         setattr(document, field, value)
 
@@ -319,6 +298,77 @@ def update_document(
     return _serialize_document(document)
 
 
+@router.put(
+    "/{document_id}/access",
+    summary="Replace document allow/deny rules for users, roles and departments",
+)
+def update_document_access(
+    organization_id: UUID,
+    document_id: UUID,
+    payload: DocumentAccessUpdateRequest,
+    db: Session = Depends(get_db),
+    firebase_claims: dict = Depends(get_verified_firebase_claims),
+):
+    _user, membership = _current_member(db, organization_id, firebase_claims)
+    _require_manager(membership)
+    document = db.scalar(select(Document).where(
+        Document.id == document_id,
+        Document.organization_id == organization_id,
+    ).with_for_update())
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    values = {
+        "department": list(dict.fromkeys(payload.department_allow_ids + payload.department_deny_ids)),
+        "role": list(dict.fromkeys(payload.role_allow_ids + payload.role_deny_ids)),
+        "user": list(dict.fromkeys(payload.user_allow_ids + payload.user_deny_ids)),
+    }
+    checks = (
+        (OrganizationDepartment, values["department"], "department"),
+        (OrganizationRole, values["role"], "role"),
+        (OrganizationMembership, values["user"], "member"),
+    )
+    for model, ids, label in checks:
+        if not ids:
+            continue
+        id_column = model.user_id if model is OrganizationMembership else model.id
+        valid = set(db.scalars(select(id_column).where(
+            model.organization_id == organization_id,
+            id_column.in_(ids),
+        )).all())
+        if valid != set(ids):
+            raise HTTPException(status_code=422, detail=f"One or more selected {label}s do not belong to this organization.")
+
+    try:
+        db.query(DocumentACL).filter(
+            DocumentACL.organization_id == organization_id,
+            DocumentACL.document_id == document_id,
+        ).delete(synchronize_session=False)
+        document.organization_wide_access = payload.organization_wide_access
+        for principal_type, allow_ids, deny_ids in (
+            ("department", payload.department_allow_ids, payload.department_deny_ids),
+            ("role", payload.role_allow_ids, payload.role_deny_ids),
+            ("user", payload.user_allow_ids, payload.user_deny_ids),
+        ):
+            field = {"department": "department_id", "role": "role_id", "user": "user_id"}[principal_type]
+            for effect, ids in (("allow", allow_ids), ("deny", deny_ids)):
+                for principal_id in dict.fromkeys(ids):
+                    db.add(DocumentACL(
+                        organization_id=organization_id,
+                        document_id=document_id,
+                        principal_type=principal_type,
+                        effect=effect,
+                        **{field: principal_id},
+                    ))
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Document access update failed (organization_id=%s, document_id=%s)", organization_id, document_id)
+        raise HTTPException(status_code=503, detail="Document access rules could not be updated.") from exc
+
+    return {"status": "updated", "document_id": str(document_id), "organization_wide_access": document.organization_wide_access}
+
+
 @router.patch(
     "/{document_id}/versions/{version_id}",
     response_model=DocumentVersionSummaryUpdateResponse,
@@ -339,7 +389,6 @@ def update_document_version_summary(
         _document_query(
             db,
             organization_id=organization_id,
-            user_id=_user.id,
             include_archived=True,
         ).where(Document.id == document_id)
     ).unique().first()
@@ -428,7 +477,6 @@ def delete_document(
         _document_query(
             db,
             organization_id=organization_id,
-            user_id=_user.id,
             include_archived=True,
         ).where(Document.id == document_id)
     ).unique().first()

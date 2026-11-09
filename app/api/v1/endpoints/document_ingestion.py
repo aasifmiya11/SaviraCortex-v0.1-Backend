@@ -178,16 +178,6 @@ def finalize_document_ingestion(
                 detail="The selected document was not found or you do not have permission to supersede it.",
             )
     workflow = workflow or DocumentIngestionWorkflowService()
-    if payload.department_id is not None and membership.role == "member":
-        department_assignment = db.get(
-            OrganizationDepartmentMembership,
-            (organization_id, user.id, payload.department_id),
-        )
-        if department_assignment is None:
-            raise HTTPException(
-                status_code=403,
-                detail="You can only assign documents to departments you belong to.",
-            )
     try:
         return workflow.finalize(
             db,
@@ -198,7 +188,6 @@ def finalize_document_ingestion(
             title=payload.title,
             document_type=payload.document_type,
             description=payload.description,
-            department_id=payload.department_id,
             archived=payload.archived,
             target_document_id=payload.target_document_id,
             allow_unmatched_supersede=membership.role in {"owner", "admin"},
@@ -423,6 +412,9 @@ def analyze_document_batch_stream(
     department_ids: list[UUID] = Form(default=[]),
     access_user_ids: list[UUID] = Form(default=[]),
     access_role_ids: list[UUID] = Form(default=[]),
+    deny_department_ids: list[UUID] = Form(default=[]),
+    deny_user_ids: list[UUID] = Form(default=[]),
+    deny_role_ids: list[UUID] = Form(default=[]),
     organization_wide_access: bool = Form(default=True),
     db: Session = Depends(get_db),
     firebase_claims: dict = Depends(get_verified_firebase_claims),
@@ -457,28 +449,29 @@ def analyze_document_batch_stream(
     department_ids = list(dict.fromkeys(department_ids))
     access_user_ids = list(dict.fromkeys(access_user_ids))
     access_role_ids = list(dict.fromkeys(access_role_ids))
-    if not organization_wide_access and not (department_ids or access_user_ids or access_role_ids):
-        raise HTTPException(status_code=422, detail="Choose at least one department, role, member, or organization-wide access.")
-    if department_ids:
+    deny_department_ids = list(dict.fromkeys(deny_department_ids))
+    deny_user_ids = list(dict.fromkeys(deny_user_ids))
+    deny_role_ids = list(dict.fromkeys(deny_role_ids))
+    if department_ids or deny_department_ids:
         valid_departments = set(db.scalars(select(OrganizationDepartment.id).where(
             OrganizationDepartment.organization_id == organization_id,
-            OrganizationDepartment.id.in_(department_ids),
+            OrganizationDepartment.id.in_(list(set(department_ids + deny_department_ids))),
         )).all())
-        if valid_departments != set(department_ids):
+        if valid_departments != set(department_ids + deny_department_ids):
             raise HTTPException(status_code=422, detail="One or more selected departments do not belong to this organization.")
-    if access_role_ids:
+    if access_role_ids or deny_role_ids:
         valid_roles = set(db.scalars(select(OrganizationRole.id).where(
             OrganizationRole.organization_id == organization_id,
-            OrganizationRole.id.in_(access_role_ids),
+            OrganizationRole.id.in_(list(set(access_role_ids + deny_role_ids))),
         )).all())
-        if valid_roles != set(access_role_ids):
+        if valid_roles != set(access_role_ids + deny_role_ids):
             raise HTTPException(status_code=422, detail="One or more selected roles do not belong to this organization.")
-    if access_user_ids:
+    if access_user_ids or deny_user_ids:
         valid_users = set(db.scalars(select(OrganizationMembership.user_id).where(
             OrganizationMembership.organization_id == organization_id,
-            OrganizationMembership.user_id.in_(access_user_ids),
+            OrganizationMembership.user_id.in_(list(set(access_user_ids + deny_user_ids))),
         )).all())
-        if valid_users != set(access_user_ids):
+        if valid_users != set(access_user_ids + deny_user_ids):
             raise HTTPException(status_code=422, detail="One or more selected members do not belong to this organization.")
 
     batch_id = uuid4()
@@ -566,6 +559,9 @@ def analyze_document_batch_stream(
                     department_ids=department_ids,
                     access_user_ids=access_user_ids,
                     access_role_ids=access_role_ids,
+                    deny_department_ids=deny_department_ids,
+                    deny_user_ids=deny_user_ids,
+                    deny_role_ids=deny_role_ids,
                     organization_wide_access=organization_wide_access,
                     progress_callback=report,
                 )

@@ -82,7 +82,7 @@ class DocumentACL(Base):
                 "organization_departments.organization_id",
                 "organization_departments.id",
             ],
-            ondelete="NO ACTION",
+            ondelete="CASCADE",
             name="fk_document_acl_department",
         ),
         Index(
@@ -182,9 +182,16 @@ class DocumentACL(Base):
         nullable=False,
     )
 
+    document: Mapped["Document"] = relationship(
+        "Document",
+        back_populates="acl_entries",
+        overlaps="acl_entries",
+    )
+
     department: Mapped["OrganizationDepartment | None"] = relationship(
         "OrganizationDepartment",
         back_populates="acl_entries",
+        overlaps="acl_entries,document",
     )
 
     def __repr__(self) -> str:

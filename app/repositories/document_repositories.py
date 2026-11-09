@@ -5,7 +5,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.documents import Document
-from app.models.organization_departments import OrganizationDepartment
 
 
 class DocumentRepository:
@@ -22,36 +21,11 @@ class DocumentRepository:
         title: str,
         document_type: str,
         organization_id: UUID,
-        department: str | UUID | None = None,
         description: str | None = None,
         uploaded_by_user_id: UUID | None = None,
         document_id: UUID | None = None,
         archived: bool = False,
     ) -> Document:
-        department_id = None
-        if department is not None:
-            if isinstance(department, UUID):
-                department_id = department
-            elif isinstance(department, str) and department.strip():
-                department_record = self.db.scalar(
-                    select(OrganizationDepartment).where(
-                        OrganizationDepartment.organization_id
-                        == organization_id,
-                        OrganizationDepartment.name == department.strip(),
-                    )
-                )
-                if department_record is None:
-                    department_record = OrganizationDepartment(
-                        organization_id=organization_id,
-                        name=department.strip(),
-                    )
-                    self.db.add(department_record)
-                    self.db.flush()
-                department_id = department_record.id
-            else:
-                raise ValueError(
-                    "department must be a non-empty name, UUID, or None."
-                )
 
         document = Document(
             id=document_id,
@@ -59,7 +33,6 @@ class DocumentRepository:
             uploaded_by_user_id=uploaded_by_user_id,
             title=title,
             document_type=document_type,
-            department_id=department_id,
             description=description,
             archived=archived,
         )
@@ -121,8 +94,16 @@ class DocumentRepository:
         )
 
         if department_id is not None:
+            from app.models.document_acl import DocumentACL
             statement = statement.where(
-                Document.department_id == department_id
+                Document.id.in_(
+                    select(DocumentACL.document_id).where(
+                        DocumentACL.organization_id == organization_id,
+                        DocumentACL.principal_type == "department",
+                        DocumentACL.department_id == department_id,
+                        DocumentACL.effect == "allow",
+                    )
+                )
             )
 
         if document_type:
@@ -162,7 +143,6 @@ class DocumentRepository:
         allowed_fields = {
             "title",
             "document_type",
-            "department_id",
             "description",
         }
 

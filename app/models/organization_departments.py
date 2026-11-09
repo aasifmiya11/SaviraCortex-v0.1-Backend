@@ -45,14 +45,6 @@ class OrganizationDepartment(Base):
         back_populates="department",
         cascade="all, delete-orphan",
     )
-    documents: Mapped[list["Document"]] = relationship(
-        "Document",
-        primaryjoin=(
-            "and_(OrganizationDepartment.id == foreign(Document.department_id), "
-            "OrganizationDepartment.organization_id == Document.organization_id)"
-        ),
-        back_populates="department",
-    )
     acl_entries: Mapped[list["DocumentACL"]] = relationship(
         "DocumentACL", back_populates="department"
     )

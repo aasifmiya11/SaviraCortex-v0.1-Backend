@@ -4,11 +4,9 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
-    and_,
     Boolean,
     DateTime,
     ForeignKey,
-    ForeignKeyConstraint,
     String,
     Text,
     Uuid,
@@ -16,18 +14,10 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, foreign, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..core.database import Base
 
-
-def _department_join():
-    from .organization_departments import OrganizationDepartment
-
-    return and_(
-        OrganizationDepartment.id == foreign(Document.department_id),
-        OrganizationDepartment.organization_id == Document.organization_id,
-    )
 
 
 class Document(Base):
@@ -38,15 +28,6 @@ class Document(Base):
             "organization_id",
             "id",
             name="uq_documents_organization_id",
-        ),
-        ForeignKeyConstraint(
-            ["organization_id", "department_id"],
-            [
-                "organization_departments.organization_id",
-                "organization_departments.id",
-            ],
-            ondelete="NO ACTION",
-            name="fk_document_department",
         ),
     )
 
@@ -78,13 +59,6 @@ class Document(Base):
     document_type: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
-    )
-
-    # Authoritative department assignment.
-    department_id: Mapped[UUID | None] = mapped_column(
-        Uuid(as_uuid=True),
-        nullable=True,
-        index=True,
     )
 
     description: Mapped[str | None] = mapped_column(
@@ -120,10 +94,11 @@ class Document(Base):
         foreign_keys=[uploaded_by_user_id],
     )
 
-    department: Mapped["OrganizationDepartment | None"] = relationship(
-        "OrganizationDepartment",
-        primaryjoin=_department_join,
-        back_populates="documents",
+    acl_entries: Mapped[list["DocumentACL"]] = relationship(
+        "DocumentACL",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        overlaps="acl_entries",
     )
 
     versions: Mapped[list["DocumentVersion"]] = relationship(
@@ -138,6 +113,5 @@ class Document(Base):
             f"id={self.id}, "
             f"organization_id={self.organization_id}, "
             f"title={self.title!r}, "
-            f"department_id={self.department_id}, "
             f"archived={self.archived})>"
         )

@@ -20,7 +20,6 @@ class DocumentRegistrationData:
     title: str
     document_type: str
     description: str | None = None
-    department_id: UUID | None = None
     archived: bool = False
 
 
@@ -196,7 +195,6 @@ class DocumentRegistrationService:
                 uploaded_by_user_id=uploaded_by_user_id,
                 description=document_data.description,
                 document_id=document_id,
-                department=document_data.department_id,
                 archived=document_data.archived,
             )
 

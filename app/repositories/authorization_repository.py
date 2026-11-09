@@ -24,9 +24,13 @@ class AuthorizationRepository:
         organization_id: UUID,
         user_id: UUID,
     ):
-        """Build allow/deny predicates for all principals assigned to a member.
+        """Build organization-scoped, deny-overrides-allow ACL predicates.
 
-        Department IDs come from organization_department_memberships.
+        An existing organization membership is mandatory. Grants are a union
+        across direct user, assigned role, and assigned department principals.
+        If no allow rules exist for a document, it is open to all org members.
+        Any matching deny (at any principal level) overrides every grant,
+        including the owner/admin retrieval shortcut.
         """
         membership = self.db.scalar(
             select(OrganizationMembership).where(
@@ -34,17 +38,13 @@ class AuthorizationRepository:
                 OrganizationMembership.user_id == user_id,
             )
         )
-
         if membership is None:
             return None
 
-        assigned_role_ids = select(
-            UserRoleAssignment.role_id
-        ).where(
+        assigned_role_ids = select(UserRoleAssignment.role_id).where(
             UserRoleAssignment.organization_id == organization_id,
             UserRoleAssignment.user_id == user_id,
         )
-
         department_ids = select(
             OrganizationDepartmentMembership.department_id
         ).where(
@@ -67,7 +67,7 @@ class AuthorizationRepository:
             ),
         )
 
-        has_acl_allow = exists(
+        has_matching_allow = exists(
             select(1).where(
                 DocumentACL.organization_id == organization_id,
                 DocumentACL.document_id == Document.id,
@@ -75,19 +75,13 @@ class AuthorizationRepository:
                 matching_principals,
             )
         )
-
-        # Assigning a document to a department grants access to all members
-        # of that department, independently of an explicit ACL row.
-        department_assignment_grant = Document.department_id.in_(department_ids)
-
-        # Owners/admins retain their organization-wide implicit allow.
-        # Explicit user, role, or department denies still override that allow.
-        has_allow = (
-            true()
-            if membership.role in {"owner", "admin"}
-            else or_(Document.organization_wide_access.is_(True), has_acl_allow, department_assignment_grant)
+        has_any_allow_rule = exists(
+            select(1).where(
+                DocumentACL.organization_id == organization_id,
+                DocumentACL.document_id == Document.id,
+                DocumentACL.effect == "allow",
+            )
         )
-
         has_deny = exists(
             select(1).where(
                 DocumentACL.organization_id == organization_id,
@@ -97,6 +91,17 @@ class AuthorizationRepository:
             )
         )
 
+        # Owners/admins receive an implicit retrieval grant, but a matching
+        # explicit deny remains authoritative for them as well.
+        has_allow = (
+            true()
+            if membership.role in {"owner", "admin"}
+            else or_(
+                Document.organization_wide_access.is_(True),
+                has_matching_allow,
+                ~has_any_allow_rule,
+            )
+        )
         return has_allow, has_deny
 
     def get_authorized_document_ids(
@@ -108,9 +113,9 @@ class AuthorizationRepository:
         Return logical document IDs accessible to a user in an organization.
 
         Access is union-based across direct user, assigned-role, and
-        department grants. Explicit denies for any matching principal override
-        all allows. A document's department assignment is an automatic grant
-        to members of that department.
+        assigned-department grants. Documents without any allow rules are
+        organization-visible by default. Any matching explicit deny overrides
+        all grants, including owner/admin implicit retrieval access.
 
         Does not commit or modify database state.
         """

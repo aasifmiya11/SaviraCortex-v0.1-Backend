@@ -11,7 +11,6 @@ from app.core.database import SessionLocal, engine
 from app.models.organizations import Organization
 from app.models.documents import Document
 from app.models.document_versions import DocumentVersion
-from app.models.organization_departments import OrganizationDepartment
 from app.services.document_indexing.indexing_orchestrator import (
     DocumentIndexingOrchestrationError,
     DocumentIndexingOrchestrator,
@@ -124,15 +123,10 @@ def test_cleanup_holds_document_lock_until_external_cleanup_finishes(
     organization = Organization(
         name=f"Concurrency Test Organization {unique_id}"
     )
-    department = OrganizationDepartment(
-        organization=organization,
-        name="Testing",
-    )
     document = Document(
         organization=organization,
         title=f"Concurrency Test Document {unique_id}",
         document_type="Policy",
-        department=department,
         description="Temporary concurrency regression test.",
     )
     version = DocumentVersion(

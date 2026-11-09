@@ -43,7 +43,7 @@ The code defaults to the local gateway URL if `JINA_API_BASE_URL` is omitted. Fi
 
 ## RAG feedback dataset
 
-Every validated answer, multi-query trace, selected document chunk, and final Markdown response is stored in PostgreSQL with an initially empty relevance label. The chat UI records **Relevant / Not relevant** feedback. The organization-scoped labeled dataset is available through GET /api/v1/organizations/{organization_id}/generation/feedback-dataset. See [RAG feedback dataset](docs/22-rag-feedback-dataset.md) and apply migrations/0001_generation_feedback.sql (or run python -m scripts.create_generation_feedback_table) before deployment.
+Every validated answer, multi-query trace, selected document chunk, and final Markdown response is stored in PostgreSQL with an initially empty relevance label. The chat UI records **Relevant / Not relevant** feedback. The organization-scoped labeled dataset is available through GET /api/v1/organizations/{organization_id}/generation/feedback-dataset. See [RAG feedback dataset](docs/22-rag-feedback-dataset.md). For a fresh database, run python -m scripts.init_database from the backend directory.
 
 ## Technical documentation
 

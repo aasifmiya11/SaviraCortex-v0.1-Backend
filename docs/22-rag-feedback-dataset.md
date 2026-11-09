@@ -39,10 +39,4 @@ unlabeled examples, or feedback_status=relevant / feedback_status=not_relevant
 to select one class. Results are paginated with limit and offset. Owners and admins can export all
 organization examples; regular members can label and export only their own rows.
 
-The SQL migration is migrations/0001_generation_feedback.sql. Apply it to the
-PostgreSQL database before deploying the updated backend, or run
-python -m scripts.create_generation_feedback_table from the backend directory.
-That command uses the configured backend PostgreSQL connection and creates only
-this table if it is missing. The generation service also checks for the table on
-its first save per database engine, so the database role needs table-creation
-permission if the SQL migration has not already been applied.
+For a fresh database, run python -m scripts.init_database from the backend directory to create all SQLAlchemy model tables, including generation_feedback. The generation service also performs a check-first table creation on the first successful generation save, so the database role needs table-creation permission if that table has not already been created.

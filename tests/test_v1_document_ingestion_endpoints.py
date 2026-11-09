@@ -101,7 +101,6 @@ def test_finalize_endpoint_passes_user_reviewed_metadata_to_workflow(
             "title": "Reviewed title",
             "document_type": "Policy",
             "description": "Reviewed description",
-            "department_id": None,
             "archived": False,
         },
     )
@@ -260,7 +259,6 @@ def test_admin_can_explicitly_supersede_an_unmatched_document_from_library(
             "title": "Current policy",
             "document_type": "Policy",
             "description": "Replacement version.",
-            "department_id": None,
             "archived": False,
         },
     )

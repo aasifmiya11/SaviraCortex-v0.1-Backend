@@ -25,9 +25,14 @@ class DocumentLibraryItem(BaseModel):
     title: str
     document_type: str
     description: str | None = None
-    department_id: UUID | None = None
-    department_name: str | None = None
+    department_ids: list[UUID] = Field(default_factory=list)
     department_tags: list[str] = Field(default_factory=list)
+    department_deny_ids: list[UUID] = Field(default_factory=list)
+    role_allow_ids: list[UUID] = Field(default_factory=list)
+    role_deny_ids: list[UUID] = Field(default_factory=list)
+    user_allow_ids: list[UUID] = Field(default_factory=list)
+    user_deny_ids: list[UUID] = Field(default_factory=list)
+    organization_wide_access: bool = False
     archived: bool
     created_at: datetime
     active_version_id: UUID | None = None
@@ -47,7 +52,6 @@ class DocumentUpdateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     document_type: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=10000)
-    department_id: UUID | None = None
     archived: bool | None = None
 
     @field_validator("title", "document_type", "description")
@@ -85,3 +89,17 @@ class DocumentVersionSummaryUpdateRequest(BaseModel):
 class DocumentVersionSummaryUpdateResponse(BaseModel):
     version: DocumentVersionLibraryItem
     summary_index_synced: bool
+
+
+class DocumentAccessUpdateRequest(BaseModel):
+    """Complete replacement of document principal allow/deny rules."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    department_allow_ids: list[UUID] = Field(default_factory=list)
+    department_deny_ids: list[UUID] = Field(default_factory=list)
+    role_allow_ids: list[UUID] = Field(default_factory=list)
+    role_deny_ids: list[UUID] = Field(default_factory=list)
+    user_allow_ids: list[UUID] = Field(default_factory=list)
+    user_deny_ids: list[UUID] = Field(default_factory=list)
+    organization_wide_access: bool = False
