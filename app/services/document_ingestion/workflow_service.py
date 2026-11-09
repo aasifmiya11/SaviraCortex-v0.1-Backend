@@ -1,8 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
 import hashlib
 import logging
+import re
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -37,6 +39,19 @@ class DocumentIngestionWorkflowError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedBatchDocument:
+    """CPU/LLM preparation output; no database or object-store writes yet."""
+
+    file_hash: str
+    content_hash: str
+    page_count: int
+    summary_output: object
+    validation_warnings: tuple[str, ...]
+    summary_embedding: tuple[float, ...]
+    identity_tokens: tuple[str, ...] = ()
+
+
 class DocumentIngestionWorkflowService:
     """Two-phase PDF ingestion: analyze/stage, then persist after user review."""
 
@@ -54,6 +69,7 @@ class DocumentIngestionWorkflowService:
         file_storage=None,
         matching_factory=None,
         indexing_orchestrator=None,
+        deletion_service=None,
     ) -> None:
         self.validator = validator or PDFValidator(max_file_size_mb=25)
         self.loader = loader or pdf_loader
@@ -66,6 +82,7 @@ class DocumentIngestionWorkflowService:
         self.file_storage = file_storage or FileStorage()
         self.matching_factory = matching_factory or self._matching_factory
         self.indexing_orchestrator = indexing_orchestrator
+        self.deletion_service = deletion_service
 
     def _get_indexing_orchestrator(self):
         if self.indexing_orchestrator is None:
@@ -151,6 +168,131 @@ class DocumentIngestionWorkflowService:
             })
         return candidates
 
+    @staticmethod
+    def _extract_identity_tokens(normalized_text: str, summary_output) -> tuple[str, ...]:
+        """Extract exact identity signals for conservative same-batch matching."""
+        tokens: set[str] = set()
+        for value in getattr(summary_output, "email_addresses", None) or []:
+            email = str(value).strip().lower()
+            if re.fullmatch(r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}", email):
+                tokens.add(f"email:{email}")
+        for value in getattr(summary_output, "phone_numbers", None) or []:
+            digits = re.sub(r"\D", "", str(value))
+            if 8 <= len(digits) <= 15:
+                tokens.add(f"phone:{digits}")
+                if len(digits) >= 10:
+                    tokens.add(f"phone10:{digits[-10:]}")
+        for email in re.findall(r"[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}", normalized_text, re.I):
+            tokens.add(f"email:{email.lower()}")
+        for phone in re.findall(r"(?<!\w)(?:\+?\d[\d .()/-]{6,}\d)(?!\w)", normalized_text):
+            digits = re.sub(r"\D", "", phone)
+            if 10 <= len(digits) <= 15:
+                tokens.add(f"phone:{digits}")
+                tokens.add(f"phone10:{digits[-10:]}")
+        name = getattr(summary_output, "person_name", None)
+        if name:
+            normalized_name = " ".join(re.findall(r"[a-z]+", str(name).lower()))
+            if len(normalized_name.split()) >= 2:
+                tokens.add(f"name:{normalized_name}")
+        return tuple(sorted(tokens))
+
+    @staticmethod
+    def _enrich_summary_with_identity(summary_output, identity_tokens: tuple[str, ...]):
+        """Keep extracted resume identifiers in the indexed summary for future batches."""
+        if not identity_tokens:
+            return summary_output
+        marker = "Matching identity metadata: " + "; ".join(identity_tokens)
+        summary = str(summary_output.summary or "").strip()
+        if marker in summary:
+            return summary_output
+        return summary_output.model_copy(update={"summary": f"{summary}\n\n{marker}"})
+
+    def prepare_for_batch(
+        self,
+        file_path: str | Path,
+        *,
+        progress_callback=None,
+    ) -> PreparedBatchDocument:
+        """Validate, extract, summarize, and embed one batch item.
+
+        This method deliberately performs no database or object-storage writes,
+        allowing the batch coordinator to run preparation concurrently and then
+        stage/match the prepared items in a deterministic sequence.
+        """
+        def report(stage: str, state: str, message: str | None = None) -> None:
+            if progress_callback is not None:
+                try:
+                    progress_callback({"stage": stage, "state": state, "message": message})
+                except Exception:
+                    pass
+
+        path = Path(file_path).expanduser().resolve()
+        report("validate_pdf", "started", "Validating PDF structure and size.")
+        validation = self.validator.validate(path)
+        if not validation.is_valid:
+            raise DocumentIngestionWorkflowError(
+                "PDF validation failed: " + "; ".join(validation.errors)
+            )
+        report("validate_pdf", "completed", "PDF validation completed.")
+
+        report("hash_pdf", "started", "Calculating the SHA-256 file fingerprint.")
+        file_hash = self.hash_service.calculate_file_hash(path)
+        report("hash_pdf", "completed", "SHA-256 fingerprint calculated.")
+
+        report("parse_pdf", "started", "Extracting PDF text and applying configured OCR.")
+        from app.services.document_ingestion.batch_config import PDF_EXTRACTION_SLOTS
+        with PDF_EXTRACTION_SLOTS:
+            extracted_pages = self.loader.load_pdf(path)
+        report("parse_pdf", "completed", f"Extracted {len(extracted_pages)} PDF pages.")
+        if len(extracted_pages) != validation.page_count:
+            raise DocumentIngestionWorkflowError(
+                "Extracted page count does not match the validated PDF page count."
+            )
+
+        report("sample_content", "started", "Normalizing extracted page content.")
+        from langchain_core.documents import Document as LangChainDocument
+        normalized_texts = self.normalizer.normalize_pages(
+            [page.page_content or "" for page in extracted_pages]
+        )
+        normalized_pages = [
+            LangChainDocument(page_content=text, metadata=dict(page.metadata or {}))
+            for page, text in zip(extracted_pages, normalized_texts)
+        ]
+        if not any(page.page_content.strip() for page in normalized_pages):
+            raise DocumentIngestionWorkflowError(
+                "PDF extraction produced no usable text. Check OCR configuration for scanned PDFs."
+            )
+        normalized_text = self.normalizer.combine_pages(
+            [page.page_content for page in normalized_pages]
+        )
+        content_hash = self.hash_service.calculate_content_hash(normalized_text)
+        sampled_pages = self.sampler.sample(normalized_pages)
+        if not sampled_pages:
+            raise DocumentIngestionWorkflowError("PDF sampling returned no pages.")
+        report("sample_content", "completed", f"Selected {len(sampled_pages)} representative pages.")
+
+        report("summarize", "started", "Generating document metadata and summary.")
+        summarizer = self.summarizer or DocumentSummarizerAgent()
+        from app.services.document_ingestion.batch_config import LLM_SLOTS
+        with LLM_SLOTS:
+            summary_output = summarizer.summarize(sampled_pages)
+        report("summarize", "completed", "Document metadata and summary generated.")
+
+        identity_tokens = self._extract_identity_tokens(normalized_text, summary_output)
+        summary_output = self._enrich_summary_with_identity(summary_output, identity_tokens)
+        from app.rag.embeddings.provider import embedding_client
+        summary_embedding = tuple(float(value) for value in embedding_client.embed_query(summary_output.summary))
+        report("prepare_embedding", "completed", "Summary embedding prepared for batch matching.")
+        return PreparedBatchDocument(
+            file_hash=file_hash,
+            content_hash=content_hash,
+            page_count=len(normalized_pages),
+            summary_output=summary_output,
+            validation_warnings=tuple(validation.warnings),
+            summary_embedding=summary_embedding,
+            identity_tokens=identity_tokens,
+        )
+
     def analyze_and_stage(
         self,
         db: Session,
@@ -168,6 +310,8 @@ class DocumentIngestionWorkflowService:
         deny_role_ids: list[UUID] | None = None,
         organization_wide_access: bool = False,
         progress_callback=None,
+        prepared_document: PreparedBatchDocument | None = None,
+        batch_candidates: list[dict] | None = None,
     ) -> dict:
         def report(stage: str, state: str, message: str | None = None) -> None:
             if progress_callback is not None:
@@ -185,113 +329,126 @@ class DocumentIngestionWorkflowService:
         # for this organization; a scheduled worker can call the same method.
         self.cleanup_expired_sessions(db, organization_id=organization_id, limit=25)
         path = Path(file_path).expanduser().resolve()
-        report("validate_pdf", "started", "Validating PDF structure and size.")
-        validation = self.validator.validate(path)
-        if not validation.is_valid:
-            raise DocumentIngestionWorkflowError(
-                "PDF validation failed: " + "; ".join(validation.errors)
-            )
-        report("validate_pdf", "completed", "PDF validation completed.")
 
-        report("hash_pdf", "started", "Calculating the SHA-256 file fingerprint.")
-        file_hash = self.hash_service.calculate_file_hash(path)
-        report("hash_pdf", "completed", "SHA-256 fingerprint calculated.")
+        if prepared_document is None:
+            report("validate_pdf", "started", "Validating PDF structure and size.")
+            validation = self.validator.validate(path)
+            if not validation.is_valid:
+                raise DocumentIngestionWorkflowError(
+                    "PDF validation failed: " + "; ".join(validation.errors)
+                )
+            report("validate_pdf", "completed", "PDF validation completed.")
 
-        # Cheap exact-file duplicate checks happen before PDF parsing, OCR, or
-        # LLM summarization. The final advisory-lock recheck below remains the
-        # concurrency authority immediately before staging the upload.
-        existing_matches = db.execute(
-            select(DocumentVersion, Document.title)
-            .join(Document, Document.id == DocumentVersion.document_id)
-            .where(
-                Document.organization_id == organization_id,
-                DocumentVersion.file_hash == file_hash,
+            report("hash_pdf", "started", "Calculating the SHA-256 file fingerprint.")
+            file_hash = self.hash_service.calculate_file_hash(path)
+            report("hash_pdf", "completed", "SHA-256 fingerprint calculated.")
+
+            # Single-document uploads retain the cheap pre-extraction hash check.
+            existing_matches = db.execute(
+                select(DocumentVersion, Document.title)
+                .join(Document, Document.id == DocumentVersion.document_id)
+                .where(
+                    Document.organization_id == organization_id,
+                    DocumentVersion.file_hash == file_hash,
+                )
+                .limit(20)
+            ).all()
+            staged_match = db.scalar(
+                select(DocumentIngestionSession.id).where(
+                    DocumentIngestionSession.organization_id == organization_id,
+                    DocumentIngestionSession.status == "awaiting_review",
+                    DocumentIngestionSession.expires_at > datetime.now(timezone.utc),
+                    DocumentIngestionSession.file_hash == file_hash,
+                ).limit(1)
             )
-            .limit(20)
-        ).all()
-        staged_match = db.scalar(
-            select(DocumentIngestionSession.id).where(
-                DocumentIngestionSession.organization_id == organization_id,
-                DocumentIngestionSession.status == "awaiting_review",
-                DocumentIngestionSession.expires_at > datetime.now(timezone.utc),
-                DocumentIngestionSession.file_hash == file_hash,
-            ).limit(1)
-        )
-        if staged_match is not None:
-            candidates = [
-                {
-                    "document_id": str(version.document_id),
-                    "version_id": str(version.id),
-                    "version_number": version.version_number,
-                    "title": title or "",
-                    "status": version.status,
-                    "similarity_score": None,
-                    "matched_by": "file_hash",
+            if staged_match is not None:
+                candidates = [
+                    {
+                        "document_id": str(version.document_id),
+                        "version_id": str(version.id),
+                        "version_number": version.version_number,
+                        "title": title or "",
+                        "status": version.status,
+                        "similarity_score": None,
+                        "matched_by": "file_hash",
+                    }
+                    for version, title in existing_matches
+                ]
+                db.commit()
+                report("duplicate_check", "completed", "An identical PDF already exists or is awaiting review.")
+                return {
+                    "status": "duplicate",
+                    "ingestion_session_id": None,
+                    "original_filename": original_filename,
+                    "file_size": file_size,
+                    "file_hash": file_hash,
+                    "content_hash": "",
+                    "page_count": validation.page_count,
+                    "title": None,
+                    "document_type": None,
+                    "description": None,
+                    "summary": None,
+                    "matching_classification": "exact_file_match",
+                    "matching_candidates": candidates,
+                    "validation_warnings": validation.warnings,
+                    "expires_at": None,
                 }
-                for version, title in existing_matches
+
+            report("parse_pdf", "started", "Extracting PDF text and applying configured OCR.")
+            from app.services.document_ingestion.batch_config import PDF_EXTRACTION_SLOTS
+            with PDF_EXTRACTION_SLOTS:
+                extracted_pages = self.loader.load_pdf(path)
+            report("parse_pdf", "completed", f"Extracted {len(extracted_pages)} PDF pages.")
+            if len(extracted_pages) != validation.page_count:
+                raise DocumentIngestionWorkflowError(
+                    "Extracted page count does not match the validated PDF page count."
+                )
+
+            report("sample_content", "started", "Normalizing extracted page content.")
+            from langchain_core.documents import Document as LangChainDocument
+            normalized_texts = self.normalizer.normalize_pages(
+                [page.page_content or "" for page in extracted_pages]
+            )
+            normalized_pages = [
+                LangChainDocument(page_content=text, metadata=dict(page.metadata or {}))
+                for page, text in zip(extracted_pages, normalized_texts)
             ]
-            db.commit()
-            report("duplicate_check", "completed", "An identical PDF already exists or is awaiting review.")
-            return {
-                "status": "duplicate",
-                "ingestion_session_id": None,
-                "original_filename": original_filename,
-                "file_size": file_size,
-                "file_hash": file_hash,
-                "content_hash": "",
-                "page_count": validation.page_count,
-                "title": None,
-                "document_type": None,
-                "description": None,
-                "summary": None,
-                "matching_classification": "exact_file_match",
-                "matching_candidates": candidates,
-                "validation_warnings": validation.warnings,
-                "expires_at": None,
-            }
-
-        report("parse_pdf", "started", "Extracting PDF text and applying configured OCR.")
-        from app.services.document_ingestion.batch_config import PDF_EXTRACTION_SLOTS
-        with PDF_EXTRACTION_SLOTS:
-            extracted_pages = self.loader.load_pdf(path)
-        report("parse_pdf", "completed", f"Extracted {len(extracted_pages)} PDF pages.")
-        if len(extracted_pages) != validation.page_count:
-            raise DocumentIngestionWorkflowError(
-                "Extracted page count does not match the validated PDF page count."
+            if not any(page.page_content.strip() for page in normalized_pages):
+                raise DocumentIngestionWorkflowError(
+                    "PDF extraction produced no usable text. Check OCR configuration for scanned PDFs."
+                )
+            normalized_text = self.normalizer.combine_pages(
+                [page.page_content for page in normalized_pages]
             )
+            content_hash = self.hash_service.calculate_content_hash(normalized_text)
+            sampled_pages = self.sampler.sample(normalized_pages)
+            if not sampled_pages:
+                raise DocumentIngestionWorkflowError("PDF sampling returned no pages.")
+            report("sample_content", "completed", f"Selected {len(sampled_pages)} representative pages.")
 
-        report("sample_content", "started", "Normalizing extracted page content.")
-        normalized_texts = self.normalizer.normalize_pages(
-            [page.page_content or "" for page in extracted_pages]
+            report("summarize", "started", "Generating document metadata and summary.")
+            summarizer = self.summarizer or DocumentSummarizerAgent()
+            from app.services.document_ingestion.batch_config import LLM_SLOTS
+            with LLM_SLOTS:
+                summary_output = summarizer.summarize(sampled_pages)
+            report("summarize", "completed", "Document metadata and summary generated.")
+            page_count = len(normalized_pages)
+            validation_warnings = tuple(validation.warnings)
+            summary_embedding = None
+        else:
+            file_hash = prepared_document.file_hash
+            content_hash = prepared_document.content_hash
+            page_count = prepared_document.page_count
+            summary_output = prepared_document.summary_output
+            validation_warnings = prepared_document.validation_warnings
+            summary_embedding = prepared_document.summary_embedding
+
+        identity_tokens = (
+            tuple(getattr(prepared_document, "identity_tokens", ()))
+            if prepared_document is not None
+            else self._extract_identity_tokens(normalized_text, summary_output)
         )
-        from langchain_core.documents import Document as LangChainDocument
-        normalized_pages = [
-            LangChainDocument(
-                page_content=text,
-                metadata=dict(page.metadata or {}),
-            )
-            for page, text in zip(extracted_pages, normalized_texts)
-        ]
-        if not any(page.page_content.strip() for page in normalized_pages):
-            raise DocumentIngestionWorkflowError(
-                "PDF extraction produced no usable text. Check OCR configuration for scanned PDFs."
-            )
-
-        normalized_text = self.normalizer.combine_pages(
-            [page.page_content for page in normalized_pages]
-        )
-        content_hash = self.hash_service.calculate_content_hash(normalized_text)
-        sampled_pages = self.sampler.sample(normalized_pages)
-        if not sampled_pages:
-            raise DocumentIngestionWorkflowError("PDF sampling returned no pages.")
-        report("sample_content", "completed", f"Selected {len(sampled_pages)} representative pages.")
-
-        report("summarize", "started", "Generating document metadata and summary.")
-        summarizer = self.summarizer or DocumentSummarizerAgent()
-        from app.services.document_ingestion.batch_config import LLM_SLOTS
-        with LLM_SLOTS:
-            summary_output = summarizer.summarize(sampled_pages)
-        report("summarize", "completed", "Document metadata and summary generated.")
+        summary_output = self._enrich_summary_with_identity(summary_output, identity_tokens)
 
         report("duplicate_check", "started", "Checking exact hashes and semantic similarity.")
         self._acquire_duplicate_locks(db, organization_id, file_hash, content_hash)
@@ -318,14 +475,14 @@ class DocumentIngestionWorkflowService:
                 "file_size": file_size,
                 "file_hash": file_hash,
                 "content_hash": content_hash,
-                "page_count": len(normalized_pages),
+                "page_count": page_count,
                 "title": summary_output.title,
                 "document_type": summary_output.document_type,
                 "description": summary_output.description,
                 "summary": summary_output.summary,
                 "matching_classification": "exact_file_match" if db.scalar(select(DocumentIngestionSession.file_hash).where(DocumentIngestionSession.id == staged_duplicate)) == file_hash else "exact_content_match",
                 "matching_candidates": [],
-                "validation_warnings": validation.warnings,
+                "validation_warnings": list(validation_warnings),
                 "expires_at": None,
             }
 
@@ -334,12 +491,61 @@ class DocumentIngestionWorkflowService:
             content_hash=content_hash,
             summary=summary_output.summary,
             organization_id=organization_id,
+            summary_embedding=summary_embedding,
         )
+        matching_classification = matching.classification
         candidates = self._candidate_payload(matching, db)
+        accepted_batch_candidates = list(batch_candidates or [])[:20]
+        if accepted_batch_candidates and matching_classification == "no_match":
+            matching_classification = "potential_match"
+        for batch_candidate in accepted_batch_candidates:
+            resolved_document_id = None
+            resolved_version_id = None
+            resolved_version_number = None
+            resolved_status = "awaiting_review"
+            related_session_id = batch_candidate.get("batch_ingestion_session_id")
+            if related_session_id:
+                related_session = db.scalar(select(DocumentIngestionSession).where(
+                    DocumentIngestionSession.id == UUID(str(related_session_id)),
+                    DocumentIngestionSession.organization_id == organization_id,
+                ))
+                if related_session is not None:
+                    resolved_status = related_session.status
+                    if related_session.status == "completed":
+                        resolved_version = db.execute(
+                            select(DocumentVersion, DocumentVersion.document_id)
+                            .join(Document, Document.id == DocumentVersion.document_id)
+                            .where(
+                                Document.organization_id == organization_id,
+                                DocumentVersion.file_hash == related_session.file_hash,
+                                DocumentVersion.content_hash == related_session.content_hash,
+                            )
+                            .order_by(DocumentVersion.version_number.desc())
+                            .limit(1)
+                        ).first()
+                        if resolved_version is not None:
+                            resolved_document_id = str(resolved_version[1])
+                            resolved_version_id = str(resolved_version[0].id)
+                            resolved_version_number = resolved_version[0].version_number
+            if resolved_status in {"rejected", "expired"}:
+                continue
+            candidates.append({
+                "document_id": resolved_document_id,
+                "version_id": resolved_version_id,
+                "version_number": resolved_version_number,
+                "title": batch_candidate.get("title") or batch_candidate.get("original_filename") or "Batch document",
+                "status": resolved_status,
+                "similarity_score": float(batch_candidate["similarity_score"]),
+                "matched_by": batch_candidate.get("matched_by") or "batch_summary",
+                "identity_match_reasons": batch_candidate.get("identity_match_reasons", []),
+                "batch_item_id": int(batch_candidate["batch_item_id"]),
+                "original_filename": batch_candidate.get("original_filename"),
+                "batch_ingestion_session_id": related_session_id,
+            })
         report(
             "duplicate_check",
             "completed",
-            f"Duplicate check completed: {matching.classification.replace('_', ' ')}.",
+            f"Duplicate check completed: {matching_classification.replace('_', ' ')}.",
         )
 
         # Exact file/content matches are matching evidence, not an automatic rejection.
@@ -369,12 +575,12 @@ class DocumentIngestionWorkflowService:
                 file_size=file_size,
                 file_hash=file_hash,
                 content_hash=content_hash,
-                page_count=len(normalized_pages),
+                page_count=page_count,
                 title=summary_output.title,
                 document_type=summary_output.document_type,
                 description=summary_output.description,
                 summary=summary_output.summary,
-                matching_classification=matching.classification,
+                matching_classification=matching_classification,
                 matching_candidates=candidates,
                 department_ids=[str(value) for value in (department_ids or [])],
                 access_user_ids=[str(value) for value in (access_user_ids or [])],
@@ -396,14 +602,14 @@ class DocumentIngestionWorkflowService:
                 "file_size": file_size,
                 "file_hash": file_hash,
                 "content_hash": content_hash,
-                "page_count": len(normalized_pages),
+                "page_count": page_count,
                 "title": summary_output.title,
                 "document_type": summary_output.document_type,
                 "description": summary_output.description,
                 "summary": summary_output.summary,
-                "matching_classification": matching.classification,
+                "matching_classification": matching_classification,
                 "matching_candidates": candidates,
-                "validation_warnings": validation.warnings,
+                "validation_warnings": list(validation_warnings),
                 "expires_at": expires_at,
             }
         except Exception:
@@ -494,7 +700,7 @@ class DocumentIngestionWorkflowService:
         selected_department_allow_ids = [UUID(value) for value in (staged.department_ids or [])]
         selected_department_deny_ids = [UUID(value) for value in (staged.deny_department_ids or [])]
 
-        if action not in {"new", "supersede", "independent", "reject"}:
+        if action not in {"new", "supersede", "independent", "delete_and_ingest", "reject"}:
             raise ValueError("Unsupported document ingestion decision.")
 
         classification = staged.matching_classification
@@ -505,16 +711,20 @@ class DocumentIngestionWorkflowService:
             raise ValueError("Independent ingest requires a matching document.")
         if action == "supersede" and not has_match and not allow_unmatched_supersede:
             raise ValueError("Superseding an unmatched document requires organization manager permission.")
-        if action == "supersede":
+        if action == "delete_and_ingest" and not has_match:
+            raise ValueError("Deleting a previous document requires a confirmed matching candidate.")
+        if action in {"supersede", "delete_and_ingest"}:
             allowed_targets = {
                 UUID(item["document_id"])
                 for item in staged.matching_candidates
                 if item.get("document_id")
             }
             if target_document_id is None:
-                raise ValueError("Choose a document to supersede.")
-            if target_document_id not in allowed_targets and not allow_unmatched_supersede:
-                raise ValueError("Choose one of the suggested matching documents to supersede.")
+                raise ValueError("Choose a matched document for this action.")
+            if target_document_id not in allowed_targets and (
+                action == "delete_and_ingest" or not allow_unmatched_supersede
+            ):
+                raise ValueError("Choose one of the suggested matching documents.")
             target_document = db.scalar(
                 select(Document)
                 .where(
@@ -525,17 +735,35 @@ class DocumentIngestionWorkflowService:
             )
             if target_document is None:
                 raise LookupError("The selected document no longer exists in this organization.")
-            if target_document.archived:
+            if action == "supersede" and target_document.archived:
                 raise ValueError("An archived document cannot be superseded.")
-            if target_document_id not in allowed_targets and not allow_unmatched_supersede:
-                raise ValueError("Choose one of the suggested matching documents to supersede.")
-            if archived:
+            if target_document_id not in allowed_targets and (
+                action == "delete_and_ingest" or not allow_unmatched_supersede
+            ):
+                raise ValueError("Choose one of the suggested matching documents.")
+            if action == "supersede" and archived:
                 raise ValueError("A superseding version cannot be archived during ingestion.")
         elif target_document_id is not None:
-            raise ValueError("target_document_id is only valid for superseding a matched document.")
+            raise ValueError("target_document_id is only valid for a matched-document action.")
 
         if action == "reject":
             staged.status = "rejected"
+            # Remove this rejected batch item from later pending match lists.
+            pending_batch_sessions = db.scalars(select(DocumentIngestionSession).where(
+                DocumentIngestionSession.organization_id == organization_id,
+                DocumentIngestionSession.status == "awaiting_review",
+                DocumentIngestionSession.id != staged.id,
+            )).all()
+            for pending_session in pending_batch_sessions:
+                remaining_candidates = [
+                    dict(candidate)
+                    for candidate in pending_session.matching_candidates or []
+                    if candidate.get("batch_ingestion_session_id") != str(staged.id)
+                ]
+                if len(remaining_candidates) != len(pending_session.matching_candidates or []):
+                    pending_session.matching_candidates = remaining_candidates
+                    if not remaining_candidates and pending_session.matching_classification == "potential_match":
+                        pending_session.matching_classification = "no_match"
             db.commit()
             try:
                 self.file_storage.delete_file(staged.staging_storage_key)
@@ -575,6 +803,18 @@ class DocumentIngestionWorkflowService:
         try:
             copied = True  # Copy can succeed remotely before a verification error is raised.
             self.file_storage.copy_file(staged.staging_storage_key, final_key)
+            if action == "delete_and_ingest":
+                from app.services.document_management import DocumentDeletionService
+                deletion_service = self.deletion_service or DocumentDeletionService(file_storage=self.file_storage)
+                deletion_service.delete_document(
+                    db,
+                    document_id=target_document_id,
+                    organization_id=organization_id,
+                )
+                # Keep the staged upload retryable as a new document if registration fails.
+                staged.matching_classification = "no_match"
+                staged.matching_candidates = []
+                db.commit()
             registration = DocumentRegistrationService(db)
             version_data = VersionRegistrationData(
                 original_filename=staged.original_filename,
@@ -663,6 +903,33 @@ class DocumentIngestionWorkflowService:
                     principal_type="role", role_id=UUID(role_value), effect="deny",
                 ))
             staged.status = "completed"
+            # Resolve this staged item into every later pending item's batch
+            # candidate record in the same transaction as document registration.
+            # This makes the target available after refresh and avoids trusting a
+            # client-provided document ID or guessing via non-unique file hashes.
+            pending_batch_sessions = db.scalars(
+                select(DocumentIngestionSession).where(
+                    DocumentIngestionSession.organization_id == organization_id,
+                    DocumentIngestionSession.status == "awaiting_review",
+                    DocumentIngestionSession.id != staged.id,
+                )
+            ).all()
+            for pending_session in pending_batch_sessions:
+                updated_candidates = []
+                candidates_changed = False
+                for candidate in pending_session.matching_candidates or []:
+                    updated_candidate = dict(candidate)
+                    if updated_candidate.get("batch_ingestion_session_id") == str(staged.id):
+                        updated_candidate.update({
+                            "document_id": str(result.document_id),
+                            "version_id": str(result.document_version_id),
+                            "version_number": result.version_number,
+                            "matched_by": "batch_summary_finalized",
+                        })
+                        candidates_changed = True
+                    updated_candidates.append(updated_candidate)
+                if candidates_changed:
+                    pending_session.matching_candidates = updated_candidates
             db.commit()
             registration_committed = True
 

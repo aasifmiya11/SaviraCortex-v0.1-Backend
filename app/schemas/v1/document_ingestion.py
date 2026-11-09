@@ -8,13 +8,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class DocumentIngestionCandidate(BaseModel):
-    document_id: UUID
-    version_id: UUID
-    version_number: int
+    document_id: UUID | None = None
+    version_id: UUID | None = None
+    version_number: int | None = None
     title: str
     status: str
     similarity_score: float | None = None
     matched_by: str | None = None
+    batch_item_id: int | None = None
+    original_filename: str | None = None
+    batch_ingestion_session_id: UUID | None = None
 
 
 class DocumentIngestionAnalysisResponse(BaseModel):
@@ -38,7 +41,7 @@ class DocumentIngestionAnalysisResponse(BaseModel):
 class DocumentIngestionFinalizeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["new", "supersede", "independent", "reject"]
+    action: Literal["new", "supersede", "independent", "delete_and_ingest", "reject"]
     title: str = Field(min_length=1, max_length=255)
     document_type: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=10000)

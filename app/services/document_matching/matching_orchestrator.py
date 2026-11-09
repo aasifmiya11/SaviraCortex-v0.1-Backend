@@ -97,6 +97,7 @@ class DocumentMatchingOrchestrator:
         summary: str,
         *,
         organization_id: UUID,
+        summary_embedding: list[float] | tuple[float, ...] | None = None,
     ) -> DocumentMatchingResult:
 
         if not file_hash and not content_hash:
@@ -156,6 +157,7 @@ class DocumentMatchingOrchestrator:
             self.summary_matcher.match(
                 summary.strip(),
                 organization_id=organization_id,
+                embedding=summary_embedding,
             )
         )
 

@@ -32,7 +32,7 @@ class FakeSummaryMatcher:
         self.received_summary = None
         self.received_organization_id = None
 
-    def match(self, incoming_summary, *, organization_id):
+    def match(self, incoming_summary, *, organization_id, embedding=None):
         self.called = True
         self.received_summary = incoming_summary
         self.received_organization_id = organization_id

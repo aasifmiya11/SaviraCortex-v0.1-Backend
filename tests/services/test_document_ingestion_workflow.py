@@ -9,6 +9,7 @@ from app.agents.Document_summarizer.agent import DocumentSummarizerOutput
 from app.models import Document, DocumentVersion, DocumentIngestionSession
 from app.services.document_ingestion.workflow_service import (
     DocumentIngestionWorkflowService,
+    PreparedBatchDocument,
 )
 
 
@@ -558,3 +559,333 @@ def test_finalize_rechecks_hashes_before_persisting_staged_upload(
     assert storage.copies == []
     assert storage.deletes == []
     assert db_session.query(Document).count() == 1
+
+
+
+def test_prepared_batch_item_includes_prior_batch_semantic_match(
+    db_session, organization_context, tmp_path
+):
+    pdf = tmp_path / "second-policy.pdf"
+    pdf.write_bytes(b"%PDF-1.7 prepared batch")
+    storage = FakeStorage()
+    matching = SimpleNamespace(
+        classification="no_match",
+        exact_file_matches=(),
+        exact_content_matches=(),
+        semantic_candidates=(),
+    )
+    received = {}
+
+    def match(**kwargs):
+        received.update(kwargs)
+        return matching
+
+    workflow = DocumentIngestionWorkflowService(
+        file_storage=storage,
+        matching_factory=lambda _db: SimpleNamespace(match=match),
+    )
+    prepared = PreparedBatchDocument(
+        file_hash="e" * 64,
+        content_hash="f" * 64,
+        page_count=3,
+        summary_output=DocumentSummarizerOutput(
+            title="Updated leave policy",
+            document_type="Policy",
+            description="Updated leave policy",
+            summary="Employee leave policy for annual leave and absence.",
+        ),
+        validation_warnings=(),
+        summary_embedding=(0.8, 0.6),
+    )
+
+    result = workflow.analyze_and_stage(
+        db_session,
+        pdf,
+        organization_id=organization_context["organization"].id,
+        uploaded_by_user_id=organization_context["owner"].id,
+        original_filename="second-policy.pdf",
+        file_size=pdf.stat().st_size,
+        prepared_document=prepared,
+        batch_candidates=[{
+            "batch_item_id": 0,
+            "original_filename": "first-policy.pdf",
+            "title": "First leave policy",
+            "similarity_score": 0.94,
+        }],
+    )
+
+    assert result["status"] == "ready_for_review"
+    assert result["matching_classification"] == "potential_match"
+    assert result["page_count"] == 3
+    assert result["matching_candidates"][0]["matched_by"] == "batch_summary"
+    assert result["matching_candidates"][0]["batch_item_id"] == 0
+    assert result["matching_candidates"][0]["document_id"] is None
+    assert received["summary_embedding"] == (0.8, 0.6)
+
+
+
+def test_finalized_same_batch_candidate_can_be_superseded(
+    db_session, organization_context
+):
+    organization = organization_context["organization"]
+    owner = organization_context["owner"]
+    related_session = staged_session(organization_context)
+    related_session.staging_storage_key = "staging/first-policy.pdf"
+    related_session.file_hash = "c" * 64
+    related_session.content_hash = "d" * 64
+    current_session = staged_session(
+        organization_context,
+        classification="potential_match",
+        candidates=[{
+            "document_id": None,
+            "version_id": None,
+            "version_number": None,
+            "title": "First batch policy",
+            "status": "awaiting_review",
+            "similarity_score": 0.93,
+            "matched_by": "batch_summary",
+            "batch_item_id": 0,
+            "batch_ingestion_session_id": str(related_session.id),
+        }],
+    )
+    current_session.staging_storage_key = "staging/second-policy.pdf"
+    db_session.add_all([related_session, current_session])
+    db_session.commit()
+
+    workflow = DocumentIngestionWorkflowService(
+        file_storage=FakeStorage(),
+        indexing_orchestrator=FakeIndexingOrchestrator(db_session),
+    )
+    first_result = workflow.finalize(
+        db_session,
+        organization_id=organization.id,
+        ingestion_session_id=related_session.id,
+        uploaded_by_user_id=owner.id,
+        action="new",
+        title="First batch policy",
+        document_type="Policy",
+        description="Earlier upload in this batch",
+    )
+    assert first_result["status"] == "indexed"
+
+    db_session.refresh(current_session)
+    resolved_candidate = current_session.matching_candidates[0]
+    assert resolved_candidate["document_id"] == str(first_result["document_id"])
+    assert resolved_candidate["version_id"] == str(first_result["document_version_id"])
+    assert resolved_candidate["matched_by"] == "batch_summary_finalized"
+
+    result = workflow.finalize(
+        db_session,
+        organization_id=organization.id,
+        ingestion_session_id=current_session.id,
+        uploaded_by_user_id=owner.id,
+        action="supersede",
+        target_document_id=first_result["document_id"],
+        title="Second batch policy",
+        document_type="Policy",
+        description="Later upload from the same batch",
+    )
+
+    assert result["status"] == "indexed"
+    assert result["document_id"] == first_result["document_id"]
+    assert result["version_number"] == 2
+
+
+
+def test_batch_candidate_resolves_if_earlier_upload_was_finalized_before_staging(
+    db_session, organization_context, tmp_path
+):
+    organization = organization_context["organization"]
+    owner = organization_context["owner"]
+    previous_document = Document(
+        organization_id=organization.id,
+        uploaded_by_user_id=owner.id,
+        title="First resume",
+        document_type="Resume",
+        description="Earlier upload",
+    )
+    previous_session = staged_session(organization_context)
+    previous_session.status = "completed"
+    previous_session.file_hash = "c" * 64
+    previous_session.content_hash = "d" * 64
+    previous_version = DocumentVersion(
+        document_id=previous_document.id,
+        version_number=1,
+        original_filename="first-resume.pdf",
+        storage_key="documents/first-resume.pdf",
+        file_hash=previous_session.file_hash,
+        content_hash=previous_session.content_hash,
+        summary="Resume for Alex Example",
+        status="active",
+        page_count=2,
+    )
+    db_session.add_all([previous_document, previous_session])
+    db_session.flush()
+    previous_version.document_id = previous_document.id
+    db_session.add(previous_version)
+    db_session.commit()
+
+    pdf = tmp_path / "second-resume.pdf"
+    pdf.write_bytes(b"%PDF-1.7 prepared batch")
+    matching = SimpleNamespace(
+        classification="no_match",
+        exact_file_matches=(),
+        exact_content_matches=(),
+        semantic_candidates=(),
+    )
+    workflow = DocumentIngestionWorkflowService(
+        file_storage=FakeStorage(),
+        matching_factory=lambda _db: SimpleNamespace(match=lambda **_kwargs: matching),
+    )
+    prepared = PreparedBatchDocument(
+        file_hash="e" * 64,
+        content_hash="f" * 64,
+        page_count=2,
+        summary_output=DocumentSummarizerOutput(
+            title="Updated resume",
+            document_type="Resume",
+            description="Updated CV",
+            summary="Resume summary",
+        ),
+        validation_warnings=(),
+        summary_embedding=(0.8, 0.6),
+    )
+    result = workflow.analyze_and_stage(
+        db_session,
+        pdf,
+        organization_id=organization.id,
+        uploaded_by_user_id=owner.id,
+        original_filename="second-resume.pdf",
+        file_size=pdf.stat().st_size,
+        prepared_document=prepared,
+        batch_candidates=[{
+            "batch_item_id": 0,
+            "original_filename": "first-resume.pdf",
+            "title": "First resume",
+            "similarity_score": 0.99,
+            "matched_by": "batch_identity",
+            "batch_ingestion_session_id": str(previous_session.id),
+        }],
+    )
+
+    candidate = result["matching_candidates"][0]
+    assert result["matching_classification"] == "potential_match"
+    assert candidate["document_id"] == str(previous_document.id)
+    assert candidate["version_id"] == str(previous_version.id)
+    assert candidate["version_number"] == 1
+    assert candidate["matched_by"] == "batch_identity"
+
+
+def test_resume_identity_tokens_extract_email_phone_and_name():
+    summary = SimpleNamespace(
+        person_name="Alex Example",
+        email_addresses=["ALEX@example.com"],
+        phone_numbers=["+1 (415) 555-0100"],
+    )
+    tokens = DocumentIngestionWorkflowService._extract_identity_tokens(
+        "Contact alex@example.com or +1 (415) 555-0100", summary
+    )
+    assert "email:alex@example.com" in tokens
+    assert "phone:14155550100" in tokens
+    assert "phone10:4155550100" in tokens
+    assert "name:alex example" in tokens
+
+
+class FakeDocumentDeletionService:
+    def __init__(self):
+        self.calls = []
+
+    def delete_document(self, db, *, document_id, organization_id):
+        self.calls.append((document_id, organization_id))
+        db.query(DocumentVersion).filter(DocumentVersion.document_id == document_id).delete()
+        document = db.get(Document, document_id)
+        if document is not None:
+            db.delete(document)
+        db.commit()
+
+
+def test_delete_and_ingest_removes_match_then_creates_new_document(
+    db_session, organization_context
+):
+    organization = organization_context["organization"]
+    owner = organization_context["owner"]
+    previous_document = Document(
+        organization_id=organization.id,
+        uploaded_by_user_id=owner.id,
+        title="Old resume",
+        document_type="Resume",
+        description="Previous CV",
+    )
+    db_session.add(previous_document)
+    db_session.flush()
+    db_session.add(DocumentVersion(
+        document_id=previous_document.id,
+        version_number=1,
+        original_filename="old-resume.pdf",
+        storage_key="documents/old-resume.pdf",
+        file_hash="c" * 64,
+        content_hash="d" * 64,
+        summary="Old resume summary",
+        status="active",
+        page_count=2,
+    ))
+    staged = staged_session(
+        organization_context,
+        classification="potential_match",
+        candidates=[{
+            "document_id": str(previous_document.id),
+            "version_id": str(uuid4()),
+            "version_number": 1,
+            "title": "Old resume",
+            "status": "active",
+            "similarity_score": 0.96,
+            "matched_by": "batch_summary",
+        }],
+    )
+    db_session.add(staged)
+    db_session.commit()
+
+    storage = FakeStorage()
+    deletion = FakeDocumentDeletionService()
+    workflow = DocumentIngestionWorkflowService(
+        file_storage=storage,
+        indexing_orchestrator=FakeIndexingOrchestrator(db_session),
+        deletion_service=deletion,
+    )
+    result = workflow.finalize(
+        db_session,
+        organization_id=organization.id,
+        ingestion_session_id=staged.id,
+        uploaded_by_user_id=owner.id,
+        action="delete_and_ingest",
+        target_document_id=previous_document.id,
+        title="Replacement resume",
+        document_type="Resume",
+        description="Replacement CV",
+    )
+
+    assert deletion.calls == [(previous_document.id, organization.id)]
+    assert db_session.get(Document, previous_document.id) is None
+    replacement = db_session.get(Document, result["document_id"])
+    assert replacement is not None
+    assert replacement.title == "Replacement resume"
+    assert result["status"] == "indexed"
+
+
+
+def test_summary_identity_metadata_is_included_for_indexed_search():
+    summary = DocumentSummarizerOutput(
+        title="Alex Example resume",
+        document_type="Resume",
+        description="CV",
+        summary="Professional experience and education.",
+    )
+    enriched = DocumentIngestionWorkflowService._enrich_summary_with_identity(
+        summary,
+        ("name:alex example", "email:alex@example.com"),
+    )
+    assert "Professional experience and education." in enriched.summary
+    assert "Matching identity metadata: name:alex example; email:alex@example.com" in enriched.summary
+    assert DocumentIngestionWorkflowService._enrich_summary_with_identity(
+        enriched, ("name:alex example", "email:alex@example.com")
+    ).summary == enriched.summary

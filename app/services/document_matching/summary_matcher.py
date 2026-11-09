@@ -64,17 +64,21 @@ class DocumentSummaryMatcher:
         incoming_summary: str,
         *,
         organization_id: UUID,
+        embedding: list[float] | tuple[float, ...] | None = None,
     ) -> SummaryMatchResult:
         """Return all retrieved candidates meeting the similarity threshold."""
 
         if not isinstance(incoming_summary, str) or not incoming_summary.strip():
             raise ValueError("incoming_summary must be a non-empty string.")
 
-        search_results = self.summary_store.search_similar_summaries(
-            summary=incoming_summary.strip(),
-            limit=self.candidate_limit,
-            organization_id=organization_id,
-        )
+        search_kwargs = {
+            "summary": incoming_summary.strip(),
+            "limit": self.candidate_limit,
+            "organization_id": organization_id,
+        }
+        if embedding is not None:
+            search_kwargs["query_vector"] = list(embedding)
+        search_results = self.summary_store.search_similar_summaries(**search_kwargs)
 
         candidates_by_version: dict[str, SummaryMatchCandidate] = {}
 

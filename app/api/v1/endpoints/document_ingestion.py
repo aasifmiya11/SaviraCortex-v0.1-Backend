@@ -163,7 +163,7 @@ def finalize_document_ingestion(
 ):
     user, membership = _current_member(db, organization_id, firebase_claims)
     _require_manager(membership)
-    if payload.action == "supersede" and payload.target_document_id is not None:
+    if payload.action in {"supersede", "delete_and_ingest"} and payload.target_document_id is not None:
         from app.repositories.authorization_repository import AuthorizationRepository
 
         authorized_document_ids = set(
@@ -175,7 +175,7 @@ def finalize_document_ingestion(
         if payload.target_document_id not in authorized_document_ids:
             raise HTTPException(
                 status_code=404,
-                detail="The selected document was not found or you do not have permission to supersede it.",
+                detail="The selected document was not found or you do not have permission to modify it.",
             )
     workflow = workflow or DocumentIngestionWorkflowService()
     try:
@@ -420,16 +420,14 @@ def analyze_document_batch_stream(
     firebase_claims: dict = Depends(get_verified_firebase_claims),
     workflow_override: DocumentIngestionWorkflowService | None = Depends(get_ingestion_workflow),
 ):
-    """Analyze a batch with a process-wide bounded worker pool.
+    """Analyze and stage batch PDFs sequentially, reporting each completed item.
 
-    Each item is isolated: one failure or duplicate never cancels other items.
+    Each item is isolated: one failure or duplicate never cancels later items.
     The SSE connection only transports progress; minimizing the UI does not
     cancel the request or its worker tasks.
     """
-    from concurrent.futures import as_completed
     from uuid import uuid4
     from app.services.document_ingestion.batch_config import (
-        DOCUMENT_EXECUTOR,
         MAX_BATCH_UPLOAD_BYTES,
         MAX_QUEUED_DOCUMENTS,
         MAX_DOCUMENT_WORKERS,
@@ -535,59 +533,172 @@ def analyze_document_batch_stream(
     events: queue.Queue = queue.Queue()
     user_id = user.id
 
-    def process_item(item: dict) -> dict:
+    def report_progress(item: dict, payload: dict) -> None:
+        events.put({
+            "type": "progress",
+            "batch_id": str(batch_id),
+            "item_id": item["index"],
+            "filename": item["filename"],
+            **payload,
+        })
+
+    def prepare_item(item: dict) -> dict:
+        """Run expensive PDF extraction, summarization and embedding concurrently."""
+        workflow = workflow_override or DocumentIngestionWorkflowService()
         try:
-            with SessionLocal() as worker_db:
-                workflow = workflow_override or DocumentIngestionWorkflowService()
-
-                def report(payload: dict) -> None:
-                    events.put({
-                        "type": "progress",
-                        "batch_id": str(batch_id),
-                        "item_id": item["index"],
-                        "filename": item["filename"],
-                        **payload,
-                    })
-
-                result = workflow.analyze_and_stage(
-                    worker_db,
-                    item["path"],
-                    organization_id=organization_id,
-                    uploaded_by_user_id=user_id,
-                    original_filename=item["filename"],
-                    file_size=item["size"],
-                    department_ids=department_ids,
-                    access_user_ids=access_user_ids,
-                    access_role_ids=access_role_ids,
-                    deny_department_ids=deny_department_ids,
-                    deny_user_ids=deny_user_ids,
-                    deny_role_ids=deny_role_ids,
-                    organization_wide_access=organization_wide_access,
-                    progress_callback=report,
-                )
-                return {"item_id": item["index"], "filename": item["filename"], "status": result.get("status", "ready_for_review"), "data": result}
+            prepared = workflow.prepare_for_batch(
+                item["path"],
+                progress_callback=lambda payload: report_progress(item, payload),
+            )
+            return {"prepared": prepared, "workflow": workflow}
         except DocumentIngestionWorkflowError as exc:
-            return {"item_id": item["index"], "filename": item["filename"], "status": "failed", "error": str(exc)}
+            return {"error": str(exc)}
         except Exception:
-            logger.exception("Batch document ingestion failed (batch_id=%s, filename=%s)", batch_id, item["filename"])
-            return {"item_id": item["index"], "filename": item["filename"], "status": "failed", "error": "Document analysis or temporary storage failed. Please retry this document."}
-        finally:
-            try:
-                os.remove(item["path"])
-            except OSError:
-                pass
-            QUEUE_SLOTS.release()
+            logger.exception(
+                "Batch document preparation failed (batch_id=%s, filename=%s)",
+                batch_id,
+                item["filename"],
+            )
+            return {"error": "Document analysis or temporary storage failed. Please retry this document."}
+
+    def cosine_similarity(left, right) -> float:
+        if not left or not right or len(left) != len(right):
+            return 0.0
+        left_norm = sum(value * value for value in left) ** 0.5
+        right_norm = sum(value * value for value in right) ** 0.5
+        if left_norm == 0.0 or right_norm == 0.0:
+            return 0.0
+        return sum(a * b for a, b in zip(left, right)) / (left_norm * right_norm)
+
+    released_item_ids: set[int] = set()
+
+    def cleanup_item(item: dict) -> None:
+        item_id = item["index"]
+        if item_id in released_item_ids:
+            return
+        released_item_ids.add(item_id)
+        try:
+            os.remove(item["path"])
+        except OSError:
+            pass
+        QUEUE_SLOTS.release()
 
     def run_batch() -> None:
         try:
-            futures = [DOCUMENT_EXECUTOR.submit(process_item, item) for item in staged_files]
-            for future in as_completed(futures):
+            # Process PDFs in upload order. Each file is extracted, summarized and embedded,
+            # then matched against the vector store and earlier batch items, then staged.
+            # The result is emitted before starting the next PDF so clients can finalize it
+            # and update progress incrementally instead of waiting for the whole batch.
+            batch_index: list[dict] = []
+            for item in sorted(staged_files, key=lambda value: value["index"]):
+                prepared_result = prepare_item(item)
+                if prepared_result.get("error"):
+                    events.put({
+                        "type": "item_result",
+                        "batch_id": str(batch_id),
+                        "data": {
+                            "item_id": item["index"],
+                            "filename": item["filename"],
+                            "status": "failed",
+                            "error": prepared_result["error"],
+                        },
+                    })
+                    cleanup_item(item)
+                    continue
+
+                prepared = prepared_result["prepared"]
+                workflow = prepared_result["workflow"]
+                current_embedding = prepared.summary_embedding
+                batch_candidates = []
+                for previous in batch_index:
+                    score = cosine_similarity(current_embedding, previous["embedding"])
+                    identity_overlap = set(getattr(prepared, "identity_tokens", ())).intersection(previous.get("identity_tokens", ()))
+                    if score >= 0.80 or identity_overlap:
+                        batch_candidates.append({
+                            "batch_item_id": previous["item_id"],
+                            "original_filename": previous["filename"],
+                            "title": previous["title"],
+                            "similarity_score": max(score, 0.99) if identity_overlap else score,
+                            "matched_by": "batch_identity" if identity_overlap else "batch_summary",
+                            "identity_match_reasons": sorted({token.split(":", 1)[0] for token in identity_overlap}),
+                            "batch_ingestion_session_id": previous["ingestion_session_id"],
+                        })
+                batch_candidates.sort(
+                    key=lambda candidate: candidate["similarity_score"],
+                    reverse=True,
+                )
+
                 try:
-                    events.put({"type": "item_result", "batch_id": str(batch_id), "data": future.result()})
+                    with SessionLocal() as worker_db:
+                        result = workflow.analyze_and_stage(
+                            worker_db,
+                            item["path"],
+                            organization_id=organization_id,
+                            uploaded_by_user_id=user_id,
+                            original_filename=item["filename"],
+                            file_size=item["size"],
+                            department_ids=department_ids,
+                            access_user_ids=access_user_ids,
+                            access_role_ids=access_role_ids,
+                            deny_department_ids=deny_department_ids,
+                            deny_user_ids=deny_user_ids,
+                            deny_role_ids=deny_role_ids,
+                            organization_wide_access=organization_wide_access,
+                            progress_callback=lambda payload: report_progress(item, payload),
+                            prepared_document=prepared,
+                            batch_candidates=batch_candidates,
+                        )
+                    if result.get("status") == "ready_for_review":
+                        batch_index.append({
+                            "item_id": item["index"],
+                            "filename": item["filename"],
+                            "title": result.get("title") or item["filename"],
+                            "ingestion_session_id": str(result["ingestion_session_id"]),
+                            "embedding": current_embedding,
+                            "identity_tokens": getattr(prepared, "identity_tokens", ()),
+                        })
+                    events.put({
+                        "type": "item_result",
+                        "batch_id": str(batch_id),
+                        "data": {
+                            "item_id": item["index"],
+                            "filename": item["filename"],
+                            "status": result.get("status", "ready_for_review"),
+                            "data": result,
+                        },
+                    })
+                except DocumentIngestionWorkflowError as exc:
+                    events.put({
+                        "type": "item_result",
+                        "batch_id": str(batch_id),
+                        "data": {
+                            "item_id": item["index"],
+                            "filename": item["filename"],
+                            "status": "failed",
+                            "error": str(exc),
+                        },
+                    })
                 except Exception:
-                    logger.exception("Unexpected batch worker failure (batch_id=%s)", batch_id)
-                    events.put({"type": "item_result", "batch_id": str(batch_id), "data": {"status": "failed", "error": "Unexpected ingestion worker failure."}})
+                    logger.exception(
+                        "Sequential batch processing failed (batch_id=%s, filename=%s)",
+                        batch_id,
+                        item["filename"],
+                    )
+                    events.put({
+                        "type": "item_result",
+                        "batch_id": str(batch_id),
+                        "data": {
+                            "item_id": item["index"],
+                            "filename": item["filename"],
+                            "status": "failed",
+                            "error": "Document matching or staging failed. Please retry this document.",
+                        },
+                    })
+                finally:
+                    cleanup_item(item)
         finally:
+            for remaining_item in staged_files:
+                cleanup_item(remaining_item)
             events.put({"type": "completed", "batch_id": str(batch_id), "total": len(staged_files)})
             events.put(None)
 

@@ -29,3 +29,7 @@ class DocumentSummarizerOutput(BaseModel):
             "A comprehensive overview of the document's main content."
         )
     )
+
+    person_name: str | None = Field(default=None, description="For a resume/CV only, the person's full name exactly as stated; otherwise null.")
+    email_addresses: list[str] = Field(default_factory=list, description="Email addresses explicitly present in the document, normalized to lowercase.")
+    phone_numbers: list[str] = Field(default_factory=list, description="Phone numbers explicitly present in the document, preserving country codes when shown.")

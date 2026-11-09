@@ -8,6 +8,10 @@ from app.models import Document, DocumentVersion, Organization, OrganizationMemb
 
 
 class FakeIngestionWorkflow:
+    def prepare_for_batch(self, file_path, **kwargs):
+        assert file_path
+        return type("Prepared", (), {"summary_embedding": (1.0, 0.0)})()
+
     def analyze_and_stage(self, _db, file_path, **kwargs):
         assert file_path
         assert kwargs["original_filename"].lower().endswith(".pdf")

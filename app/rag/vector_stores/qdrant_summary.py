@@ -153,6 +153,7 @@ class QdrantSummaryStore:
         organization_id: UUID | str,
         offset: int = 0,
         document_version_ids: list[UUID | str] | None = None,
+        query_vector: list[float] | None = None,
     ) -> list[dict[str, Any]]:
         """
         Search summaries by cosine similarity with paginated Qdrant results.
@@ -195,7 +196,7 @@ class QdrantSummaryStore:
                 )
             )
 
-        vector = embedding_client.embed_query(summary.strip())
+        vector = query_vector or embedding_client.embed_query(summary.strip())
 
         response = self.client.query_points(
             collection_name=self.collection_name,
