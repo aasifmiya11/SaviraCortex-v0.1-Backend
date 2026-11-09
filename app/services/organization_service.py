@@ -3,7 +3,7 @@ from uuid import UUID, uuid4
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.models import Organization, OrganizationMembership, OrganizationRole
+from app.models import Organization, OrganizationDepartment, OrganizationMembership, OrganizationRole
 from app.repositories.organization_repository import OrganizationRepository
 from app.schemas.v1.organizations import (
     OrganizationCreateRequest,
@@ -125,3 +125,25 @@ class OrganizationService:
             self.session.rollback()
             raise
         return self._response(organization, membership.role)
+
+    def complete_onboarding(self, organization_id: UUID, firebase_claims: dict) -> dict:
+        membership = self._get_membership(organization_id, firebase_claims)
+        if membership.role not in {"owner", "admin"}:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only organization owners and admins can complete onboarding.")
+        organization = self.repository.get_organization(organization_id)
+        if organization is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found.")
+        department_count = self.session.query(OrganizationDepartment).filter(OrganizationDepartment.organization_id == organization_id).count()
+        role_count = self.session.query(OrganizationRole).filter(OrganizationRole.organization_id == organization_id).count()
+        if department_count < 1 or role_count < 1:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Add at least one department and one role before completing setup.")
+        if organization.onboarding_completed_at is None:
+            from sqlalchemy import func
+            organization.onboarding_completed_at = func.now()
+            try:
+                self.session.commit()
+                self.session.refresh(organization)
+            except Exception:
+                self.session.rollback()
+                raise
+        return {"organization_id": str(organization_id), "onboarding_completed": True}

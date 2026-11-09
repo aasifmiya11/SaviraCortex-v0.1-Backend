@@ -79,16 +79,8 @@ def create_tables() -> None:
     Existing tables are not modified.
     """
 
-    # Import models to register them with Base.metadata.
-    from ..models import (
-        Organization,
-        User,
-        OrganizationMembership,
-        OrganizationInvitation,
-        Document,
-        DocumentVersion,
-        DocumentIngestionSession,
-    )
+    # Import the full models package so every table is registered.
+    from .. import models as _models  # noqa: F401
     Base.metadata.create_all(bind=engine)
 
     print("Database initialized successfully.")

@@ -49,3 +49,12 @@ def update_organization(
     firebase_claims: dict = Depends(get_verified_firebase_claims),
 ):
     return OrganizationService(session).update(organization_id, payload, firebase_claims)
+
+
+@router.post("/{organization_id}/onboarding/complete", summary="Mark organization onboarding as complete")
+def complete_onboarding(
+    organization_id: UUID,
+    session: Session = Depends(get_db),
+    firebase_claims: dict = Depends(get_verified_firebase_claims),
+):
+    return OrganizationService(session).complete_onboarding(organization_id, firebase_claims)

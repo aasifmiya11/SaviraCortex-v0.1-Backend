@@ -1,4 +1,3 @@
-from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -33,4 +32,3 @@ class DepartmentResponse(BaseModel):
     organization_id: UUID
     name: str
     description: str | None
-    created_at: datetime

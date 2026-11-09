@@ -49,6 +49,7 @@ class AuthIdentityService:
                     organization_id=str(membership.organization_id),
                     organization_name=membership.organization.name,
                     role=membership.role,
+                    onboarding_completed=membership.organization.onboarding_completed_at is not None,
                 )
                 for membership in memberships
             ],
