@@ -26,7 +26,6 @@ class PDFLoader:
     def __init__(
         self,
         text_threshold: int | None = None,
-        ocr_options: dict[str, Any] | None = None,
         *,
         ocr_all_pages: bool | None = None,
         merge_with_native: bool | None = None,
@@ -42,12 +41,8 @@ class PDFLoader:
         if threshold < 0:
             raise ValueError("text_threshold cannot be negative.")
 
-        defaults = {"dpi": settings.RENDER_DPI}
-        defaults.update(ocr_options or {})
-
         self.text_threshold = threshold
         self.ocr_engine = self.OCR_ENGINE
-        self.ocr_options = defaults
         self.ocr_all_pages = (
             settings.OCR_ALL_PAGES
             if ocr_all_pages is None
@@ -147,33 +142,16 @@ class PDFLoader:
             and cls._ocr_is_usable(native_text, ocr_text, ocr_metadata)
         )
 
-    def _run_page_ocr(self, pdf_path: Path, page_number: int) -> Document:
-        result = ocr_client.fastocr_pdf_page(
-            pdf_path,
-            page_number=page_number,
-            dpi=self.ocr_options.get("dpi"),
-        )
-
-        if isinstance(result, Document):
-            return result
-
-        if isinstance(result, list):
-            if any(not isinstance(item, Document) for item in result):
-                raise TypeError("FastOCR must return Document instances.")
-            text = "\n".join(
-                item.page_content.strip()
-                for item in result
-                if item.page_content and item.page_content.strip()
-            )
-            metadata = dict(result[0].metadata or {}) if result else {}
-            if len(result) > 1:
-                metadata["ocr_document_count"] = len(result)
-            return Document(page_content=text, metadata=metadata)
-
-        raise TypeError(
-            f"{self.ocr_engine} returned {type(result).__name__}; "
-            "expected Document or list[Document]."
-        )
+    def _run_pages_ocr(
+        self, pdf_path: Path, page_numbers: list[int]
+    ) -> dict[int, Document]:
+        result = ocr_client.fastocr_pdf_pages(pdf_path, page_numbers)
+        if not isinstance(result, dict) or any(
+            not isinstance(page, int) or not isinstance(document, Document)
+            for page, document in result.items()
+        ):
+            raise TypeError("FastOCR must return a dict[int, Document].")
+        return result
 
     def load_pdf(self, pdf_path: str | Path) -> list[Document]:
         path = Path(pdf_path).expanduser().resolve()
@@ -183,88 +161,102 @@ class PDFLoader:
             raise ValueError(f"Expected a PDF file: {path}")
 
         native_documents = native_client.load_pdf(path)
-        final_documents: list[Document] = []
+        pages_to_ocr = [
+            page_index + 1
+            for page_index, native_document in enumerate(native_documents)
+            if self.ocr_all_pages
+            or self._text_length(native_document.page_content or "") < self.text_threshold
+        ]
 
+        ocr_results: dict[int, Document] = {}
+        if pages_to_ocr:
+            from app.services.document_ingestion.batch_config import OCR_SLOTS
+
+            # One FastOCR document per source PDF, containing only pages that
+            # need OCR. This respects the provider's document concurrency cap.
+            with OCR_SLOTS:
+                ocr_results = self._run_pages_ocr(path, pages_to_ocr)
+
+        final_documents: list[Document] = []
         for page_index, native_document in enumerate(native_documents):
             page_number = page_index + 1
             native_text = native_document.page_content or ""
             native_length = self._text_length(native_text)
-            should_ocr = self.ocr_all_pages or native_length < self.text_threshold
+            should_ocr = page_number in pages_to_ocr
 
             metadata = dict(native_document.metadata or {})
             metadata.update({
                 "source": str(path),
                 "page": page_number,
                 "native_text_length": native_length,
-                "ocr_attempted": False,
+                "ocr_attempted": should_ocr,
                 "ocr_used": False,
             })
 
             final_text = native_text
             if should_ocr:
-                from app.services.document_ingestion.batch_config import OCR_SLOTS
-                with OCR_SLOTS:
-                    ocr_document = self._run_page_ocr(path, page_number)
-                ocr_text = ocr_document.page_content or ""
-                ocr_length = self._text_length(ocr_text)
-                metadata.update(dict(ocr_document.metadata or {}))
-                metadata.update({
-                    "source": str(path),
-                    "page": page_number,
-                    "native_text_length": native_length,
-                    "ocr_text_length": ocr_length,
-                    "ocr_attempted": True,
-                })
-
-                confidence = self._mean_ocr_confidence(
-                    dict(ocr_document.metadata or {})
-                )
-                metadata["ocr_mean_confidence"] = confidence
-                ocr_is_better = self._ocr_is_better(
-                    native_text,
-                    ocr_text,
-                    dict(ocr_document.metadata or {}),
-                )
-
-                ocr_usable = self._ocr_is_usable(
-                    native_text,
-                    ocr_text,
-                    dict(ocr_document.metadata or {}),
-                )
-
-                # Do not let a tiny OCR fragment contaminate useful native
-                # text, and replace genuinely insufficient native text before
-                # considering an explicit merge.
-                if (
-                    self.merge_with_native
-                    and ocr_usable
-                    and not (
-                        ocr_is_better
-                        and self._text_length(native_text) < 10
-                    )
-                    and (
-                        ocr_is_better
-                        or confidence is not None
-                    )
-                ):
-                    final_text = self._merge_text(native_text, ocr_text)
-                    ocr_contributed = final_text != native_text
-                    metadata["extraction_method"] = (
-                        f"pymupdf+{self.ocr_engine}"
-                        if ocr_contributed
-                        else "pymupdf"
-                    )
-                elif ocr_is_better:
-                    final_text = ocr_text
-                    ocr_contributed = True
-                    metadata["extraction_method"] = self.ocr_engine
+                ocr_document = ocr_results.get(page_number)
+                if ocr_document is None:
+                    metadata.update({
+                        "ocr_text_length": 0,
+                        "ocr_mean_confidence": None,
+                        "ocr_missing_from_partial_result": True,
+                        "extraction_method": "pymupdf",
+                    })
                 else:
-                    # Retain native extraction when OCR is empty, shorter,
-                    # or has low confidence compared with available native text.
-                    ocr_contributed = False
-                    metadata["extraction_method"] = "pymupdf"
+                    ocr_text = ocr_document.page_content or ""
+                    ocr_length = self._text_length(ocr_text)
+                    ocr_metadata = dict(ocr_document.metadata or {})
+                    metadata.update(ocr_metadata)
+                    metadata.update({
+                        "source": str(path),
+                        "page": page_number,
+                        "native_text_length": native_length,
+                        "ocr_text_length": ocr_length,
+                        "ocr_attempted": True,
+                    })
 
-                metadata["ocr_used"] = ocr_contributed
+                    confidence = self._mean_ocr_confidence(ocr_metadata)
+                    metadata["ocr_mean_confidence"] = confidence
+                    ocr_is_better = self._ocr_is_better(
+                        native_text,
+                        ocr_text,
+                        ocr_metadata,
+                    )
+                    ocr_usable = self._ocr_is_usable(
+                        native_text,
+                        ocr_text,
+                        ocr_metadata,
+                    )
+
+                    if (
+                        self.merge_with_native
+                        and ocr_usable
+                        and not (
+                            ocr_is_better
+                            and self._text_length(native_text) < 10
+                        )
+                        and (
+                            ocr_is_better
+                            or confidence is not None
+                        )
+                    ):
+                        final_text = self._merge_text(native_text, ocr_text)
+                        ocr_contributed = final_text != native_text
+                        metadata["extraction_method"] = (
+                            f"pymupdf+{self.ocr_engine}"
+                            if ocr_contributed
+                            else "pymupdf"
+                        )
+                    elif ocr_is_better:
+                        final_text = ocr_text
+                        ocr_contributed = True
+                        metadata["extraction_method"] = self.ocr_engine
+                    else:
+                        ocr_contributed = False
+                        metadata["extraction_method"] = "pymupdf"
+
+                    metadata["ocr_used"] = ocr_contributed
             else:
                 metadata["extraction_method"] = "pymupdf"
 

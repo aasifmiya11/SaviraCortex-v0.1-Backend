@@ -46,13 +46,15 @@ class Settings:
     OPENAI_MODEL = os.getenv("OPENAI_MODEL")
 
 
-    RENDER_DPI = int(os.getenv("RENDER_DPI", "300"))
     MIN_NATIVE_CHARS = int(os.getenv("MIN_NATIVE_CHARS", "50"))
 
     OCR_ALL_PAGES = get_bool("OCR_ALL_PAGES")
     OCR_MERGE_WITH_NATIVE = get_bool("OCR_MERGE_WITH_NATIVE")
 
-    FASTOCR_API_KEY = os.getenv("FASTOCR_API_KEY")
+    FASTOCR_GATEWAY_BASE_URL = os.getenv("FASTOCR_GATEWAY_BASE_URL", "http://127.0.0.1:8090").rstrip("/")
+    FASTOCR_GATEWAY_API_KEY = os.getenv("FASTOCR_GATEWAY_API_KEY") or os.getenv("JINA_API_KEY")
+    FASTOCR_PROCESS_TIMEOUT_SECONDS = float(os.getenv("FASTOCR_PROCESS_TIMEOUT_SECONDS", "300"))
+    FASTOCR_MAX_ACCOUNT_FALLBACKS = max(0, int(os.getenv("FASTOCR_MAX_ACCOUNT_FALLBACKS", "10")))
 
     QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
     QDRANT_API_ENDPOINT = os.getenv("QDRANT_API_ENDPOINT")
