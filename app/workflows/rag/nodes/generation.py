@@ -23,20 +23,13 @@ def create_generation_node(
     """
 
     async def generation_node(state: RAGWorkflowState) -> dict[str, Any]:
-        documents = (
-            state.get("context_documents")
-            if state.get("context_documents") is not None
-            else state.get("retrieved_documents") or []
-        )
+        # Pass the exact Adaptive-K selection directly to GenerationAgent.
+        documents = state.get("retrieved_documents") or []
         history = state.get("context")
         status = (
-            GenerationStatus.INSUFFICIENT_EVIDENCE
-            if not documents
-            else (
-                GenerationStatus.PARTIAL
-                if state.get("is_sufficient") is False
-                else GenerationStatus.ANSWERED
-            )
+            GenerationStatus.ANSWERED
+            if documents
+            else GenerationStatus.INSUFFICIENT_EVIDENCE
         )
         if event_callback is None:
             output = await agent.agenerate(

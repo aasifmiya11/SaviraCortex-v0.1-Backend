@@ -120,3 +120,17 @@ FASTOCR_API_KEY=
 - Restrict credentials to minimum required permissions.
 - Do not log complete connection URIs, tokens or private keys.
 - Real Firebase SMS delivery requires the appropriate Firebase billing/project configuration; test phone numbers are suitable for development but do not prove production SMS readiness.
+
+
+## Cloudflare Qwen3 embeddings
+
+The backend supports `EMBEDDING_PROVIDER=jina` (default) or `EMBEDDING_PROVIDER=cloudflare`. Cloudflare uses the gateway client credential in the existing backend-only `JINA_API_KEY` setting and calls `/v1/cloudflare/embeddings`. Keep Cloudflare provider account IDs and tokens only in `api-gateway/.env`, configured as equal-length parallel JSON arrays.
+
+Defaults:
+- Model: `@cf/qwen/qwen3-embedding-0.6b`
+- Dimensions: `1024`
+- Gateway model setting: `CLOUDFLARE_EMBEDDING_MODEL`
+- Backend selector: `EMBEDDING_PROVIDER=cloudflare`
+- Backend vector dimension setting: `CLOUDFLARE_EMBEDDING_DIMENSIONS=1024`
+
+Cloudflare and Jina vectors must never share a Qdrant collection. The Cloudflare chunk and summary collections are derived with the `_cloudflare_qwen3_1024` suffix or can be explicitly set with `CLOUDFLARE_QDRANT_COLLECTION_NAME` and `CLOUDFLARE_QDRANT_SUMMARY_COLLECTION_NAME`. Switching providers selects the corresponding pair of collections; it does not migrate existing vectors. Re-embed and re-index documents before relying on the Cloudflare collections for retrieval.

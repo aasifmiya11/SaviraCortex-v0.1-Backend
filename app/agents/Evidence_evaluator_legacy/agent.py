@@ -7,7 +7,7 @@ from typing import Any
 from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import PydanticOutputParser
 
-from app.llm.evidence_evaluator_client import evidence_evaluator_llm_client
+from app.llm.evidence_evaluator_client_legacy import evidence_evaluator_llm_client
 
 from .config import EvidenceEvaluatorConfig
 from .prompts import get_evidence_evaluator_prompt

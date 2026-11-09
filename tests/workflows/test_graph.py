@@ -2,7 +2,6 @@ from uuid import uuid4
 
 import pytest
 
-from app.agents.Evidence_evaluator.schemas import EvidenceEvaluation
 from app.agents.Generation.schemas import (
     AnswerSegment,
     GenerationOutput,
@@ -10,65 +9,46 @@ from app.agents.Generation.schemas import (
     GenerationStreamEvent,
     GenerationStreamEventType,
 )
+from app.services.retrieval.retrieval_service import RetrievalOrchestrationError
 from app.validation.schemas import GenerationValidationResult
 from app.workflows.rag.graph import create_rag_graph
 
 
 class FakeRetriever:
-    def __init__(self):
+    def __init__(self, documents=None):
         self.calls = []
+        self.documents = documents or [{
+            "chunk_id": "doc-version:0",
+            "page_content": "The company provides 20 days of annual leave.",
+            "metadata": {"document_id": "doc"},
+        }]
 
     async def retrieve(self, **kwargs):
         self.calls.append(kwargs)
         return {
-            "selected_candidates": [
-                {
-                    "chunk_id": "doc-version:0",
-                    "page_content": "The company provides 20 days of annual leave.",
-                    "metadata": {"document_id": "doc"},
-                }
-            ],
-            "selected_count": 1,
-            "eligible_count": 1,
-            "fused_count": 1,
-            "reranked_count": 1,
+            "selected_candidates": self.documents,
+            "selected_count": len(self.documents),
+            "eligible_count": len(self.documents),
+            "fused_count": len(self.documents),
+            "reranked_count": len(self.documents),
             "branch_count": 1,
-            "expansion": {},
+            "retrieval_attempt": 1,
+            "expansion": {"rounds_performed": 0, "stop_reason": "disabled_single_pass"},
         }
 
 
-class FakeEvaluator:
-    async def aevaluate(self, **kwargs):
-        return EvidenceEvaluation(is_sufficient=True, missing_information=[])
-
-
-class FakeExpansionAgent:
-    async def aexpand(self, **kwargs):
-        raise AssertionError("Expansion must not run for sufficient evidence.")
-
-
-class FakeCompressionAgent:
-    def __init__(self):
-        self.calls = 0
-
-    def estimate_token_count(self, query, documents):
-        return 100
-
-    async def acompress(self, current_query, retrieved_documents):
-        self.calls += 1
-        return list(retrieved_documents)
-
-
 class FakeGenerationAgent:
+    def __init__(self):
+        self.calls = []
+
     async def agenerate(self, **kwargs):
+        self.calls.append(kwargs)
         return GenerationOutput(
             status=GenerationStatus.ANSWERED,
-            segments=[
-                AnswerSegment(
-                    text="The annual leave entitlement is 20 days.",
-                    citations=["E1"],
-                )
-            ],
+            segments=[AnswerSegment(
+                text="The annual leave entitlement is 20 days.",
+                citations=["E1"],
+            )],
         )
 
 
@@ -81,238 +61,101 @@ class FakeValidator:
         )
 
 
-def build_graph(retriever=None, compression=None):
+def build_graph(retriever=None, generation=None):
     return create_rag_graph(
         retriever=retriever or FakeRetriever(),
-        evaluator=FakeEvaluator(),
-        retrieval_expansion_agent=FakeExpansionAgent(),
-        context_compression_agent=compression or FakeCompressionAgent(),
-        generation_agent=FakeGenerationAgent(),
+        generation_agent=generation or FakeGenerationAgent(),
         validator=FakeValidator(),
     )
 
 
 @pytest.mark.asyncio
-async def test_graph_compiles_and_runs_valid_query_to_static_validation():
+async def test_graph_runs_retrieval_directly_into_generation_once():
     retriever = FakeRetriever()
-    compression = FakeCompressionAgent()
-    graph = build_graph(retriever, compression)
+    generation = FakeGenerationAgent()
+    graph = build_graph(retriever, generation)
 
-    result = await graph.ainvoke(
-        {
-            "query": "How many annual leave days are provided?",
-            "organization_id": uuid4(),
-            "user_id": uuid4(),
-        }
-    )
+    result = await graph.ainvoke({
+        "query": "How many annual leave days are provided?",
+        "organization_id": uuid4(),
+        "user_id": uuid4(),
+    })
 
     assert result["is_valid"] is True
     assert result["retrieval_attempt"] == 1
-    assert result["context_compressed"] is False
-    assert compression.calls == 0
+    assert len(retriever.calls) == 1
+    assert len(generation.calls) == 1
+    assert generation.calls[0]["retrieved_documents"] == retriever.documents
+    assert generation.calls[0]["current_query"] == "How many annual leave days are provided?"
     assert result["generation_output"].status == GenerationStatus.ANSWERED
     assert result["validation_result"].is_valid is True
-    assert len(retriever.calls) == 1
-    assert retriever.calls[0]["exclude"] is False
 
 
 @pytest.mark.asyncio
 async def test_graph_ends_after_invalid_input_without_retrieval():
     retriever = FakeRetriever()
-    graph = build_graph(retriever)
+    generation = FakeGenerationAgent()
+    graph = build_graph(retriever, generation)
 
-    result = await graph.ainvoke(
-        {
-            "query": "!!!",
-            "organization_id": uuid4(),
-            "user_id": uuid4(),
-        }
-    )
+    result = await graph.ainvoke({
+        "query": "!!!",
+        "organization_id": uuid4(),
+        "user_id": uuid4(),
+    })
 
     assert result["is_valid"] is False
     assert result["validation_error"]
     assert retriever.calls == []
+    assert generation.calls == []
     assert "generation_output" not in result
 
 
 @pytest.mark.asyncio
-async def test_graph_invokes_compression_only_above_15_documents():
-    retriever = FakeRetriever()
+async def test_single_pass_generates_even_when_adaptive_k_returns_few_documents():
+    documents = [{"chunk_id": "doc:0", "page_content": "One selected chunk.", "metadata": {}}]
+    retriever = FakeRetriever(documents)
+    generation = FakeGenerationAgent()
+    graph = build_graph(retriever, generation)
 
-    async def retrieve_many(**kwargs):
-        retriever.calls.append(kwargs)
-        return {
-            "selected_candidates": [
-                {
-                    "chunk_id": f"doc-version:{index}",
-                    "page_content": f"Evidence {index}",
-                    "metadata": {},
-                }
-                for index in range(16)
-            ],
-            "selected_count": 16,
-            "eligible_count": 16,
-            "fused_count": 16,
-            "reranked_count": 16,
-            "branch_count": 1,
-            "expansion": {},
-        }
+    result = await graph.ainvoke({
+        "query": "Summarize the policy.",
+        "organization_id": uuid4(),
+        "user_id": uuid4(),
+    })
 
-    retriever.retrieve = retrieve_many
-    compression = FakeCompressionAgent()
-    graph = build_graph(retriever, compression)
-
-    result = await graph.ainvoke(
-        {
-            "query": "Summarize the relevant policy.",
-            "organization_id": uuid4(),
-            "user_id": uuid4(),
-        }
-    )
-
-    assert compression.calls == 1
-    assert result["context_compressed"] is True
-    assert len(result["context_documents"]) == 16
-
-
-class AlwaysInsufficientEvaluator:
-    async def aevaluate(self, **kwargs):
-        return EvidenceEvaluation(
-            is_sufficient=False,
-            missing_information=["The policy's exception conditions are missing."],
-        )
-
-
-class CountingExpansionAgent:
-    def __init__(self):
-        self.calls = 0
-
-    async def aexpand(self, **kwargs):
-        from app.agents.Retrieval_expansion.schemas import RetrievalExpansionOutput
-
-        self.calls += 1
-        return RetrievalExpansionOutput(
-            rewritten_query=f"Find policy exception details, attempt {self.calls}",
-            hypothetical_answer="A hypothetical description of possible policy exceptions.",
-        )
-
-
-@pytest.mark.asyncio
-async def test_graph_performs_three_total_retrieval_attempts_and_two_expansions():
-    retriever = FakeRetriever()
-    expansion = CountingExpansionAgent()
-    graph = create_rag_graph(
-        retriever=retriever,
-        evaluator=AlwaysInsufficientEvaluator(),
-        retrieval_expansion_agent=expansion,
-        context_compression_agent=FakeCompressionAgent(),
-        generation_agent=FakeGenerationAgent(),
-        validator=FakeValidator(),
-    )
-
-    result = await graph.ainvoke(
-        {
-            "query": "Explain the annual leave policy and its exceptions.",
-            "organization_id": uuid4(),
-            "user_id": uuid4(),
-        }
-    )
-
-    assert result["retrieval_attempt"] == 3
-    assert len(retriever.calls) == 3
-    assert expansion.calls == 2
-    assert [call["exclude"] for call in retriever.calls] == [False, True, True]
+    assert len(retriever.calls) == 1
+    assert len(generation.calls) == 1
+    assert generation.calls[0]["retrieved_documents"] == documents
     assert result["generation_output"].status == GenerationStatus.ANSWERED
-
-class NoAuthorizedDocumentsRetriever:
-    def __init__(self):
-        self.calls = 0
-
-    async def retrieve(self, **kwargs):
-        self.calls += 1
-        return {
-            "selected_candidates": [],
-            "selected_count": 0,
-            "eligible_count": 0,
-            "fused_count": 0,
-            "reranked_count": 0,
-            "branch_count": 0,
-            "retrieval_reason": "no_authorized_document_versions",
-            "expansion": {},
-        }
-
-
-@pytest.mark.asyncio
-async def test_graph_skips_retries_when_member_has_no_authorized_documents():
-    retriever = NoAuthorizedDocumentsRetriever()
-    expansion = CountingExpansionAgent()
-    graph = create_rag_graph(
-        retriever=retriever,
-        evaluator=AlwaysInsufficientEvaluator(),
-        retrieval_expansion_agent=expansion,
-        context_compression_agent=FakeCompressionAgent(),
-        generation_agent=FakeGenerationAgent(),
-        validator=FakeValidator(),
-    )
-
-    result = await graph.ainvoke(
-        {
-            "query": "What does the company policy say?",
-            "organization_id": uuid4(),
-            "user_id": uuid4(),
-        }
-    )
-
-    assert retriever.calls == 1
-    assert result["retrieval_attempt"] == 1
-    assert expansion.calls == 0
-    assert result["retrieval_reason"] == "no_authorized_document_versions"
 
 
 class CandidateGenerationFailureRetriever:
     async def retrieve(self, **kwargs):
-        return {
-            "selected_candidates": [],
-            "selected_count": 0,
-            "eligible_count": 0,
-            "fused_count": 0,
-            "reranked_count": 0,
-            "branch_count": 0,
-            "retrieval_reason": "candidate_generation_failed",
-            "candidate_generation_error": "internal Qdrant failure",
-            "expansion": {},
-        }
+        raise RetrievalOrchestrationError("candidate generation failed")
 
 
 @pytest.mark.asyncio
-async def test_graph_surfaces_candidate_generation_failure_as_operational_error():
-    from app.services.retrieval.retrieval_service import RetrievalOrchestrationError
-
-    graph = create_rag_graph(
-        retriever=CandidateGenerationFailureRetriever(),
-        evaluator=FakeEvaluator(),
-        retrieval_expansion_agent=FakeExpansionAgent(),
-        context_compression_agent=FakeCompressionAgent(),
-        generation_agent=FakeGenerationAgent(),
-        validator=FakeValidator(),
-    )
+async def test_graph_surfaces_retrieval_failure_without_entering_generation():
+    generation = FakeGenerationAgent()
+    graph = build_graph(CandidateGenerationFailureRetriever(), generation)
 
     with pytest.raises(RetrievalOrchestrationError):
-        await graph.ainvoke(
-            {
-                "query": "What does the company policy say?",
-                "organization_id": uuid4(),
-                "user_id": uuid4(),
-            }
-        )
-
+        await graph.ainvoke({
+            "query": "What does the company policy say?",
+            "organization_id": uuid4(),
+            "user_id": uuid4(),
+        })
+    assert generation.calls == []
 
 
 class StreamingFakeGenerationAgent:
     async def astream_generate(self, **kwargs):
         output = GenerationOutput(
             status=GenerationStatus.ANSWERED,
-            segments=[AnswerSegment(text="The annual leave entitlement is 20 days.", citations=["E1"])],
+            segments=[AnswerSegment(
+                text="The annual leave entitlement is 20 days.",
+                citations=["E1"],
+            )],
         )
         yield GenerationStreamEvent(
             event_type=GenerationStreamEventType.CONTENT_DELTA,
@@ -326,13 +169,10 @@ class StreamingFakeGenerationAgent:
 
 
 @pytest.mark.asyncio
-async def test_graph_forwards_generation_deltas_without_skipping_final_validation():
+async def test_graph_streams_generation_and_keeps_static_citation_validation():
     events = []
     graph = create_rag_graph(
         retriever=FakeRetriever(),
-        evaluator=FakeEvaluator(),
-        retrieval_expansion_agent=FakeExpansionAgent(),
-        context_compression_agent=FakeCompressionAgent(),
         generation_agent=StreamingFakeGenerationAgent(),
         validator=FakeValidator(),
         generation_event_callback=events.append,

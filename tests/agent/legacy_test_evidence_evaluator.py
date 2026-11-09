@@ -3,7 +3,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableLambda
 from pydantic import ValidationError
 
-from app.agents.Evidence_evaluator import (
+from app.agents.Evidence_evaluator_legacy import (
     EmptyQueryError,
     EvidenceEvaluation,
     EvidenceEvaluatorAgent,

@@ -7,7 +7,7 @@ from typing import Any
 
 from langchain_core.output_parsers import PydanticOutputParser
 
-from app.llm.context_compression_client import context_compression_llm_client
+from app.llm.context_compression_client_legacy import context_compression_llm_client
 
 from .config import ContextCompressionConfig
 from .prompts import get_context_compression_prompt

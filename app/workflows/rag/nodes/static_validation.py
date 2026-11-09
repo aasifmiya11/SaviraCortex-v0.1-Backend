@@ -19,11 +19,7 @@ def create_static_validation_node(
                 "generation_output is required before static validation."
             )
 
-        documents = (
-            state.get("context_documents")
-            if state.get("context_documents") is not None
-            else state.get("retrieved_documents") or []
-        )
+        documents = state.get("retrieved_documents") or []
         validation_result = validator.validate_generation_output(
             output=generation_output,
             retrieved_documents=documents,

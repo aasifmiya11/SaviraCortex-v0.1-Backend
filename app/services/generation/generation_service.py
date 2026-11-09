@@ -82,9 +82,6 @@ class _SharedRAGComponents:
     global_fusion: Any
     cross_encoder_reranker: Any
     adaptive_k_selector: Any
-    evidence_evaluator: Any
-    retrieval_expansion_agent: Any
-    context_compression_agent: Any
     generation_agent: Any
     validator: Any
 
@@ -96,11 +93,8 @@ def _initialize_shared_rag_components() -> _SharedRAGComponents:
     download embedding/reranker models or connect to Qdrant.
     """
     try:
-        from app.agents.Context_compression import ContextCompressionAgent
-        from app.agents.Evidence_evaluator import EvidenceEvaluatorAgent
         from app.agents.Generation import GenerationAgent
         from app.agents.Multi_query_generator import MultiQueryGeneratorAgent
-        from app.agents.Retrieval_expansion import RetrievalExpansionAgent
         from app.rag.retrieval.adaptive_k_selector import AdaptiveKSelector
         from app.rag.retrieval.candidate_document_generator import (
             CandidateDocumentGenerator,
@@ -120,9 +114,6 @@ def _initialize_shared_rag_components() -> _SharedRAGComponents:
             global_fusion=GlobalResultFusion(),
             cross_encoder_reranker=CrossEncoderReranker(),
             adaptive_k_selector=AdaptiveKSelector(),
-            evidence_evaluator=EvidenceEvaluatorAgent(),
-            retrieval_expansion_agent=RetrievalExpansionAgent(),
-            context_compression_agent=ContextCompressionAgent(),
             generation_agent=GenerationAgent(),
             validator=StaticValidationLayer(),
         )
@@ -158,7 +149,6 @@ def _build_graph(
         from app.repositories.authorization_repository import AuthorizationRepository
         from app.services.authorization.authorization_service import AuthorizationService
         from app.services.retrieval.retrieval_service import RetrievalOrchestrator
-        from app.workflows.rag.config import RAGWorkflowConfig
         from app.workflows.rag.graph import create_rag_graph
 
         shared = shared_components or _get_shared_rag_components()
@@ -175,12 +165,8 @@ def _build_graph(
         )
         return create_rag_graph(
             retriever=retriever,
-            evaluator=shared.evidence_evaluator,
-            retrieval_expansion_agent=shared.retrieval_expansion_agent,
-            context_compression_agent=shared.context_compression_agent,
             generation_agent=shared.generation_agent,
             validator=shared.validator,
-            config=RAGWorkflowConfig(),
             generation_event_callback=generation_event_callback,
         )
     except GenerationRuntimeUnavailableError:
@@ -214,6 +200,7 @@ class GenerationService:
     ) -> GenerationResponse:
         from langchain_core.messages import AIMessage, HumanMessage
 
+        logger.info("[RAG][GENERATION_REQUEST] query=%r organization_id=%s user_id=%s history_turns=%d", query[:500], organization_id, user_id, len(conversation_history or []))
         history = []
         for turn in conversation_history or []:
             if turn.role == "user":
@@ -240,6 +227,7 @@ class GenerationService:
             ) from exc
 
         try:
+            logger.info("[RAG][GENERATION_GRAPH_START] invoking workflow")
             result = await graph.ainvoke(
                 {
                     "query": query,
@@ -282,6 +270,7 @@ class GenerationService:
             )
 
         retrieved_documents = result.get("retrieved_documents") or []
+        logger.info("[RAG][GENERATION_COMPLETE] evidence_count=%d retrieval_attempts=%s citation_count=%d answer_status=%s", len(retrieved_documents), result.get("retrieval_attempt", 0), len(validation.citations), answer.status)
         return GenerationResponse(
             query=result.get("query", query),
             answer=_append_references(answer.segments[0].text, validation.citations),

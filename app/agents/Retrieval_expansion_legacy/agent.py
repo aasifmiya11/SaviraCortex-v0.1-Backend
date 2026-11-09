@@ -7,7 +7,7 @@ from typing import Any
 from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import PydanticOutputParser
 
-from app.llm.retrieval_expansion_client import retrieval_expansion_llm_client
+from app.llm.retrieval_expansion_client_legacy import retrieval_expansion_llm_client
 
 from .config import RetrievalExpansionConfig
 from .prompts import get_retrieval_expansion_prompt

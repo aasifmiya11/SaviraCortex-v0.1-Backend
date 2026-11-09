@@ -62,9 +62,7 @@ def test_embedding_batches_large_document_lists():
         {"data": [_item(0, 1.0), _item(1, 2.0)]},
         {"data": [_item(0, 3.0)]},
     ])
-    client = JinaEmbeddingClient(
-        api_key="test-key", session=session, batch_size=2
-    )
+    client = JinaEmbeddingClient(api_key="test-key", session=session, batch_size=2)
     client.dimensions = 3
 
     vectors = client.embed_documents(["one", "two", "three"])

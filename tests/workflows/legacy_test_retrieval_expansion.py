@@ -1,7 +1,7 @@
 import pytest
 
-from app.agents.Retrieval_expansion import RetrievalExpansionOutput
-from app.workflows.rag.nodes.retrieval_expansion import (
+from app.agents.Retrieval_expansion_legacy import RetrievalExpansionOutput
+from app.workflows.rag.nodes.retrieval_expansion_legacy import (
     create_retrieval_expansion_node,
 )
 

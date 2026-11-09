@@ -23,16 +23,23 @@ uv run pytest
 
 Use focused tests while developing and record the exact command and result. See [Testing](docs/21-testing.md).
 
-## Configuration
+## Embedding provider configuration
 
-Configure backend environment variables in a local `.env` file. Route Jina embeddings and reranking through the standalone API gateway with these backend-owned settings:
+The backend routes embeddings through the standalone API gateway. Jina remains the default provider. To use Cloudflare Qwen3 embeddings instead, set this in `backend/.env`:
 
 ```dotenv
 JINA_API_BASE_URL=http://127.0.0.1:8090/v1
 JINA_API_KEY=<copy the gateway GATEWAY_API_KEY into this backend-only variable>
+EMBEDDING_PROVIDER=cloudflare
+CLOUDFLARE_EMBEDDING_MODEL=@cf/qwen/qwen3-embedding-0.6b
+CLOUDFLARE_EMBEDDING_DIMENSIONS=1024
 ```
 
-The backend key is the gateway client credential, not a Jina provider key. Keep the value independently in `backend/.env`; do not load or synchronize `api-gateway/.env` at runtime. The code defaults to the local gateway URL if `JINA_API_BASE_URL` is omitted. Firebase Admin uses the backend-only service-account JSON configured by `FIREBASE_SERVICE_ACCOUNT_PATH` (default: `app/secrets/firebase-service-account.json`). Never commit credential files.
+Set `EMBEDDING_PROVIDER=jina` (or omit it) to retain the existing Jina integration. The backend gateway key is the client credential, not a provider API key. Cloudflare account IDs and provider tokens remain exclusively in `api-gateway/.env`; the gateway rotates the paired account/token entries and fails over on transient/provider errors.
+
+**Qdrant isolation:** the selected provider automatically uses its own collection names. Jina keeps the `_jina_v5_1024` suffix; Cloudflare uses `_cloudflare_qwen3_1024`. You can override them with `JINA_QDRANT_COLLECTION_NAME`, `JINA_QDRANT_SUMMARY_COLLECTION_NAME`, `CLOUDFLARE_QDRANT_COLLECTION_NAME`, and `CLOUDFLARE_QDRANT_SUMMARY_COLLECTION_NAME`. Never point both models at the same collection. Switching providers requires re-embedding/re-indexing documents into the selected provider's collections; existing Jina vectors are not converted or deleted.
+
+The code defaults to the local gateway URL if `JINA_API_BASE_URL` is omitted. Firebase Admin uses the backend-only service-account JSON configured by `FIREBASE_SERVICE_ACCOUNT_PATH` (default: `app/secrets/firebase-service-account.json`). Never commit credential files.
 
 ## Technical documentation
 

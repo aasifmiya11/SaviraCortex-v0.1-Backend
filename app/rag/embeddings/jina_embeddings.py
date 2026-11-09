@@ -163,8 +163,3 @@ class JinaEmbeddingClient(Embeddings):
     def get_embedding_model(self) -> Embeddings:
         """Return this LangChain-compatible embedding implementation."""
         return self
-
-
-# Shared process-wide adapter; no model is downloaded or loaded locally.
-embedding_client = JinaEmbeddingClient()
-embedding_model = embedding_client

@@ -1,4 +1,4 @@
-"""DeepEval adapter around SaviraCortex's Jina API embeddings."""
+"""DeepEval adapter around SaviraCortex's configured embedding provider."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import List
 
 from deepeval.models import DeepEvalBaseEmbeddingModel
 
-from app.rag.embeddings.jina_embeddings import embedding_client
+from app.rag.embeddings.provider import embedding_client
 
 
 class SaviraDeepEvalEmbeddings(DeepEvalBaseEmbeddingModel):

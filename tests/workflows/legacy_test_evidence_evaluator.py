@@ -1,7 +1,7 @@
 import pytest
 
-from app.agents.Evidence_evaluator import EvidenceEvaluation
-from app.workflows.rag.nodes.evidence_evaluator import (
+from app.agents.Evidence_evaluator_legacy import EvidenceEvaluation
+from app.workflows.rag.nodes.evidence_evaluator_legacy import (
     create_evidence_evaluator_node,
 )
 

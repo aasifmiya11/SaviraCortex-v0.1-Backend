@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from typing import Any
 
-from app.agents.Retrieval_expansion import RetrievalExpansionAgent
+from app.agents.Retrieval_expansion_legacy import RetrievalExpansionAgent
 from app.workflows.rag.state import RAGWorkflowState
 
 

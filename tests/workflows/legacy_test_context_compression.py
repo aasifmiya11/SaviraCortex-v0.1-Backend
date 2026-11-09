@@ -1,6 +1,6 @@
 import pytest
 
-from app.workflows.rag.nodes.context_compression import (
+from app.workflows.rag.nodes.context_compression_legacy import (
     create_context_compression_node,
 )
 

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from typing import Any
+
+
+logger = logging.getLogger(__name__)
 
 
 def _chunk_identity(result: dict[str, Any]) -> str:
@@ -111,7 +115,7 @@ class GlobalResultFusion:
             ),
         )[:top_k]
 
-        return [
+        fused_results = [
             {
                 "global_rank": rank,
                 "global_rrf_score": scores[chunk_id],
@@ -122,6 +126,25 @@ class GlobalResultFusion:
             }
             for rank, chunk_id in enumerate(ranked_chunks, start=1)
         ]
+        logger.info(
+            "[RAG][GLOBAL_RRF] branches=%d unique_chunks=%d selected=%d table=%s",
+            len(branch_results), len(scores), len(fused_results),
+            [
+                {
+                    "global_rank": item["global_rank"],
+                    "document_id": (item.get("metadata") or {}).get("document_id"),
+                    "document_version_id": (item.get("metadata") or {}).get("document_version_id"),
+                    "chunk_id": item["chunk_id"],
+                    "global_rrf_score": round(item["global_rrf_score"], 8),
+                    "query_ranks": [
+                        {"branch": p["branch_index"], "rank": p["rank"]}
+                        for p in item["provenance"]
+                    ],
+                }
+                for item in fused_results
+            ],
+        )
+        return fused_results
 
 
 global_result_fusion = GlobalResultFusion()

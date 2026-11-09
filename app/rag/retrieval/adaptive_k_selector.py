@@ -17,7 +17,7 @@ class AdaptiveKSelector:
         self,
         k_min: int = 3,
         k_max: int = 10,
-        score_threshold: float = 0.6,
+        score_threshold: float = 0.0,
         max_expansion_rounds: int = 2,
     ) -> None:
         if isinstance(k_min, bool) or not isinstance(k_min, int) or k_min < 1:

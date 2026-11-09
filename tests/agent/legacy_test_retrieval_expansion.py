@@ -3,7 +3,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableLambda
 from pydantic import ValidationError
 
-from app.agents.Retrieval_expansion import (
+from app.agents.Retrieval_expansion_legacy import (
     InvalidExpansionInputError,
     RetrievalExpansionAgent,
     RetrievalExpansionConfig,

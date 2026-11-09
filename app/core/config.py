@@ -9,16 +9,14 @@ load_dotenv(_BACKEND_ROOT / ".env", override=False)
 
 def get_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
-
     if value is None:
         return default
-
     return value.strip().lower() in {"true", "1", "yes", "on"}
 
 
 class Settings:
     # Embedding and reranking are routed through the standalone API gateway.
-    # Keep the gateway credential in backend/.env; never load api-gateway/.env here.
+    # Keep the gateway credential in backend/.env; never load api-gateway/.env.
     JINA_API_KEY = os.getenv("JINA_API_KEY")
     JINA_API_BASE_URL = os.getenv(
         "JINA_API_BASE_URL", "http://127.0.0.1:8090/v1"
@@ -32,6 +30,16 @@ class Settings:
     )
     JINA_API_TIMEOUT_SECONDS = float(os.getenv("JINA_API_TIMEOUT_SECONDS", "120"))
     JINA_EMBEDDING_BATCH_SIZE = int(os.getenv("JINA_EMBEDDING_BATCH_SIZE", "64"))
+
+    EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "jina").strip().lower()
+    if EMBEDDING_PROVIDER not in {"jina", "cloudflare"}:
+        raise ValueError("EMBEDDING_PROVIDER must be 'jina' or 'cloudflare'.")
+    CLOUDFLARE_EMBEDDING_MODEL = os.getenv(
+        "CLOUDFLARE_EMBEDDING_MODEL", "@cf/qwen/qwen3-embedding-0.6b"
+    )
+    CLOUDFLARE_EMBEDDING_DIMENSIONS = int(
+        os.getenv("CLOUDFLARE_EMBEDDING_DIMENSIONS", "1024")
+    )
 
     OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -51,27 +59,52 @@ class Settings:
     QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
     QDRANT_API_ENDPOINT = os.getenv("QDRANT_API_ENDPOINT")
 
-    # Embedding dimensions/model changes require isolated vector collections.
-    # Keep the previous collections untouched for rollback and re-indexing.
+    # Preserve legacy names as the source for model-specific isolated collections.
     LEGACY_QDRANT_COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME")
     LEGACY_QDRANT_SUMMARY_COLLECTION_NAME = os.getenv(
         "QDRANT_SUMMARY_COLLECTION_NAME"
     )
-    QDRANT_COLLECTION_NAME = os.getenv("JINA_QDRANT_COLLECTION_NAME") or (
+
+    JINA_QDRANT_COLLECTION_NAME = os.getenv("JINA_QDRANT_COLLECTION_NAME") or (
         f"{LEGACY_QDRANT_COLLECTION_NAME}_jina_v5_1024"
         if LEGACY_QDRANT_COLLECTION_NAME else None
     )
-    QDRANT_SUMMARY_COLLECTION_NAME = (
+    JINA_QDRANT_SUMMARY_COLLECTION_NAME = (
         os.getenv("JINA_QDRANT_SUMMARY_COLLECTION_NAME")
         or (
             f"{LEGACY_QDRANT_SUMMARY_COLLECTION_NAME}_jina_v5_1024"
             if LEGACY_QDRANT_SUMMARY_COLLECTION_NAME
             else (
-                f"{QDRANT_COLLECTION_NAME}_summaries"
-                if QDRANT_COLLECTION_NAME else None
+                f"{JINA_QDRANT_COLLECTION_NAME}_summaries"
+                if JINA_QDRANT_COLLECTION_NAME else None
             )
         )
     )
+
+    CLOUDFLARE_QDRANT_COLLECTION_NAME = os.getenv(
+        "CLOUDFLARE_QDRANT_COLLECTION_NAME"
+    ) or (
+        f"{LEGACY_QDRANT_COLLECTION_NAME}_cloudflare_qwen3_1024"
+        if LEGACY_QDRANT_COLLECTION_NAME else None
+    )
+    CLOUDFLARE_QDRANT_SUMMARY_COLLECTION_NAME = os.getenv(
+        "CLOUDFLARE_QDRANT_SUMMARY_COLLECTION_NAME"
+    ) or (
+        f"{LEGACY_QDRANT_SUMMARY_COLLECTION_NAME}_cloudflare_qwen3_1024"
+        if LEGACY_QDRANT_SUMMARY_COLLECTION_NAME
+        else (
+            f"{CLOUDFLARE_QDRANT_COLLECTION_NAME}_summaries"
+            if CLOUDFLARE_QDRANT_COLLECTION_NAME else None
+        )
+    )
+
+    # The selected provider always points at its own pair of collections.
+    if EMBEDDING_PROVIDER == "cloudflare":
+        QDRANT_COLLECTION_NAME = CLOUDFLARE_QDRANT_COLLECTION_NAME
+        QDRANT_SUMMARY_COLLECTION_NAME = CLOUDFLARE_QDRANT_SUMMARY_COLLECTION_NAME
+    else:
+        QDRANT_COLLECTION_NAME = JINA_QDRANT_COLLECTION_NAME
+        QDRANT_SUMMARY_COLLECTION_NAME = JINA_QDRANT_SUMMARY_COLLECTION_NAME
 
     # Firebase Admin SDK configuration for server-side ID-token verification.
     FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID")
@@ -114,8 +147,7 @@ class Settings:
     B2_ENDPOINT_URL = os.getenv("B2_ENDPOINT_URL")
     B2_STORAGE_PREFIX = os.getenv("B2_STORAGE_PREFIX", "voice-ai/")
 
-    # Isolated retrieval-evaluation resources. Keep these separate from the
-    # production Qdrant collections and B2 storage prefix.
+    # Isolated retrieval-evaluation resources. Keep these separate from production.
     EVAL_ORGANIZATION_ID = os.getenv("SAVIRACORTEX_EVAL_ORGANIZATION_ID")
     EVAL_USER_ID = os.getenv("SAVIRACORTEX_EVAL_USER_ID")
     EVAL_QDRANT_COLLECTION_NAME = os.getenv(

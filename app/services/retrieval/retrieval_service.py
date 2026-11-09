@@ -109,10 +109,12 @@ class RetrievalOrchestrator:
 
         # This service method uses a synchronous request-scoped SQLAlchemy
         # Session. Keep the call on the same thread that owns that Session.
+        logger.info("[RAG][REQUEST_START] query=%r mode=%s top_k=%d candidate_k=%d", current_query[:500], mode, top_k, candidate_k)
         authorized_catalogue = self.authorization_service.get_authorized_document_catalog(
             organization_id=organization_id,
             user_id=user_id,
         )
+        logger.info("[RAG][AUTHORIZATION] authorized_document_versions=%d", len(authorized_catalogue))
 
         if not authorized_catalogue:
             return self._empty_response(
@@ -131,6 +133,7 @@ class RetrievalOrchestrator:
             available_documents=available_documents,
         )
         generated_queries = self._deduplicate_queries(generated_queries, set())
+        logger.info("[RAG][MULTI_QUERY] generated=%d queries=%s", len(generated_queries), [self._query_to_dict(q) for q in generated_queries])
         if not generated_queries:
             raise RetrievalOrchestrationError(
                 "The multi-query generator returned no usable queries."
@@ -192,67 +195,10 @@ class RetrievalOrchestrator:
             expansion_round=expansion_round,
         )
 
-        # Expansion reuses the existing multi-query agent. The composed prompt
-        # includes previous queries and retrieved chunks so the agent can
-        # produce additional, non-duplicate search formulations.
-        while selection["expansion_required"]:
-            expansion_stop_reason = "no_new_queries"
-            expansion_queries = await self._generate_expansion_queries(
-                current_query=current_query,
-                previous_queries=all_queries,
-                reranked_candidates=reranked,
-                available_documents=available_documents,
-                conversation_history=history,
-            )
-            expansion_queries = self._deduplicate_queries(
-                expansion_queries,
-                {query.query.casefold() for query in all_queries},
-            )
-
-            if not expansion_queries:
-                logger.info(
-                    "Stopping retrieval expansion because no new queries were generated."
-                )
-                break
-
-            expansion_round += 1
-            expansion_stop_reason = "max_expansion_rounds_reached"
-            all_queries.extend(expansion_queries)
-
-            try:
-                candidate_results = await self.candidate_document_generator.generate_candidates(
-                    queries=expansion_queries,
-                    authorized_catalogue=authorized_catalogue,
-                    organization_id=organization_id,
-                )
-            except CandidateDocumentGenerationError as exc:
-                logger.exception("Candidate generation failed during query expansion.")
-                expansion_stop_reason = "candidate_generation_failed"
-                candidate_generation_error = str(exc)
-                break
-
-            new_branches, new_stats = await self._retrieve_candidate_branches(
-                candidate_results=candidate_results,
-                organization_id=organization_id,
-                top_k=candidate_k,
-                candidate_k=candidate_k,
-                mode=mode,
-                rrf_k=rrf_k,
-                exclude=exclude,
-                excluded_chunk_ids=excluded_chunk_ids,
-            )
-            branch_results.extend(new_branches)
-            branch_stats.extend(new_stats)
-
-            fused, reranked, selection = await self._fuse_rerank_select(
-                current_query=current_query,
-                branch_results=branch_results,
-                top_k=top_k,
-                rrf_k=rrf_k,
-                expansion_round=expansion_round,
-            )
-            if not selection["expansion_required"]:
-                expansion_stop_reason = "target_met"
+        # Single-pass mode stops immediately after the first Adaptive-K selection.
+        # A low selected count is diagnostic only and never triggers another query.
+        expansion_stop_reason = "disabled_single_pass"
+        candidate_generation_error = None
 
         return {
             "query": current_query,
@@ -268,9 +214,9 @@ class RetrievalOrchestrator:
             "branch_count": len(branch_results),
             "branches": branch_stats,
             "expansion": {
-                "rounds_performed": expansion_round,
+                "rounds_performed": 0,
                 "max_rounds": selection["max_expansion_rounds"],
-                "required_after_final_round": selection["expansion_required"],
+                "required_after_final_round": False,
                 "stop_reason": expansion_stop_reason,
                 "score_threshold": selection["score_threshold"],
             },
@@ -302,6 +248,7 @@ class RetrievalOrchestrator:
             stats = {
                 "query": candidate_result.query,
                 "candidate_version_count": len(version_ids),
+                "candidate_document_version_ids": version_ids,
                 "result_count": 0,
                 "retrieval_error": candidate_result.retrieval_error,
             }
@@ -334,6 +281,8 @@ class RetrievalOrchestrator:
                 "results": result["results"],
             }
             stats["result_count"] = result["result_count"]
+            stats["rank_diagnostics"] = result.get("diagnostics", {})
+            logger.info("[RAG][QUERY_BRANCH] query=%r candidate_versions=%s results=%d rank_tables=%s", candidate_result.query[:300], version_ids, result["result_count"], result.get("diagnostics", {}))
             return branch, stats
 
         pairs = await asyncio.gather(
@@ -360,55 +309,20 @@ class RetrievalOrchestrator:
             rrf_k=rrf_k,
         )
 
+        logger.info("[RAG][GLOBAL_FUSION_COMPLETE] branch_count=%d fused_count=%d global_table=%s", len(branch_results), len(fused), [{"rank": x.get("global_rank"), "document_id": (x.get("metadata") or {}).get("document_id"), "document_version_id": (x.get("metadata") or {}).get("document_version_id"), "chunk_id": x.get("chunk_id"), "rrf_score": x.get("global_rrf_score"), "query_ranks": x.get("provenance", [])} for x in fused])
         reranked = await asyncio.to_thread(
             self.cross_encoder_reranker.rerank,
             current_query,
             fused,
         ) if fused else []
+        logger.info("[RAG][CROSS_ENCODER_RERANK] candidates=%d reranked_table=%s", len(fused), [{"rerank_rank": i, "document_id": (x.get("metadata") or {}).get("document_id"), "document_version_id": (x.get("metadata") or {}).get("document_version_id"), "chunk_id": x.get("chunk_id"), "global_rank": x.get("global_rank"), "reranker_score": x.get("reranker_score")} for i, x in enumerate(reranked, 1)])
 
         selection = self.adaptive_k_selector.select(
             reranked,
             expansion_round=expansion_round,
         )
+        logger.info("[RAG][ADAPTIVE_SELECTION] expansion_round=%d eligible=%s selected=%s expansion_required=%s selected_table=%s", expansion_round, selection.get("eligible_count"), selection.get("selected_count"), selection.get("expansion_required"), selection.get("selected_candidates", []))
         return fused, reranked, selection
-
-    async def _generate_expansion_queries(
-        self,
-        *,
-        current_query: str,
-        previous_queries: Sequence[GeneratedQuery],
-        reranked_candidates: Sequence[dict[str, Any]],
-        available_documents: AvailableDocuments,
-        conversation_history: Sequence[BaseMessage],
-    ) -> list[GeneratedQuery]:
-        retrieved_context = []
-        for index, candidate in enumerate(reranked_candidates[:8], start=1):
-            content = str(candidate.get("page_content", "")).strip()
-            if content:
-                retrieved_context.append(f"[{index}] {content[:1200]}")
-
-        previous_query_text = "\n".join(
-            f"- {query.query}" for query in previous_queries
-        )
-        context_text = "\n\n".join(retrieved_context) or "No relevant chunks were retrieved."
-
-        expansion_request = (
-            "Generate additional retrieval queries for the user's original question. "
-            "Do not repeat or lightly rephrase any previous query. Explore aspects, "
-            "terminology, constraints, or missing details that the retrieved chunks "
-            "do not adequately cover. Keep the queries grounded in the authorized "
-            "document catalogue and assign accurate version scopes and target years.\n\n"
-            f"Original user question:\n{current_query}\n\n"
-            f"Previous queries (do not repeat):\n{previous_query_text}\n\n"
-            f"Retrieved chunks:\n{context_text}\n\n"
-            "Return only additional queries that could retrieve complementary evidence."
-        )
-
-        return await self.multi_query_agent.agenerate(
-            current_query=expansion_request,
-            conversation_history=conversation_history,
-            available_documents=available_documents,
-        )
 
     @staticmethod
     def _build_available_documents(

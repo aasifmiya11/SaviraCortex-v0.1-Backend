@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from typing import Any
 
-from app.agents.Evidence_evaluator import EvidenceEvaluatorAgent
+from app.agents.Evidence_evaluator_legacy import EvidenceEvaluatorAgent
 from app.workflows.rag.state import RAGWorkflowState
 
 

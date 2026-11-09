@@ -1,7 +1,7 @@
 import pytest
 from langchain_core.runnables import RunnableLambda
 
-from app.agents.Context_compression import (
+from app.agents.Context_compression_legacy import (
     ContextCompressionAgent,
     ContextCompressionConfig,
     ContextCompressionError,

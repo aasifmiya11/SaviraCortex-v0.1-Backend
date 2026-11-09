@@ -1,9 +1,4 @@
-"""Shared state contract for the end-to-end RAG LangGraph workflow.
-
-Original retrieval candidates remain available for retrieval expansion and
-provenance. Context compression creates a separate ordered view for evidence
-evaluation, generation, and citation validation.
-"""
+"""Minimal state contract for the single-pass RAG workflow."""
 
 from typing import Any, NotRequired, Required, TypedDict
 from uuid import UUID
@@ -15,7 +10,7 @@ from app.validation.schemas import GenerationValidationResult
 
 
 class RAGWorkflowState(TypedDict):
-    """State passed between nodes in the RAG workflow."""
+    """State passed through validation, retrieval, generation, and citation checks."""
 
     query: Required[str]
     organization_id: Required[UUID]
@@ -25,24 +20,11 @@ class RAGWorkflowState(TypedDict):
     is_valid: NotRequired[bool]
     validation_error: NotRequired[str | None]
 
+    # Exact selected chunk list returned by the first Adaptive-K selection.
     retrieved_documents: NotRequired[list[dict[str, Any]]]
-    excluded_chunk_ids: NotRequired[list[str]]
-    exclude: NotRequired[bool]
     retrieval_attempt: NotRequired[int]
     retrieval_reason: NotRequired[str | None]
     retrieval_diagnostics: NotRequired[dict[str, Any] | None]
-
-    # One-to-one query-focused view; order and metadata match original docs.
-    context_documents: NotRequired[list[dict[str, Any]]]
-    context_compressed: NotRequired[bool]
-    context_token_estimate: NotRequired[int]
-
-    is_sufficient: NotRequired[bool | None]
-    missing_information: NotRequired[list[str]]
-    retry: NotRequired[bool]
-
-    rewritten_query: NotRequired[str | None]
-    hypothetical_answer: NotRequired[str | None]
 
     generation_output: NotRequired[GenerationOutput | None]
     validation_result: NotRequired[GenerationValidationResult | None]

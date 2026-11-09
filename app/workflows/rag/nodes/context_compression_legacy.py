@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from typing import Any
 
-from app.agents.Context_compression import ContextCompressionAgent
+from app.agents.Context_compression_legacy import ContextCompressionAgent
 from app.workflows.rag.state import RAGWorkflowState
 
 

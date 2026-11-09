@@ -30,11 +30,8 @@ from deepeval.metrics import (
 from deepeval.test_case import LLMTestCase
 from sqlalchemy.orm import Session
 
-from app.agents.Context_compression import ContextCompressionAgent
-from app.agents.Evidence_evaluator import EvidenceEvaluatorAgent
 from app.agents.Generation import GenerationAgent
 from app.agents.Multi_query_generator import MultiQueryGeneratorAgent
-from app.agents.Retrieval_expansion import RetrievalExpansionAgent
 from app.core.config import settings
 from app.core.database import get_db_session
 from app.validation import StaticValidationLayer
@@ -80,7 +77,7 @@ def build_metrics(model: SaviraDeepEvalLLM) -> list[Any]:
 
 
 def _answer_text(generation_output: Any) -> str:
-    return "\n\n".join(
+    return "\r\n\r\n".join(
         segment.text for segment in generation_output.segments
     ).strip()
 
@@ -90,8 +87,6 @@ def _build_production_graph(
     db: Session,
     chunk_collection_name: str,
     summary_collection_name: str,
-    max_retrieval_attempts: int,
-    compression_document_threshold: int,
 ):
     """Compose production services against isolated evaluation collections.
 
@@ -115,7 +110,6 @@ def _build_production_graph(
     from app.repositories.authorization_repository import AuthorizationRepository
     from app.services.authorization.authorization_service import AuthorizationService
     from app.services.retrieval.retrieval_service import RetrievalOrchestrator
-    from app.workflows.rag.config import RAGWorkflowConfig
     from app.workflows.rag.graph import create_rag_graph
 
     chunk_store = QdrantVectorStoreClient(collection_name=chunk_collection_name)
@@ -141,15 +135,8 @@ def _build_production_graph(
 
     return create_rag_graph(
         retriever=retrieval_orchestrator,
-        evaluator=EvidenceEvaluatorAgent(),
-        retrieval_expansion_agent=RetrievalExpansionAgent(),
-        context_compression_agent=ContextCompressionAgent(),
         generation_agent=GenerationAgent(),
         validator=StaticValidationLayer(),
-        config=RAGWorkflowConfig(
-            max_retrieval_attempts=max_retrieval_attempts,
-            compression_document_threshold=compression_document_threshold,
-        ),
     )
 
 
@@ -160,8 +147,6 @@ async def evaluate_dataset(
     chunk_collection_name: str,
     summary_collection_name: str,
     dataset_path: Path = DEFAULT_DATASET,
-    max_retrieval_attempts: int = 3,
-    compression_document_threshold: int = 15,
     limit: int | None = None,
 ) -> dict[str, Any]:
     if (
@@ -187,8 +172,6 @@ async def evaluate_dataset(
             db=db,
             chunk_collection_name=chunk_collection_name,
             summary_collection_name=summary_collection_name,
-            max_retrieval_attempts=max_retrieval_attempts,
-            compression_document_threshold=compression_document_threshold,
         )
 
         for index, golden in enumerate(goldens, start=1):
@@ -212,11 +195,7 @@ async def evaluate_dataset(
                 )
 
             # This is the exact ordered evidence view passed to GenerationAgent.
-            generation_documents = (
-                state.get("context_documents")
-                if state.get("context_documents") is not None
-                else state.get("retrieved_documents") or []
-            )
+            generation_documents = state.get("retrieved_documents") or []
             retrieval_context = [
                 item["page_content"]
                 for item in generation_documents
@@ -268,12 +247,8 @@ async def evaluate_dataset(
                     "original_retrieved_documents": state.get("retrieved_documents") or [],
                     "generation_output": generation_output.model_dump(mode="json"),
                     "workflow": {
-                        "is_sufficient": state.get("is_sufficient"),
-                        "missing_information": state.get("missing_information") or [],
                         "retrieval_attempt": state.get("retrieval_attempt", 0),
                         "retrieval_diagnostics": state.get("retrieval_diagnostics"),
-                        "context_compressed": state.get("context_compressed", False),
-                        "context_token_estimate": state.get("context_token_estimate"),
                         "validation_result": (
                             validation_result.model_dump(mode="json")
                             if validation_result is not None
@@ -314,8 +289,6 @@ async def evaluate_dataset(
         "qdrant_chunk_collection": chunk_collection_name,
         "qdrant_summary_collection": summary_collection_name,
         "orchestrator": "production RetrievalOrchestrator + production LangGraph RAG workflow",
-        "max_retrieval_attempts": max_retrieval_attempts,
-        "compression_document_threshold": compression_document_threshold,
         "summary": summary,
         "results": per_golden,
     }
@@ -333,8 +306,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=settings.EVAL_QDRANT_SUMMARY_COLLECTION_NAME,
     )
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
-    parser.add_argument("--max-retrieval-attempts", type=int, default=3)
-    parser.add_argument("--compression-document-threshold", type=int, default=15)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--output", type=Path)
     return parser
@@ -356,9 +327,7 @@ def main() -> None:
             "Configure dedicated evaluation chunk and summary Qdrant collections."
         )
     if (
-        args.max_retrieval_attempts < 1
-        or args.compression_document_threshold < 0
-        or (args.limit is not None and args.limit < 1)
+        (args.limit is not None and args.limit < 1)
     ):
         raise SystemExit("Invalid workflow threshold or --limit value.")
 

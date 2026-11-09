@@ -151,6 +151,18 @@ class CandidateDocumentGenerator:
             result.retrieval_error is not None
             for result in results
         )
+        logger.info(
+            "[RAG][DOCUMENT_CANDIDATES] queries=%d failed=%d candidate_table=%s",
+            len(results), failed_searches,
+            [{"query": item.query[:250], "version_scope": item.version_scope.value,
+              "candidate_count": len(item.candidates),
+              "candidates": [{"document_id": c.document_id,
+                              "document_version_id": c.document_version_id,
+                              "title": c.document_title,
+                              "similarity_score": round(c.similarity_score, 8)}
+                             for c in item.candidates],
+              "error": item.retrieval_error} for item in results],
+        )
 
         if failed_searches == len(results):
             raise CandidateDocumentGenerationError(

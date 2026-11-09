@@ -28,11 +28,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from app.agents.Context_compression import ContextCompressionAgent
-from app.agents.Evidence_evaluator import EvidenceEvaluatorAgent
 from app.agents.Generation import GenerationAgent
 from app.agents.Multi_query_generator.agent import MultiQueryGeneratorAgent
-from app.agents.Retrieval_expansion import RetrievalExpansionAgent
 from app.core.database import get_db_session
 from app.rag.retrieval.adaptive_k_selector import AdaptiveKSelector
 from app.rag.retrieval.candidate_document_generator import (
@@ -46,7 +43,6 @@ from app.repositories.authorization_repository import AuthorizationRepository
 from app.services.authorization.authorization_service import AuthorizationService
 from app.services.retrieval.retrieval_service import RetrievalOrchestrator
 from app.validation import StaticValidationLayer
-from app.workflows.rag.config import RAGWorkflowConfig
 from app.workflows.rag.graph import create_rag_graph
 
 
@@ -78,7 +74,7 @@ SCENARIOS: list[dict[str, Any]] = [
     {
         "name": "3. MESSY QUERY (WHITESPACE NORMALIZATION)",
         "query": (
-            "   What   is the company's     sick leave policy?\n"
+            "   What   is the company's     sick leave policy?\r\n"
             "       Are there any eligibility conditions?   "
         ),
         "context": [],
@@ -106,22 +102,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=UUID,
         help="User UUID used for document authorization.",
     )
-    parser.add_argument(
-        "--max-retrieval-attempts",
-        type=int,
-        default=3,
-        help="Maximum total retrieval attempts per query (default: 3).",
-    )
     return parser
 
 
 def print_section(title: str) -> None:
-    print("\n" + "=" * 96)
+    print("\r\n" + "=" * 96)
     print(title)
     print("=" * 96)
 
 
-def build_workflow(db_session, *, max_retrieval_attempts: int):
+def build_workflow(db_session):
     """Compose the real workflow from existing application components."""
     authorization_service = AuthorizationService(
         AuthorizationRepository(db_session)
@@ -140,15 +130,8 @@ def build_workflow(db_session, *, max_retrieval_attempts: int):
 
     return create_rag_graph(
         retriever=retriever,
-        evaluator=EvidenceEvaluatorAgent(),
-        retrieval_expansion_agent=RetrievalExpansionAgent(),
-        context_compression_agent=ContextCompressionAgent(),
         generation_agent=GenerationAgent(),
         validator=StaticValidationLayer(),
-        config=RAGWorkflowConfig(
-            max_retrieval_attempts=max_retrieval_attempts,
-            compression_document_threshold=15,
-        ),
     )
 
 
@@ -181,17 +164,16 @@ async def run_scenario(
         }
     )
 
-    print("\n--- INPUT VALIDATION ---")
+    print("\r\n--- INPUT VALIDATION ---")
     print(f"Valid: {result.get('is_valid')}")
     print(f"Normalized query: {result.get('query')!r}")
     if result.get("validation_error"):
         print(f"Validation error: {result['validation_error']}")
         return False
 
-    print("\n--- RETRIEVAL ---")
+    print("\r\n--- RETRIEVAL ---")
     print(f"Retrieval attempts: {result.get('retrieval_attempt', 0)}")
     print(f"Accumulated documents: {len(result.get('retrieved_documents') or [])}")
-    print(f"Context compressed: {result.get('context_compressed', False)}")
 
     diagnostics = result.get("retrieval_diagnostics") or {}
     for attempt in diagnostics.get("attempts", []):
@@ -203,12 +185,7 @@ async def run_scenario(
             f"reason={attempt.get('retrieval_reason')}"
         )
 
-    print("\n--- EVIDENCE EVALUATION ---")
-    print(f"Evidence sufficient: {result.get('is_sufficient')}")
-    for item in result.get("missing_information") or []:
-        print(f"Missing information: {item}")
-
-    print("\n--- GENERATION ---")
+    print("\r\n--- GENERATION ---")
     generation = result.get("generation_output")
     if generation is None:
         print("Generation did not produce an output.")
@@ -217,12 +194,12 @@ async def run_scenario(
     generation_data = model_data(generation)
     print(f"Status: {generation_data.get('status')}")
     for segment in generation_data.get("segments", []):
-        print(f"\n{segment.get('text', '')}")
+        print(f"\r\n{segment.get('text', '')}")
         citations = segment.get("citations") or []
         if citations:
             print("Citations: " + ", ".join(citations))
 
-    print("\n--- STATIC VALIDATION ---")
+    print("\r\n--- STATIC VALIDATION ---")
     validation = result.get("validation_result")
     if validation is None:
         print("Static validation did not produce a result.")
@@ -246,9 +223,6 @@ async def run_scenario(
 
 async def main() -> int:
     args = build_parser().parse_args()
-    if args.max_retrieval_attempts < 1:
-        raise SystemExit("--max-retrieval-attempts must be at least 1.")
-
     print_section("SAVIRACORTEX — END-TO-END RAG WORKFLOW")
     print(f"Organization: {args.organization_id}")
     print(f"User: {args.user_id}")
@@ -265,10 +239,7 @@ async def main() -> int:
     # Keep the request-scoped DB session alive while the graph runs. The
     # RetrievalOrchestrator calls the synchronous authorization repository.
     with get_db_session() as db_session:
-        graph = build_workflow(
-            db_session,
-            max_retrieval_attempts=args.max_retrieval_attempts,
-        )
+        graph = build_workflow(db_session)
 
         for scenario in SCENARIOS:
             try:
@@ -281,7 +252,7 @@ async def main() -> int:
             except Exception as exc:
                 failed += 1
                 print(
-                    f"\nSCENARIO ERROR: {type(exc).__name__}: {exc}",
+                    f"\r\nSCENARIO ERROR: {type(exc).__name__}: {exc}",
                     file=sys.stderr,
                 )
                 continue
