@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.agents.Generation.schemas import GenerationStatus
 from app.validation.schemas import CitationReference
 
 
 class ConversationTurnRequest(BaseModel):
-    """A client-held conversation turn; system instructions are never accepted."""
+    """Legacy internal request type retained for isolated generation-agent tests."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -27,15 +27,13 @@ class ConversationTurnRequest(BaseModel):
 
 
 class GenerationRequest(BaseModel):
-    """Input for one organization-scoped RAG generation request."""
+    """Input for one organization-scoped, backend-managed conversation turn."""
 
     model_config = ConfigDict(extra="forbid")
 
     query: str = Field(min_length=1, max_length=8000)
-    conversation_history: list[ConversationTurnRequest] = Field(
-        default_factory=list,
-        max_length=20,
-    )
+    conversation_id: UUID | None = None
+    request_id: UUID | None = None
 
     @field_validator("query")
     @classmethod
@@ -45,20 +43,15 @@ class GenerationRequest(BaseModel):
             raise ValueError("Query cannot be blank.")
         return value
 
-    @model_validator(mode="after")
-    def validate_history_size(self) -> "GenerationRequest":
-        total_characters = sum(len(turn.content) for turn in self.conversation_history)
-        if total_characters > 40000:
-            raise ValueError("Conversation history cannot exceed 40,000 characters.")
-        return self
-
 
 class GenerationResponse(BaseModel):
-    """Markdown answer plus trusted, request-scoped citation metadata."""
+    """Markdown answer plus trusted citation metadata and conversation identity."""
 
     model_config = ConfigDict(extra="forbid")
 
     generation_id: UUID
+    conversation_id: UUID | None = None
+    request_id: UUID | None = None
     query: str
     answer: str
     status: GenerationStatus
@@ -67,7 +60,6 @@ class GenerationResponse(BaseModel):
     missing_information: list[str] = Field(default_factory=list)
     retrieval_attempts: int = Field(ge=0)
     evidence_count: int = Field(ge=0)
-
 
 
 class GenerationFeedbackRequest(BaseModel):

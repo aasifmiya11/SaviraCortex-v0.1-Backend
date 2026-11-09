@@ -79,3 +79,17 @@ AuthorizationRepository is the PostgreSQL source of truth. It returns authorized
 - Remove member-linked department/role assignments and ACL rows through the corresponding foreign-key cascades when membership is deleted.
 - Never log secrets, Firebase tokens, or document contents.
 - Re-run the authorization repository tests after any ACL change.
+
+
+## Opening citation source documents
+
+Chat citations retain trusted document_id, document_version_id, and page metadata from the retrieved chunk. Clicking an inline numeric citation asks the authenticated API to resolve that exact version.
+
+`GET /api/v1/organizations/{organization_id}/generation/citations/{document_version_id}/open`:
+- Requires a verified Firebase identity and organization membership.
+- Re-evaluates the current document ACL before issuing access.
+- Rejects archived documents and versions outside the authorized active/superseded catalogue.
+- Returns a five-minute Backblaze B2 presigned URL; storage keys and permanent bucket URLs are never exposed to the browser.
+- Opens the PDF in a new tab and navigates to the cited page when page metadata is available.
+
+The signed URL is a short-lived bearer capability. If access is revoked after it is issued, an already-issued URL remains usable until it expires.

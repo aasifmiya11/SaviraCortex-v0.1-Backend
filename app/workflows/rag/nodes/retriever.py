@@ -7,7 +7,10 @@ from app.services.retrieval.retrieval_service import (
     RetrievalOrchestrationError,
     RetrievalOrchestrator,
 )
-from app.workflows.rag.state import RAGWorkflowState
+from app.workflows.rag.state import (
+    RAGWorkflowState,
+    prior_conversation_messages,
+)
 
 
 def create_retriever_node(
@@ -20,7 +23,7 @@ def create_retriever_node(
             current_query=state["query"],
             organization_id=state["organization_id"],
             user_id=state["user_id"],
-            conversation_history=state.get("context"),
+            conversation_history=prior_conversation_messages(state),
         )
 
         if retrieval_result.get("candidate_generation_error"):

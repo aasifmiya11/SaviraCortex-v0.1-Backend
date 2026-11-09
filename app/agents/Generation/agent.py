@@ -100,10 +100,14 @@ class GenerationAgent:
         current_query: str,
         evidence: Sequence[dict[str, Any]],
         conversation_history: Sequence[BaseMessage] | None,
+        long_term_memories: Sequence[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         return {
             "current_query_json": json.dumps(current_query, ensure_ascii=False),
             "conversation_history": list(conversation_history or []),
+            "long_term_memory_json": json.dumps(
+                list(long_term_memories or []), ensure_ascii=False
+            ),
             "retrieved_evidence_json": json.dumps(evidence, ensure_ascii=False),
         }
 
@@ -165,12 +169,13 @@ class GenerationAgent:
         retrieved_documents: Sequence[dict[str, Any]],
         conversation_history: Sequence[BaseMessage] | None = None,
         status: GenerationStatus = GenerationStatus.ANSWERED,
+        long_term_memories: Sequence[dict[str, Any]] | None = None,
     ) -> GenerationOutput:
         evidence = self._prepare_evidence(retrieved_documents)
         if not evidence:
             return self._insufficient_evidence_output()
         markdown = self.chain.invoke(
-            self._build_payload(current_query, evidence, conversation_history),
+            self._build_payload(current_query, evidence, conversation_history, long_term_memories),
             config={"metadata": {"agent": "generation"}},
         )
         return self._build_output(str(markdown), evidence, status)
@@ -181,12 +186,13 @@ class GenerationAgent:
         retrieved_documents: Sequence[dict[str, Any]],
         conversation_history: Sequence[BaseMessage] | None = None,
         status: GenerationStatus = GenerationStatus.ANSWERED,
+        long_term_memories: Sequence[dict[str, Any]] | None = None,
     ) -> GenerationOutput:
         evidence = self._prepare_evidence(retrieved_documents)
         if not evidence:
             return self._insufficient_evidence_output()
         markdown = await self.chain.ainvoke(
-            self._build_payload(current_query, evidence, conversation_history),
+            self._build_payload(current_query, evidence, conversation_history, long_term_memories),
             config={"metadata": {"agent": "generation"}},
         )
         return self._build_output(str(markdown), evidence, status)
@@ -197,6 +203,7 @@ class GenerationAgent:
         retrieved_documents: Sequence[dict[str, Any]],
         conversation_history: Sequence[BaseMessage] | None = None,
         status: GenerationStatus = GenerationStatus.ANSWERED,
+        long_term_memories: Sequence[dict[str, Any]] | None = None,
     ) -> AsyncIterator[GenerationStreamEvent]:
         """Stream plain Markdown deltas; emit completion only after citation checks."""
         evidence = self._prepare_evidence(retrieved_documents)
@@ -209,7 +216,7 @@ class GenerationAgent:
 
         chunks: list[str] = []
         async for chunk in self.streaming_chain.astream(
-            self._build_payload(current_query, evidence, conversation_history),
+            self._build_payload(current_query, evidence, conversation_history, long_term_memories),
             config={"metadata": {"agent": "generation"}},
         ):
             if not isinstance(chunk, str):

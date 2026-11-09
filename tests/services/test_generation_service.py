@@ -163,7 +163,8 @@ async def test_generation_service_never_returns_an_answer_that_fails_validation(
 async def test_generation_service_stream_emits_markdown_and_validated_references():
     graph = FakeGraph(valid_result())
     events = []
-    service = GenerationService(object(), graph_factory=lambda _session: graph)
+    session = RecordingSession()
+    service = GenerationService(session, graph_factory=lambda _session: graph)
 
     response = await service.generate_stream(
         query="How many annual leave days?",

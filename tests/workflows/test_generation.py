@@ -1,4 +1,5 @@
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage
 
 from app.agents.Generation import (
     AnswerSegment,
@@ -29,26 +30,18 @@ class FakeGenerationAgent:
 
 
 @pytest.mark.asyncio
-async def test_generation_node_injects_agent_and_maps_output():
+async def test_generation_node_uses_restored_prior_messages_and_maps_output():
     documents = [
-        {
-            "chunk_id": "chunk-1",
-            "page_content": "Annual leave entitlement is 20 days.",
-        },
-        {
-            "chunk_id": "chunk-2",
-            "page_content": "Unused leave carry-forward is limited to 5 days.",
-        },
+        {"chunk_id": "chunk-1", "page_content": "Annual leave entitlement is 20 days."},
+        {"chunk_id": "chunk-2", "page_content": "Unused leave carry-forward is limited to 5 days."},
     ]
-    context = []
+    previous = [
+        HumanMessage(id="previous-user", content="We are discussing leave."),
+        AIMessage(id="previous-assistant", content="Understood."),
+    ]
     output = GenerationOutput(
         status=GenerationStatus.ANSWERED,
-        segments=[
-            AnswerSegment(
-                text="Employees receive 20 days of annual leave.",
-                citations=["E1"],
-            )
-        ],
+        segments=[AnswerSegment(text="Employees receive 20 days of annual leave.", citations=["E1"])],
     )
     agent = FakeGenerationAgent(output)
     node = create_generation_node(agent)
@@ -58,7 +51,11 @@ async def test_generation_node_injects_agent_and_maps_output():
             "query": "How many annual leave days do employees receive?",
             "organization_id": "org-id",
             "user_id": "user-id",
-            "context": context,
+            "request_id": "current-request",
+            "messages": [
+                *previous,
+                HumanMessage(id="current-request", content="How many annual leave days do employees receive?"),
+            ],
             "retrieved_documents": documents,
         }
     )
@@ -66,7 +63,7 @@ async def test_generation_node_injects_agent_and_maps_output():
     assert agent.received == {
         "current_query": "How many annual leave days do employees receive?",
         "retrieved_documents": documents,
-        "conversation_history": context,
+        "conversation_history": previous,
     }
     assert updates == {"generation_output": output}
 
@@ -75,12 +72,7 @@ async def test_generation_node_injects_agent_and_maps_output():
 async def test_generation_node_defaults_documents_and_history_to_empty():
     output = GenerationOutput(
         status=GenerationStatus.INSUFFICIENT_EVIDENCE,
-        segments=[
-            AnswerSegment(
-                text="There is not enough evidence to answer.",
-                citations=[],
-            )
-        ],
+        segments=[AnswerSegment(text="There is not enough evidence to answer.", citations=[])],
     )
     agent = FakeGenerationAgent(output)
     node = create_generation_node(agent)
@@ -99,21 +91,14 @@ async def test_generation_node_defaults_documents_and_history_to_empty():
 async def test_generation_node_preserves_partial_output_status():
     output = GenerationOutput(
         status=GenerationStatus.PARTIAL,
-        segments=[
-            AnswerSegment(
-                text="The documents confirm the annual leave entitlement.",
-                citations=["E1"],
-            )
-        ],
+        segments=[AnswerSegment(text="The documents confirm the annual leave entitlement.", citations=["E1"])],
     )
     node = create_generation_node(FakeGenerationAgent(output))
 
     updates = await node(
         {
             "query": "Explain the leave policy.",
-            "retrieved_documents": [
-                {"page_content": "Employees receive annual leave."}
-            ],
+            "retrieved_documents": [{"page_content": "Employees receive annual leave."}],
         }
     )
 
@@ -132,11 +117,13 @@ async def test_generation_prefers_compressed_context_view():
     )
     node = create_generation_node(agent)
 
-    await node({
-        "query": "Question?",
-        "retrieved_documents": original,
-        "context_documents": compressed,
-    })
+    await node(
+        {
+            "query": "Question?",
+            "retrieved_documents": original,
+            "context_documents": compressed,
+        }
+    )
 
     assert agent.received["retrieved_documents"] is compressed
     assert original[0]["page_content"] == "Long original passage."

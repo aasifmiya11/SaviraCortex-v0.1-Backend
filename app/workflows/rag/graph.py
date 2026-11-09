@@ -1,4 +1,4 @@
-"""LangGraph construction for the single-pass RAG workflow."""
+"""LangGraph construction for the persisted single-pass RAG workflow."""
 
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -8,6 +8,7 @@ from app.services.retrieval.retrieval_service import RetrievalOrchestrator
 from app.validation import StaticValidationLayer
 from langgraph.graph import END, START, StateGraph
 
+from app.memory.cross_thread_memory import retrieve_cross_thread_memories
 from app.workflows.rag.nodes.generation import create_generation_node
 from app.workflows.rag.nodes.input_validation import input_validation_node
 from app.workflows.rag.nodes.retriever import create_retriever_node
@@ -21,13 +22,11 @@ def create_rag_graph(
     retriever: RetrievalOrchestrator,
     generation_agent: GenerationAgent,
     validator: StaticValidationLayer,
+    checkpointer: Any | None = None,
+    store: Any | None = None,
     generation_event_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
 ):
-    """Build a one-pass graph: validate -> retrieve/select -> generate -> validate citations.
-
-    Evidence sufficiency evaluation, query revision/retrieval expansion, and
-    context compression are intentionally not part of this execution path.
-    """
+    """Build validation -> memory lookup -> retrieval -> generation -> citation validation."""
     graph = StateGraph(RAGWorkflowState)
     graph.add_node("input_validation", input_validation_node)
     graph.add_node("retriever", create_retriever_node(retriever))
@@ -38,12 +37,21 @@ def create_rag_graph(
     graph.add_node("static_validation", create_static_validation_node(validator))
 
     graph.add_edge(START, "input_validation")
-    graph.add_conditional_edges(
-        "input_validation",
-        route_after_validation,
-        {"valid": "retriever", "invalid": END},
-    )
+    if store is not None:
+        graph.add_node("memory_retriever", retrieve_cross_thread_memories)
+        graph.add_conditional_edges(
+            "input_validation",
+            route_after_validation,
+            {"valid": "memory_retriever", "invalid": END},
+        )
+        graph.add_edge("memory_retriever", "retriever")
+    else:
+        graph.add_conditional_edges(
+            "input_validation",
+            route_after_validation,
+            {"valid": "retriever", "invalid": END},
+        )
     graph.add_edge("retriever", "generation")
     graph.add_edge("generation", "static_validation")
     graph.add_edge("static_validation", END)
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer, store=store)

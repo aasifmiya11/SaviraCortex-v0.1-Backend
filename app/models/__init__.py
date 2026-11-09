@@ -11,6 +11,8 @@ from .document_acl import DocumentACL
 from .organization_invitations import OrganizationInvitation
 from .document_ingestion_sessions import DocumentIngestionSession
 from .generation_feedback import GenerationFeedback
+from .conversations import Conversation
+from .conversation_messages import ConversationMessage
 
 __all__ = [
     "User",
@@ -26,4 +28,6 @@ __all__ = [
     "OrganizationInvitation",
     "DocumentIngestionSession",
     "GenerationFeedback",
+    "Conversation",
+    "ConversationMessage",
 ]

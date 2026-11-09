@@ -1,4 +1,5 @@
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage
 
 from app.workflows.rag.nodes.retriever import create_retriever_node
 
@@ -22,64 +23,60 @@ class FakeRetrievalOrchestrator:
 
 
 @pytest.mark.asyncio
-async def test_first_retrieval_uses_original_query_without_exclusions():
+async def test_retriever_receives_restored_conversation_history():
     selected = [{"chunk_id": "doc-a:0", "page_content": "Evidence A"}]
     orchestrator = FakeRetrievalOrchestrator(selected)
     node = create_retriever_node(orchestrator)
+    history = [
+        HumanMessage(id="prior-user", content="What does the leave policy say?"),
+        AIMessage(id="prior-assistant", content="It describes annual leave."),
+    ]
 
     updates = await node({
-        "query": "Original question",
+        "query": "How many days?",
         "organization_id": "organization",
         "user_id": "user",
+        "request_id": "current-request",
+        "messages": [
+            *history,
+            HumanMessage(id="current-request", content="How many days?"),
+        ],
     })
 
-    assert orchestrator.received["current_query"] == "Original question"
-    assert orchestrator.received["exclude"] is False
-    assert orchestrator.received["excluded_chunk_ids"] is None
+    assert orchestrator.received["current_query"] == "How many days?"
+    assert orchestrator.received["conversation_history"] == history
     assert updates["retrieval_attempt"] == 1
     assert updates["retrieved_documents"] == selected
-    assert updates["excluded_chunk_ids"] == ["doc-a:0"]
-    assert updates["retry"] is False
+    assert updates["retrieval_trace"]["selected_count"] == 1
 
 
 @pytest.mark.asyncio
-async def test_retry_excludes_prior_chunks_and_accumulates_unique_evidence():
-    previous = [
-        {"chunk_id": "doc-a:0", "page_content": "Evidence A"},
-        {"chunk_id": "doc-b:0", "page_content": "Evidence B"},
-    ]
-    newly_retrieved = [
-        {"chunk_id": "doc-a:0", "page_content": "Duplicate A"},
-        {"chunk_id": "doc-c:0", "page_content": "Evidence C"},
-    ]
-    orchestrator = FakeRetrievalOrchestrator(newly_retrieved)
+async def test_retriever_passes_none_when_no_prior_conversation_exists():
+    orchestrator = FakeRetrievalOrchestrator([])
     node = create_retriever_node(orchestrator)
 
     updates = await node({
         "query": "Original question",
         "organization_id": "organization",
         "user_id": "user",
-        "retrieval_attempt": 1,
-        "retrieved_documents": previous,
-        "rewritten_query": "Find the missing requirement",
-        "hypothetical_answer": "Hypothetical retrieval guidance",
-        "retrieval_diagnostics": {
-            "total_attempts": 1,
-            "attempts": [{"attempt": 1}],
-        },
     })
 
-    assert orchestrator.received["exclude"] is True
-    assert orchestrator.received["excluded_chunk_ids"] == ["doc-a:0", "doc-b:0"]
-    assert "Original question" in orchestrator.received["current_query"]
-    assert "Find the missing requirement" in orchestrator.received["current_query"]
-    assert [item["chunk_id"] for item in updates["retrieved_documents"]] == [
-        "doc-a:0",
-        "doc-b:0",
-        "doc-c:0",
-    ]
-    assert updates["retrieval_attempt"] == 2
-    assert updates["excluded_chunk_ids"] == ["doc-a:0", "doc-b:0", "doc-c:0"]
-    assert updates["retrieval_diagnostics"]["total_attempts"] == 2
-    assert len(updates["retrieval_diagnostics"]["attempts"]) == 2
-    assert updates["retry"] is False
+    assert orchestrator.received["conversation_history"] is None
+    assert updates["retrieval_attempt"] == 1
+    assert updates["retrieved_documents"] == []
+
+
+@pytest.mark.asyncio
+async def test_retriever_fails_closed_when_candidate_generation_fails():
+    class FailingOrchestrator(FakeRetrievalOrchestrator):
+        async def retrieve(self, **kwargs):
+            return {"candidate_generation_error": "backend failure"}
+
+    node = create_retriever_node(FailingOrchestrator([]))
+
+    with pytest.raises(Exception, match="Authorized document candidate generation failed"):
+        await node({
+            "query": "Original question",
+            "organization_id": "organization",
+            "user_id": "user",
+        })

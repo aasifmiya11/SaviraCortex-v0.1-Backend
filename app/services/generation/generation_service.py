@@ -147,6 +147,8 @@ def _build_graph(
     session: Session,
     shared_components: _SharedRAGComponents | None = None,
     generation_event_callback: Callable[[dict[str, Any]], Any] | None = None,
+    checkpointer: Any | None = None,
+    store: Any | None = None,
 ):
     """Compose a request-scoped graph around shared model/vector dependencies."""
     try:
@@ -171,6 +173,8 @@ def _build_graph(
             retriever=retriever,
             generation_agent=shared.generation_agent,
             validator=shared.validator,
+            checkpointer=checkpointer,
+            store=store,
             generation_event_callback=generation_event_callback,
         )
     except GenerationRuntimeUnavailableError:

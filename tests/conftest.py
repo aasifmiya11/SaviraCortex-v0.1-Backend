@@ -1,4 +1,5 @@
 import pytest
+from contextlib import asynccontextmanager
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -11,7 +12,7 @@ from app.models import (
     Organization, OrganizationDepartment, OrganizationDepartmentMembership,
     OrganizationInvitation, OrganizationMembership, OrganizationRole,
     User, UserRoleAssignment, Document, DocumentVersion, DocumentACL,
-    DocumentIngestionSession, GenerationFeedback,
+    DocumentIngestionSession, GenerationFeedback, Conversation, ConversationMessage,
 )
 
 TEST_TABLES = [
@@ -20,7 +21,7 @@ TEST_TABLES = [
     OrganizationDepartment.__table__, OrganizationDepartmentMembership.__table__,
     OrganizationInvitation.__table__, Document.__table__, DocumentACL.__table__,
     DocumentVersion.__table__, DocumentIngestionSession.__table__,
-    GenerationFeedback.__table__,
+    GenerationFeedback.__table__, Conversation.__table__, ConversationMessage.__table__,
 ]
 
 
@@ -52,7 +53,12 @@ def firebase_claims():
 
 
 @pytest.fixture
-def client(db_session, firebase_claims):
+def client(db_session, firebase_claims, monkeypatch):
+    @asynccontextmanager
+    async def test_lifespan(_app):
+        yield
+    monkeypatch.setattr(app.router, "lifespan_context", test_lifespan)
+
     def override_db():
         yield db_session
     app.dependency_overrides[get_db] = override_db
@@ -63,7 +69,12 @@ def client(db_session, firebase_claims):
 
 
 @pytest.fixture
-def unauthenticated_client(db_session):
+def unauthenticated_client(db_session, monkeypatch):
+    @asynccontextmanager
+    async def test_lifespan(_app):
+        yield
+    monkeypatch.setattr(app.router, "lifespan_context", test_lifespan)
+
     def override_db():
         yield db_session
     app.dependency_overrides[get_db] = override_db

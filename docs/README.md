@@ -38,6 +38,7 @@ This documentation describes the backend and its integration with the Next.js fr
 29. [Context compression](29-context-compression.md)
 30. [Current application checkpoint](30-current-application-checkpoint.md)
 31. [Project-wide current state](31-project-wide-current-state.md)
+32. [Conversation persistence and session architecture](32-conversation-persistence-architecture.md)
 
 Architecture diagrams are collected in [diagrams/](diagrams/).
 

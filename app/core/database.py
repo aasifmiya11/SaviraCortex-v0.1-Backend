@@ -109,3 +109,36 @@ def create_generation_feedback_table() -> None:
 
     _ = (Organization, User)  # Register referenced tables in Base.metadata.
     GenerationFeedback.__table__.create(bind=engine, checkfirst=True)
+
+
+def create_conversation_tables() -> None:
+    """Create or safely extend only the application-owned conversation tables."""
+    from sqlalchemy import inspect, text
+
+    from ..models import Conversation, ConversationMessage
+
+    # Existing installations may already have the conversation tables. Add the
+    # first-request idempotency column without dropping or rewriting user data.
+    existing_tables = set(inspect(engine).get_table_names())
+    if "conversations" in existing_tables:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE conversations "
+                    "ADD COLUMN IF NOT EXISTS creation_request_id UUID"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_conversations_creation_request "
+                    "ON conversations (organization_id, user_id, creation_request_id)"
+                )
+            )
+
+    # Importing the models package registers all FK targets in Base.metadata.
+    _ = (Conversation, ConversationMessage)
+    Conversation.__table__.create(bind=engine, checkfirst=True)
+    ConversationMessage.__table__.create(bind=engine, checkfirst=True)
+    for table in (Conversation.__table__, ConversationMessage.__table__):
+        for index in table.indexes:
+            index.create(bind=engine, checkfirst=True)

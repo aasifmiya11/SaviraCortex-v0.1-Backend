@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 from sqlalchemy import select
@@ -22,10 +22,14 @@ from app.schemas.v1.generation import (
 from app.services.generation.generation_service import (
     GenerationExecutionError,
     GenerationRuntimeUnavailableError,
-    GenerationService,
     GenerationValidationError,
     InvalidGenerationQueryError,
 )
+from app.services.generation.persistent_generation_service import (
+    PersistentGenerationService,
+    generate_conversation_title,
+)
+from app.repositories.conversation_repository import ConversationNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +41,8 @@ router = APIRouter(
 
 def get_generation_service(
     db: Session = Depends(get_db),
-) -> GenerationService:
-    return GenerationService(db)
+) -> PersistentGenerationService:
+    return PersistentGenerationService(db)
 
 
 def _current_member(
@@ -93,19 +97,40 @@ def _membership_role(db: Session, organization_id: UUID, user_id: UUID) -> str:
 async def generate_answer(
     organization_id: UUID,
     payload: GenerationRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     firebase_claims: dict = Depends(get_verified_firebase_claims),
-    generation_service: GenerationService = Depends(get_generation_service),
+    generation_service: PersistentGenerationService = Depends(get_generation_service),
 ) -> GenerationResponse:
     user = _current_member(db, organization_id, firebase_claims)
 
     try:
-        return await generation_service.generate(
+        response = await generation_service.generate(
             query=payload.query,
             organization_id=organization_id,
             user_id=user.id,
-            conversation_history=payload.conversation_history,
+            conversation_id=payload.conversation_id,
+            request_id=payload.request_id,
         )
+        if payload.conversation_id is None and response.conversation_id is not None:
+            background_tasks.add_task(
+                generate_conversation_title,
+                conversation_id=response.conversation_id,
+                organization_id=organization_id,
+                user_id=user.id,
+                first_message=payload.query,
+            )
+        return response
+    except ConversationNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found.",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
     except InvalidGenerationQueryError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -135,9 +160,10 @@ async def generate_answer(
 async def generate_answer_stream(
     organization_id: UUID,
     payload: GenerationRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     firebase_claims: dict = Depends(get_verified_firebase_claims),
-    generation_service: GenerationService = Depends(get_generation_service),
+    generation_service: PersistentGenerationService = Depends(get_generation_service),
 ) -> StreamingResponse:
     user = _current_member(db, organization_id, firebase_claims)
 
@@ -145,24 +171,52 @@ async def generate_answer_stream(
         queue: asyncio.Queue[dict | None] = asyncio.Queue()
 
         async def run_generation() -> None:
+            def error_event(code: str, message: str) -> dict:
+                event = {"type": "error", "code": code, "message": message}
+                conversation_id = getattr(generation_service, "last_conversation_id", None)
+                if conversation_id is not None:
+                    event["conversation_id"] = str(conversation_id)
+                    if payload.conversation_id is None:
+                        background_tasks.add_task(
+                            generate_conversation_title,
+                            conversation_id=conversation_id,
+                            organization_id=organization_id,
+                            user_id=user.id,
+                            first_message=payload.query,
+                        )
+                return event
+
             try:
-                await generation_service.generate_stream(
+                response = await generation_service.generate_stream(
                     query=payload.query,
                     organization_id=organization_id,
                     user_id=user.id,
-                    conversation_history=payload.conversation_history,
+                    conversation_id=payload.conversation_id,
+                    request_id=payload.request_id,
                     on_event=queue.put_nowait,
                 )
+                if payload.conversation_id is None and response.conversation_id is not None:
+                    background_tasks.add_task(
+                        generate_conversation_title,
+                        conversation_id=response.conversation_id,
+                        organization_id=organization_id,
+                        user_id=user.id,
+                        first_message=payload.query,
+                    )
+            except ConversationNotFoundError:
+                await queue.put(error_event("conversation_not_found", "Conversation not found."))
             except InvalidGenerationQueryError as exc:
-                await queue.put({"type": "error", "code": "invalid_query", "message": str(exc)})
+                await queue.put(error_event("invalid_query", str(exc)))
+            except ValueError as exc:
+                await queue.put(error_event("invalid_request", str(exc)))
             except GenerationValidationError:
-                await queue.put({"type": "error", "code": "citation_validation_failed", "message": "The answer failed citation validation. Please retry."})
+                await queue.put(error_event("citation_validation_failed", "The answer failed citation validation. Please retry."))
             except Exception:
                 logger.exception(
                     "Streaming generation failed (organization_id=%s, user_id=%s).",
                     organization_id, user.id,
                 )
-                await queue.put({"type": "error", "code": "generation_unavailable", "message": "The generation service is temporarily unavailable. Please try again."})
+                await queue.put(error_event("generation_unavailable", "The generation service is temporarily unavailable. Please try again."))
             finally:
                 await queue.put(None)
 
@@ -190,6 +244,7 @@ async def generate_answer_stream(
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
+        background=background_tasks,
         headers={
             "Cache-Control": "no-cache, no-transform",
             "X-Accel-Buffering": "no",

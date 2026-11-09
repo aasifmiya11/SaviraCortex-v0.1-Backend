@@ -190,3 +190,55 @@ async def test_graph_streams_generation_and_keeps_static_citation_validation():
         "delta": "The annual leave entitlement is 20 days.",
     }]
     assert result["validation_result"].is_valid is True
+
+
+class FakeMemoryStore:
+    def __init__(self):
+        self.calls = []
+
+    async def asearch(self, namespace, *, query=None, limit=10):
+        self.calls.append((namespace, query, limit))
+        from types import SimpleNamespace
+
+        return [
+            SimpleNamespace(
+                value={
+                    "text": "The user prefers concise technical explanations.",
+                    "category": "preference",
+                    "subject": "response_style",
+                }
+            )
+        ]
+
+
+@pytest.mark.asyncio
+async def test_graph_injects_store_memories_into_generation_before_retrieval():
+    organization_id, user_id = uuid4(), uuid4()
+    store = FakeMemoryStore()
+    retriever = FakeRetriever()
+    generation = FakeGenerationAgent()
+    graph = create_rag_graph(
+        retriever=retriever,
+        generation_agent=generation,
+        validator=FakeValidator(),
+        store=store,
+    )
+
+    await graph.ainvoke(
+        {
+            "query": "Explain this policy briefly.",
+            "organization_id": organization_id,
+            "user_id": user_id,
+        }
+    )
+
+    assert store.calls == [
+        ((str(organization_id), str(user_id)), "Explain this policy briefly.", 5)
+    ]
+    assert generation.calls[0]["long_term_memories"] == [
+        {
+            "text": "The user prefers concise technical explanations.",
+            "category": "preference",
+            "subject": "response_style",
+        }
+    ]

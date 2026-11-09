@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
     auth,
+    conversations,
     department_memberships,
     departments,
     document_ingestion,
@@ -27,4 +28,5 @@ api_router.include_router(department_memberships.router)
 api_router.include_router(invitations.router)
 api_router.include_router(document_ingestion.router)
 api_router.include_router(documents.router)
+api_router.include_router(conversations.router)
 api_router.include_router(generation.router)
