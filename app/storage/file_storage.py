@@ -284,6 +284,19 @@ class FileStorage:
                 VersionId=version["VersionId"],
             )
 
+    def get_file_response(self, storage_key: str, range_header: str | None = None) -> dict:
+        """Return a B2 object response, optionally for one HTTP byte range."""
+        if not storage_key or not storage_key.strip():
+            raise ValueError("Storage key cannot be empty.")
+
+        arguments = {"Bucket": self.bucket, "Key": storage_key.lstrip("/")}
+        if range_header:
+            if not range_header.startswith("bytes=") or "," in range_header:
+                raise ValueError("Only a single HTTP byte range is supported.")
+            arguments["Range"] = range_header
+
+        return self.client.get_object(**arguments)
+
     def generate_download_url(
         self,
         storage_key: str,

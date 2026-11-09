@@ -74,3 +74,45 @@ def test_file_storage_round_trip(local_pdf, tmp_path):
     finally:
         if storage.exists(storage_key):
             storage.delete_file(storage_key)
+
+
+
+class FakeB2ObjectClient:
+    def __init__(self):
+        self.arguments = None
+
+    def get_object(self, **arguments):
+        self.arguments = arguments
+        return {"Body": object()}
+
+
+def test_get_file_response_streams_private_object_and_forwards_range():
+    storage = object.__new__(FileStorage)
+    storage.client = FakeB2ObjectClient()
+    storage.bucket = "private-documents"
+
+    response = storage.get_file_response(
+        "/organizations/org/documents/doc.pdf",
+        range_header="bytes=10-19",
+    )
+
+    assert response["Body"] is not None
+    assert storage.client.arguments == {
+        "Bucket": "private-documents",
+        "Key": "organizations/org/documents/doc.pdf",
+        "Range": "bytes=10-19",
+    }
+
+
+def test_get_file_response_rejects_multiple_ranges_before_storage_request():
+    storage = object.__new__(FileStorage)
+    storage.client = FakeB2ObjectClient()
+    storage.bucket = "private-documents"
+
+    with pytest.raises(ValueError, match="single HTTP byte range"):
+        storage.get_file_response(
+            "organizations/org/documents/doc.pdf",
+            range_header="bytes=0-9,20-29",
+        )
+
+    assert storage.client.arguments is None

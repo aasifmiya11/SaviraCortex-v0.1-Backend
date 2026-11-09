@@ -6,13 +6,14 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db, get_verified_firebase_claims
-from app.models import GenerationFeedback, OrganizationMembership, User
+from app.models import Document, DocumentVersion, GenerationFeedback, OrganizationMembership, User
 from app.schemas.v1.generation import (
     GenerationFeedbackRequest,
     GenerationRequest,
@@ -196,6 +197,98 @@ async def generate_answer_stream(
         },
     )
 
+
+
+@router.get(
+    "/citations/{document_version_id}/content",
+    summary="Stream an authorized citation PDF without exposing its B2 URL",
+)
+def stream_citation_document(
+    organization_id: UUID,
+    document_version_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    firebase_claims: dict = Depends(get_verified_firebase_claims),
+):
+    """Stream a citation PDF after rechecking the user's document ACL."""
+    user = _current_member(db, organization_id, firebase_claims)
+
+    from app.repositories.authorization_repository import AuthorizationRepository
+    authorized_versions = AuthorizationRepository(db).get_authorized_document_catalog(
+        organization_id=organization_id,
+        user_id=user.id,
+    )
+    authorized_version_ids = {
+        item["document_version_id"] for item in authorized_versions
+    }
+    if str(document_version_id) not in authorized_version_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The cited document is unavailable or you are not authorized to access it.",
+        )
+
+    version = db.scalar(
+        select(DocumentVersion)
+        .join(Document, Document.id == DocumentVersion.document_id)
+        .where(
+            DocumentVersion.id == document_version_id,
+            Document.organization_id == organization_id,
+            Document.archived.is_(False),
+            DocumentVersion.status.in_(("active", "superseded")),
+        )
+    )
+    if version is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="The cited document version no longer exists.",
+        )
+
+    range_header = request.headers.get("range")
+    if range_header and (
+        not range_header.startswith("bytes=") or "," in range_header
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            detail="Only a single byte range is supported.",
+        )
+
+    try:
+        from app.storage.file_storage import FileStorage
+        object_response = FileStorage().get_file_response(
+            version.storage_key,
+            range_header=range_header,
+        )
+        body = object_response["Body"]
+        headers = {
+            "Content-Type": "application/pdf",
+            "Content-Disposition": "inline",
+            "Accept-Ranges": object_response.get("AcceptRanges", "bytes"),
+            "Cache-Control": "private, no-store, no-cache, must-revalidate",
+            "X-Content-Type-Options": "nosniff",
+        }
+        if object_response.get("ContentLength") is not None:
+            headers["Content-Length"] = str(object_response["ContentLength"])
+        if object_response.get("ContentRange"):
+            headers["Content-Range"] = object_response["ContentRange"]
+
+        return StreamingResponse(
+            body.iter_chunks(chunk_size=1024 * 1024),
+            status_code=206 if object_response.get("ContentRange") else 200,
+            media_type="application/pdf",
+            headers=headers,
+            background=BackgroundTask(body.close),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "Could not stream citation PDF for version %s.",
+            document_version_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The source document is temporarily unavailable.",
+        ) from exc
 
 
 @router.patch(
