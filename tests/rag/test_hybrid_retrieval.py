@@ -1,4 +1,6 @@
 
+from threading import Barrier
+
 import pytest
 
 from langchain_core.documents import Document
@@ -226,3 +228,26 @@ def test_pipeline_forwards_exclusion_to_both_retrievers():
     for retriever in (bm25, dense):
         assert retriever.calls[0]["exclude"] is True
         assert retriever.calls[0]["excluded_chunk_ids"] == ["version-1:2"]
+
+
+def test_hybrid_pipeline_runs_bm25_and_dense_concurrently():
+    barrier = Barrier(2)
+
+    class ConcurrentRetriever:
+        def search(self, **kwargs):
+            barrier.wait(timeout=3)
+            return []
+
+    pipeline = HybridRetrievalPipeline(
+        bm25_retriever=ConcurrentRetriever(),
+        dense_retriever=ConcurrentRetriever(),
+    )
+
+    result = pipeline.search(
+        "parallel retrieval",
+        organization_id="org-1",
+        mode="hybrid",
+    )
+
+    assert result["result_count"] == 0
+    assert result["diagnostics"] == {"bm25": [], "dense": [], "rrf": []}

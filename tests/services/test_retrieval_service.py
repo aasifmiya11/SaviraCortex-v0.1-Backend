@@ -108,7 +108,7 @@ class FakeSelector:
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_expands_and_fuses_all_branches():
+async def test_orchestrator_runs_single_pass_and_fuses_all_branches():
     catalogue = [
         {
             "document_id": "document-1",
@@ -137,12 +137,14 @@ async def test_orchestrator_expands_and_fuses_all_branches():
         user_id=uuid4(),
     )
 
-    assert agent.calls == 2
-    assert result["branch_count"] == 2
-    assert result["expansion"]["rounds_performed"] == 1
-    assert result["expansion"]["stop_reason"] == "target_met"
-    assert result["selected_count"] == 2
-    assert len(result["generated_queries"]) == 2
+    # Adaptive expansion is intentionally disabled: retrieval performs one
+    # candidate-generation and branch-retrieval pass per request.
+    assert agent.calls == 1
+    assert result["branch_count"] == 1
+    assert result["expansion"]["rounds_performed"] == 0
+    assert result["expansion"]["stop_reason"] == "disabled_single_pass"
+    assert result["selected_count"] == 1
+    assert len(result["generated_queries"]) == 1
 
 
 def test_catalogue_is_split_into_active_and_superseded_models():
@@ -226,7 +228,7 @@ async def test_initial_candidate_generation_failure_is_reported_explicitly():
 
 
 @pytest.mark.asyncio
-async def test_expansion_candidate_generation_failure_preserves_initial_results():
+async def test_single_pass_does_not_run_expansion_candidate_generation():
     class FailsOnlyOnExpansion:
         def __init__(self):
             self.calls = 0
@@ -266,12 +268,13 @@ async def test_expansion_candidate_generation_failure_preserves_initial_results(
         user_id=uuid4(),
     )
 
+    # The candidate generator is called only for the initial pass. Because
+    # expansion is disabled, its second-call failure must never be triggered.
     assert result["branch_count"] == 1
     assert result["selected_count"] == 1
-    assert result["expansion"]["stop_reason"] == "candidate_generation_failed"
-    assert result["candidate_generation_error"] == (
-        "expansion summary search unavailable"
-    )
+    assert result["expansion"]["rounds_performed"] == 0
+    assert result["expansion"]["stop_reason"] == "disabled_single_pass"
+    assert result["candidate_generation_error"] is None
 
 
 def test_empty_response_stop_reason_matches_actual_reason():

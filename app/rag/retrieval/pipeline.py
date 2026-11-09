@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from time import perf_counter
 from typing import Any
 from uuid import UUID
 
@@ -77,23 +79,40 @@ class HybridRetrievalPipeline:
             mode, candidate_k, top_k,
             len(candidate_document_version_ids or []), query[:500],
         )
+        retrieval_started_at = perf_counter()
         bm25: list[tuple[Document, float]] = []
         dense: list[tuple[Document, float]] = []
+        retrieval_timings_ms: dict[str, float] = {}
+
+        def run_retriever(retriever) -> tuple[list[tuple[Document, float]], float]:
+            started_at = perf_counter()
+            results = retriever.search(
+                query=query, organization_id=organization_id, k=candidate_k,
+                document_id=document_id, user_id=user_id, status=status,
+                candidate_document_version_ids=candidate_document_version_ids,
+                exclude=exclude, excluded_chunk_ids=excluded_chunk_ids,
+            )
+            return results, (perf_counter() - started_at) * 1000
 
         try:
-            if mode in {"hybrid", "bm25"}:
-                bm25 = self.bm25_retriever.search(
-                    query=query, organization_id=organization_id, k=candidate_k,
-                    document_id=document_id, user_id=user_id, status=status,
-                    candidate_document_version_ids=candidate_document_version_ids,
-                    exclude=exclude, excluded_chunk_ids=excluded_chunk_ids,
+            if mode == "hybrid":
+                # The orchestrator bounds concurrent branches; this small pool
+                # runs the two independent retrieval strategies within a branch.
+                with ThreadPoolExecutor(
+                    max_workers=2,
+                    thread_name_prefix="hybrid-retrieval",
+                ) as executor:
+                    bm25_future = executor.submit(run_retriever, self.bm25_retriever)
+                    dense_future = executor.submit(run_retriever, self.dense_retriever)
+                    bm25, retrieval_timings_ms["bm25"] = bm25_future.result()
+                    dense, retrieval_timings_ms["dense"] = dense_future.result()
+            elif mode == "bm25":
+                bm25, retrieval_timings_ms["bm25"] = run_retriever(
+                    self.bm25_retriever
                 )
-            if mode in {"hybrid", "dense"}:
-                dense = self.dense_retriever.search(
-                    query=query, organization_id=organization_id, k=candidate_k,
-                    document_id=document_id, user_id=user_id, status=status,
-                    candidate_document_version_ids=candidate_document_version_ids,
-                    exclude=exclude, excluded_chunk_ids=excluded_chunk_ids,
+            else:
+                dense, retrieval_timings_ms["dense"] = run_retriever(
+                    self.dense_retriever
                 )
         except Exception:
             logger.exception("[RAG][RETRIEVAL_ERROR] lexical/dense search failed mode=%s", mode)
@@ -104,9 +123,18 @@ class HybridRetrievalPipeline:
         elif mode == "dense":
             ranked = dense[:top_k]
         else:
+            rrf_started_at = perf_counter()
             ranked = reciprocal_rank_fusion(
                 [bm25, dense], rrf_k, [self.bm25_weight, self.dense_weight]
             )[:top_k]
+            retrieval_timings_ms["rrf"] = (perf_counter() - rrf_started_at) * 1000
+
+        retrieval_timings_ms["total"] = (perf_counter() - retrieval_started_at) * 1000
+        logger.info(
+            "[RAG][RETRIEVAL_TIMINGS] mode=%s timings_ms=%s",
+            mode,
+            {name: round(duration, 2) for name, duration in retrieval_timings_ms.items()},
+        )
 
         bm25_trace = self._rank_trace(bm25)
         dense_trace = self._rank_trace(dense)
