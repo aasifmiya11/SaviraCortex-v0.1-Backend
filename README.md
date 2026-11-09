@@ -41,6 +41,10 @@ Set `EMBEDDING_PROVIDER=jina` (or omit it) to retain the existing Jina integrati
 
 The code defaults to the local gateway URL if `JINA_API_BASE_URL` is omitted. Firebase Admin uses the backend-only service-account JSON configured by `FIREBASE_SERVICE_ACCOUNT_PATH` (default: `app/secrets/firebase-service-account.json`). Never commit credential files.
 
+## RAG feedback dataset
+
+Every validated answer, multi-query trace, selected document chunk, and final Markdown response is stored in PostgreSQL with an initially empty relevance label. The chat UI records **Relevant / Not relevant** feedback. The organization-scoped labeled dataset is available through GET /api/v1/organizations/{organization_id}/generation/feedback-dataset. See [RAG feedback dataset](docs/22-rag-feedback-dataset.md) and apply migrations/0001_generation_feedback.sql (or run python -m scripts.create_generation_feedback_table) before deployment.
+
 ## Technical documentation
 
 - [Documentation index](docs/README.md)

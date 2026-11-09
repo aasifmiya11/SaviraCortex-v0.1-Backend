@@ -3,7 +3,7 @@ from uuid import uuid4
 from app.api.v1.endpoints.generation import get_generation_service
 from app.core.dependencies import get_verified_firebase_claims
 from app.agents.Generation.schemas import GenerationStatus
-from app.models import OrganizationMembership, User
+from app.models import GenerationFeedback, OrganizationMembership, User
 from app.schemas.v1.generation import GenerationResponse
 from app.validation.schemas import CitationReference
 
@@ -15,6 +15,7 @@ class FakeGenerationService:
     async def generate(self, **kwargs):
         self.kwargs = kwargs
         return GenerationResponse(
+            generation_id=uuid4(),
             query=kwargs["query"],
             answer="The policy provides 20 annual leave days[1].\n\n## References\n\n- **[1]** **Leave Policy** — page 4",
             status=GenerationStatus.ANSWERED,
@@ -123,3 +124,43 @@ def test_generation_stream_endpoint_emits_markdown_and_validated_references(
     assert "event: completed" in response.text
     assert "Leave Policy" in response.text
     client.app.dependency_overrides.pop(get_generation_service, None)
+
+
+
+def test_member_can_label_and_export_generation_feedback_dataset(
+    client, db_session, organization_context
+):
+    record = GenerationFeedback(
+        id=uuid4(),
+        organization_id=organization_context["organization"].id,
+        user_id=organization_context["owner"].id,
+        query="What is the leave policy?",
+        generated_queries=[{"query": "annual leave allowance", "version_scope": "active", "target_versions": []}],
+        generated_query_count=1,
+        retrieval_trace={"branch_count": 1},
+        retrieved_documents=[{"page_content": "20 days", "metadata": {"document_title": "Leave Policy"}}],
+        answer_markdown="Employees receive 20 days.",
+        answer_status="answered",
+    )
+    db_session.add(record)
+    db_session.commit()
+
+    feedback_response = client.patch(
+        f"/api/v1/organizations/{organization_context['organization'].id}/generation/{record.id}/feedback",
+        json={"feedback_status": "relevant"},
+    )
+    assert feedback_response.status_code == 200
+    assert feedback_response.json()["feedback_status"] == "relevant"
+
+    dataset_response = client.get(
+        f"/api/v1/organizations/{organization_context['organization'].id}/generation/feedback-dataset"
+    )
+    assert dataset_response.status_code == 200
+    payload = dataset_response.json()
+    assert payload["count"] == 1
+    item = payload["items"][0]
+    assert item["query"] == "What is the leave policy?"
+    assert item["generated_query_count"] == 1
+    assert item["retrieved_documents"][0]["page_content"] == "20 days"
+    assert item["answer_markdown"] == "Employees receive 20 days."
+    assert item["feedback_status"] == "relevant"

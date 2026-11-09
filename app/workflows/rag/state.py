@@ -25,6 +25,7 @@ class RAGWorkflowState(TypedDict):
     retrieval_attempt: NotRequired[int]
     retrieval_reason: NotRequired[str | None]
     retrieval_diagnostics: NotRequired[dict[str, Any] | None]
+    retrieval_trace: NotRequired[dict[str, Any] | None]
 
     generation_output: NotRequired[GenerationOutput | None]
     validation_result: NotRequired[GenerationValidationResult | None]

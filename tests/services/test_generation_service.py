@@ -26,6 +26,27 @@ class FakeGraph:
         return self.result
 
 
+class RecordingSession:
+    def __init__(self):
+        self.records = []
+        self.committed = False
+        self.rolled_back = False
+
+    def add(self, record):
+        self.records.append(record)
+
+    def flush(self):
+        if self.records and self.records[-1].id is None:
+            self.records[-1].id = uuid4()
+
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
+
+
+
 def valid_result():
     answer = GenerationOutput(
         status=GenerationStatus.ANSWERED,
@@ -58,6 +79,14 @@ def valid_result():
             {"chunk_id": "version:0", "page_content": "20 days", "metadata": {}}
         ],
         "retrieval_attempt": 2,
+        "retrieval_trace": {
+            "generated_queries": [
+                {"query": "annual leave allowance", "version_scope": "active", "target_versions": []},
+                {"query": "annual leave entitlement", "version_scope": "both", "target_versions": [2025]},
+            ],
+            "generated_query_count": 2,
+            "branch_count": 2,
+        },
         "missing_information": [],
     }
 
@@ -65,7 +94,8 @@ def valid_result():
 @pytest.mark.asyncio
 async def test_generation_service_returns_markdown_and_trusted_references():
     graph = FakeGraph(valid_result())
-    service = GenerationService(object(), graph_factory=lambda supplied: graph)
+    session = RecordingSession()
+    service = GenerationService(session, graph_factory=lambda supplied: graph)
 
     response = await service.generate(
         query="How many annual leave days?",
@@ -77,6 +107,14 @@ async def test_generation_service_returns_markdown_and_trusted_references():
     )
 
     assert response.status == GenerationStatus.ANSWERED
+    assert response.generation_id == session.records[0].id
+    assert session.committed is True
+    assert session.records[0].query == "How many annual leave days?"
+    assert session.records[0].generated_query_count == 2
+    assert len(session.records[0].generated_queries) == 2
+    assert session.records[0].retrieval_trace["branch_count"] == 2
+    assert session.records[0].retrieved_documents[0]["page_content"] == "20 days"
+    assert session.records[0].answer_markdown == response.answer
     assert response.answer.startswith("The policy provides 20 annual leave days[1].")
     assert "## References" in response.answer
     assert "**[1]** **Leave Policy** - page 4" in response.answer
@@ -135,6 +173,8 @@ async def test_generation_service_stream_emits_markdown_and_validated_references
     )
 
     assert response.status == GenerationStatus.ANSWERED
+    assert response.generation_id == session.records[0].id
+    assert session.committed is True
     assert "## References" in response.answer
     assert events[-1]["type"] == "completed"
     assert events[-1]["result"]["citations"][0]["evidence_id"] == "E1"

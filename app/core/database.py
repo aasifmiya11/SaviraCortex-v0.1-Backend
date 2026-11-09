@@ -107,3 +107,11 @@ def close_database() -> None:
 
     engine.dispose()
     print("Database connection pool disposed.")
+
+
+def create_generation_feedback_table() -> None:
+    """Create only the RAG evaluation dataset table when it is missing."""
+    from ..models import GenerationFeedback, Organization, User
+
+    _ = (Organization, User)  # Register referenced tables in Base.metadata.
+    GenerationFeedback.__table__.create(bind=engine, checkfirst=True)

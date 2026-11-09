@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import threading
 from dataclasses import dataclass
 from typing import Any, Callable
+from uuid import UUID
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -126,6 +128,8 @@ def _initialize_shared_rag_components() -> _SharedRAGComponents:
 
 _SHARED_RAG_COMPONENTS: _SharedRAGComponents | None = None
 _SHARED_RAG_COMPONENTS_LOCK = threading.Lock()
+_FEEDBACK_TABLES_READY: set[Any] = set()
+_FEEDBACK_TABLES_LOCK = threading.Lock()
 
 
 def _get_shared_rag_components() -> _SharedRAGComponents:
@@ -189,6 +193,79 @@ class GenerationService:
     ) -> None:
         self.session = session
         self._graph_factory = graph_factory or _build_graph
+
+    def _persist_generation_record(
+        self,
+        *,
+        query: str,
+        organization_id: UUID,
+        user_id: UUID,
+        result: dict[str, Any],
+        answer_markdown: str,
+        answer_status: Any,
+    ) -> UUID:
+        """Persist a complete, JSON-safe RAG example for later evaluation."""
+        from app.models.generation_feedback import GenerationFeedback
+
+        trace = dict(result.get("retrieval_trace") or {})
+        trace["retrieval_attempts"] = result.get("retrieval_attempt", 0)
+        trace["retrieval_reason"] = result.get("retrieval_reason")
+        trace["retrieval_diagnostics"] = result.get("retrieval_diagnostics") or {}
+        validation = result.get("validation_result")
+        if validation is not None and hasattr(validation, "model_dump"):
+            trace["static_validation"] = validation.model_dump(mode="json")
+
+        generated_queries = trace.get("generated_queries") or []
+        retrieved_documents = result.get("retrieved_documents") or []
+
+        # Convert UUIDs, dates, enums, and other metadata values into JSON-safe
+        # values before storing the full retrieval evidence in PostgreSQL.
+        safe_trace = json.loads(json.dumps(trace, default=str))
+        safe_documents = json.loads(json.dumps(retrieved_documents, default=str))
+        safe_queries = json.loads(json.dumps(generated_queries, default=str))
+        status_value = getattr(answer_status, "value", answer_status)
+
+        record = GenerationFeedback(
+            organization_id=organization_id,
+            user_id=user_id,
+            query=query,
+            generated_queries=safe_queries,
+            generated_query_count=len(safe_queries),
+            retrieval_trace=safe_trace,
+            retrieved_documents=safe_documents,
+            answer_markdown=answer_markdown,
+            answer_status=str(status_value),
+        )
+        try:
+            # Ensure the table exists on the request's database engine. This is
+            # cached per engine; the checked-in SQL migration remains the
+            # preferred production deployment path.
+            bind_getter = getattr(self.session, "get_bind", None)
+            if callable(bind_getter):
+                bind = bind_getter()
+                with _FEEDBACK_TABLES_LOCK:
+                    if bind not in _FEEDBACK_TABLES_READY:
+                        GenerationFeedback.__table__.create(
+                            bind=bind,
+                            checkfirst=True,
+                        )
+                        _FEEDBACK_TABLES_READY.add(bind)
+
+            self.session.add(record)
+            self.session.flush()
+            self.session.commit()
+            return record.id
+        except Exception as exc:
+            self.session.rollback()
+            logger.exception(
+                "Unable to persist RAG evaluation record "
+                "(organization_id=%s, user_id=%s).",
+                organization_id,
+                user_id,
+            )
+            raise GenerationExecutionError(
+                "The answer was generated but could not be saved to the evaluation dataset."
+            ) from exc
 
     async def generate(
         self,
@@ -270,10 +347,22 @@ class GenerationService:
             )
 
         retrieved_documents = result.get("retrieved_documents") or []
-        logger.info("[RAG][GENERATION_COMPLETE] evidence_count=%d retrieval_attempts=%s citation_count=%d answer_status=%s", len(retrieved_documents), result.get("retrieval_attempt", 0), len(validation.citations), answer.status)
-        return GenerationResponse(
+        answer_markdown = _append_references(
+            answer.segments[0].text, validation.citations
+        )
+        generation_id = self._persist_generation_record(
             query=result.get("query", query),
-            answer=_append_references(answer.segments[0].text, validation.citations),
+            organization_id=organization_id,
+            user_id=user_id,
+            result=result,
+            answer_markdown=answer_markdown,
+            answer_status=answer.status,
+        )
+        logger.info("[RAG][GENERATION_COMPLETE] generation_id=%s evidence_count=%d retrieval_attempts=%s citation_count=%d answer_status=%s", generation_id, len(retrieved_documents), result.get("retrieval_attempt", 0), len(validation.citations), answer.status)
+        return GenerationResponse(
+            generation_id=generation_id,
+            query=result.get("query", query),
+            answer=answer_markdown,
             status=answer.status,
             citations=validation.citations,
             warnings=validation.warnings,
@@ -338,9 +427,21 @@ class GenerationService:
         if validation.is_valid is not True:
             raise GenerationValidationError("The generated answer did not pass citation validation.")
 
-        response = GenerationResponse(
+        answer_markdown = _append_references(
+            answer.segments[0].text, validation.citations
+        )
+        generation_id = self._persist_generation_record(
             query=result.get("query", query),
-            answer=_append_references(answer.segments[0].text, validation.citations),
+            organization_id=organization_id,
+            user_id=user_id,
+            result=result,
+            answer_markdown=answer_markdown,
+            answer_status=answer.status,
+        )
+        response = GenerationResponse(
+            generation_id=generation_id,
+            query=result.get("query", query),
+            answer=answer_markdown,
             status=answer.status,
             citations=validation.citations,
             warnings=validation.warnings,

@@ -10,6 +10,7 @@ from .user_role_assignments import UserRoleAssignment
 from .document_acl import DocumentACL
 from .organization_invitations import OrganizationInvitation
 from .document_ingestion_sessions import DocumentIngestionSession
+from .generation_feedback import GenerationFeedback
 
 __all__ = [
     "User",
@@ -24,4 +25,5 @@ __all__ = [
     "DocumentACL",
     "OrganizationInvitation",
     "DocumentIngestionSession",
+    "GenerationFeedback",
 ]

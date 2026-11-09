@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -57,6 +58,7 @@ class GenerationResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    generation_id: UUID
     query: str
     answer: str
     status: GenerationStatus
@@ -65,3 +67,12 @@ class GenerationResponse(BaseModel):
     missing_information: list[str] = Field(default_factory=list)
     retrieval_attempts: int = Field(ge=0)
     evidence_count: int = Field(ge=0)
+
+
+
+class GenerationFeedbackRequest(BaseModel):
+    """Human relevance judgment for one generated answer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    feedback_status: Literal["relevant", "not_relevant"]

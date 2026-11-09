@@ -3,16 +3,21 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db, get_verified_firebase_claims
-from app.models import OrganizationMembership, User
-from app.schemas.v1.generation import GenerationRequest, GenerationResponse
+from app.models import GenerationFeedback, OrganizationMembership, User
+from app.schemas.v1.generation import (
+    GenerationFeedbackRequest,
+    GenerationRequest,
+    GenerationResponse,
+)
 from app.services.generation.generation_service import (
     GenerationExecutionError,
     GenerationRuntimeUnavailableError,
@@ -67,6 +72,15 @@ def _current_member(
         )
 
     return user
+
+
+def _membership_role(db: Session, organization_id: UUID, user_id: UUID) -> str:
+    return db.scalar(
+        select(OrganizationMembership.role).where(
+            OrganizationMembership.organization_id == organization_id,
+            OrganizationMembership.user_id == user_id,
+        )
+    ) or "member"
 
 
 @router.post(
@@ -181,3 +195,102 @@ async def generate_answer_stream(
             "Connection": "keep-alive",
         },
     )
+
+
+
+@router.patch(
+    "/{generation_id}/feedback",
+    summary="Label a generated answer as relevant or not relevant",
+)
+def update_generation_feedback(
+    organization_id: UUID,
+    generation_id: UUID,
+    payload: GenerationFeedbackRequest,
+    db: Session = Depends(get_db),
+    firebase_claims: dict = Depends(get_verified_firebase_claims),
+):
+    user = _current_member(db, organization_id, firebase_claims)
+    role = _membership_role(db, organization_id, user.id)
+    filters = [
+        GenerationFeedback.id == generation_id,
+        GenerationFeedback.organization_id == organization_id,
+    ]
+    if role not in {"owner", "admin"}:
+        filters.append(GenerationFeedback.user_id == user.id)
+    record = db.scalar(select(GenerationFeedback).where(*filters))
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Generation record not found in this organization.",
+        )
+
+    record.feedback_status = payload.feedback_status
+    record.feedback_updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(record)
+    return {
+        "generation_id": str(record.id),
+        "feedback_status": record.feedback_status,
+        "feedback_updated_at": record.feedback_updated_at,
+    }
+
+
+@router.get(
+    "/feedback-dataset",
+    summary="Export stored RAG examples for evaluation",
+)
+def get_feedback_dataset(
+    organization_id: UUID,
+    feedback_status: str | None = Query(
+        default=None,
+        pattern="^(relevant|not_relevant)$",
+    ),
+    labeled_only: bool = True,
+    limit: int = Query(default=1000, ge=1, le=5000),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    firebase_claims: dict = Depends(get_verified_firebase_claims),
+):
+    user = _current_member(db, organization_id, firebase_claims)
+    role = _membership_role(db, organization_id, user.id)
+    statement = select(GenerationFeedback).where(
+        GenerationFeedback.organization_id == organization_id
+    )
+    if role not in {"owner", "admin"}:
+        statement = statement.where(GenerationFeedback.user_id == user.id)
+    if feedback_status is not None:
+        statement = statement.where(
+            GenerationFeedback.feedback_status == feedback_status
+        )
+    elif labeled_only:
+        statement = statement.where(
+            GenerationFeedback.feedback_status.is_not(None)
+        )
+
+    records = db.scalars(
+        statement.order_by(
+            GenerationFeedback.created_at.desc()
+        ).limit(limit).offset(offset)
+    ).all()
+    return {
+        "items": [
+            {
+                "generation_id": str(record.id),
+                "query": record.query,
+                "generated_queries": record.generated_queries,
+                "generated_query_count": record.generated_query_count,
+                "retrieval_trace": record.retrieval_trace,
+                "retrieved_documents": record.retrieved_documents,
+                "answer_markdown": record.answer_markdown,
+                "answer_status": record.answer_status,
+                "feedback_status": record.feedback_status,
+                "created_at": record.created_at,
+                "feedback_updated_at": record.feedback_updated_at,
+            }
+            for record in records
+        ],
+        "count": len(records),
+        "limit": limit,
+        "offset": offset,
+        "labeled_only": labeled_only and feedback_status is None,
+    }

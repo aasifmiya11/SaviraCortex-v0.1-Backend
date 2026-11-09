@@ -43,6 +43,23 @@ def create_retriever_node(
             "expansion": retrieval_result.get("expansion"),
         }
 
+        generated_queries = retrieval_result.get("generated_queries") or []
+        retrieval_trace = {
+            "generated_queries": generated_queries,
+            "generated_query_count": len(generated_queries),
+            "mode": retrieval_result.get("mode"),
+            "top_k": retrieval_result.get("top_k"),
+            "candidate_k": retrieval_result.get("candidate_k"),
+            "branch_count": retrieval_result.get("branch_count", 0),
+            "branches": retrieval_result.get("branches") or [],
+            "fused_count": retrieval_result.get("fused_count", 0),
+            "reranked_count": retrieval_result.get("reranked_count", 0),
+            "eligible_count": retrieval_result.get("eligible_count", 0),
+            "selected_count": retrieval_result.get("selected_count", len(selected_documents)),
+            "expansion": retrieval_result.get("expansion") or {},
+            "retrieval_reason": retrieval_result.get("retrieval_reason"),
+        }
+
         return {
             "retrieved_documents": selected_documents,
             "retrieval_attempt": 1,
@@ -51,6 +68,7 @@ def create_retriever_node(
                 "total_attempts": 1,
                 "attempts": [diagnostics],
             },
+            "retrieval_trace": retrieval_trace,
         }
 
     return retriever_node

@@ -11,7 +11,7 @@ from app.models import (
     Organization, OrganizationDepartment, OrganizationDepartmentMembership,
     OrganizationInvitation, OrganizationMembership, OrganizationRole,
     User, UserRoleAssignment, Document, DocumentVersion, DocumentACL,
-    DocumentIngestionSession,
+    DocumentIngestionSession, GenerationFeedback,
 )
 
 TEST_TABLES = [
@@ -20,6 +20,7 @@ TEST_TABLES = [
     OrganizationDepartment.__table__, OrganizationDepartmentMembership.__table__,
     OrganizationInvitation.__table__, Document.__table__, DocumentACL.__table__,
     DocumentVersion.__table__, DocumentIngestionSession.__table__,
+    GenerationFeedback.__table__,
 ]
 
 
