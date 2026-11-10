@@ -126,3 +126,33 @@ The following require implementation-level decisions and tests:
 - A runtime blocked/jailbreak decision must stop the answer-generation LLM call; where policy specifies, it should also stop retrieval.
 - Do not log raw secrets or unnecessary sensitive document content.
 - Document this architecture as planned until code, tests and end-to-end behavior verify each capability.
+
+
+## Runtime implementation status — 10 November 2026
+
+The first runtime implementation slice is now present in the backend and organization dashboard:
+
+- **PII input preflight:** Presidio inspects the message before conversation persistence or agent execution. The chat client receives a redacted preview and can redact-and-send, explicitly send as-is when tenant policy permits, or cancel. If consent prompts are disabled by the tenant, the server automatically redacts rather than sending the original value.
+- **Input semantic checks:** A dedicated LangGraph node runs after basic input validation and before retrieval. JEV classifies jailbreak, indirect injection, role manipulation, prompt extraction, toxicity, sexual content, hate/discrimination, violence/self-harm, and organization policy. Each triggered category carries a category-specific reason and confidence. The recent conversation window is supplied as untrusted context, never as system instructions.
+- **Topicality:** Organization allowed/restricted topics are stored per tenant. Semantic similarity uses the configured embedding service; scores at or above 0.60 are treated as in-scope, scores below 0.20 as out-of-scope, and the ambiguous band is sent to JEV. Restricted-topic matches are blocked. If both similarity and JEV fallback are unavailable for an ambiguous request, routing fails closed.
+- **Output checks:** Generated text is buffered to sentence boundaries and checked before each SSE segment is released. Presidio and secret scanning run deterministically; JEV checks semantic safety per segment. The complete answer is then checked again after citation/reference assembly, including grounding against a bounded serialization of retrieved evidence. Redacted output is rechecked before persistence and completion.
+- **Tenant policy:** Organization owners/admins can configure allowed/restricted topics, custom input and output policy text, category enablement/actions, PII consent behavior, thresholds, and history window through the dashboard. Output evaluation receives both tenant input and output policies. Mandatory platform protections cannot be disabled or made permissive by tenant overrides.
+- **Audit:** Guardrail decisions are stored with request ID, stage, decision, categories, action summary, and confidence only. Raw prompts, answers, and detected values are deliberately excluded. Owners/admins can view recent events in the dashboard.
+
+### Runtime configuration and safety boundaries
+
+- JEV semantic classification requires JEV_ENABLED=true and a reachable configured JEV gateway. If JEV is disabled, deterministic PII/secret checks still run; semantic classifications are unavailable and ambiguous topicality fails closed. Production deployments should keep JEV enabled and monitor gateway health.
+- The dashboard currently exposes allow, block, and safe-span redact actions. Other action enum values are not offered in the UI; unsupported non-allow actions fail closed rather than silently allowing content.
+- Sentence-level checks reduce exposure during streaming, but a full-response-only grounding/off-topic check can still stop delivery after earlier approved segments have already been seen. For a strict no-partial-disclosure mode, buffer the complete response until final validation before releasing it.
+- Semantic classifications are model judgments, not proofs. Thresholds and category prompts require evaluation against representative tenant data before production policy tuning.
+
+- The current Presidio adapter uses built-in regex recognizers without downloading a spaCy model. It covers common structured identifiers (such as email addresses and phone numbers), but does not provide reliable person-name NER until a supported NLP model/recognizer is configured. Treat recognizer coverage as a deployment requirement, not a claim that every possible PII type is detected.
+
+
+### Conversation persistence for guardrail decisions
+
+- The approved effective user query is the only query sent into LangGraph and stored in the conversation message store. When PII is redacted, the original raw text is not persisted; the user-message row carries `guardrail_decision=redacted`, and the graph state carries the same decision plus the `pii` category.
+- Input guardrail blocks are represented by a policy-response node in LangGraph rather than terminating with an exception. The resulting assistant message, decision, and category list are written to the LangGraph checkpoint and the conversation message store under the same request ID.
+- Output guardrail blocks, including segment-time blocks, are converted into a persisted assistant guardrail turn. The stream emits a completed response for that turn so the UI replaces any provisional assistant placeholder with the durable decision message.
+- Conversation history APIs return the guardrail metadata with each message. The chat UI renders the redacted user message or blocked assistant response directly below its corresponding message and restores the same state when a conversation is reopened.
+- Guardrail-only assistant turns do not create generation-feedback records or expose a feedback control.

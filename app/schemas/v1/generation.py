@@ -34,6 +34,7 @@ class GenerationRequest(BaseModel):
     query: str = Field(min_length=1, max_length=8000)
     conversation_id: UUID | None = None
     request_id: UUID | None = None
+    pii_action: Literal["redact", "send_as_is", "reject"] | None = None
 
     @field_validator("query")
     @classmethod
@@ -49,7 +50,7 @@ class GenerationResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    generation_id: UUID
+    generation_id: UUID | None = None
     conversation_id: UUID | None = None
     request_id: UUID | None = None
     query: str
@@ -60,6 +61,8 @@ class GenerationResponse(BaseModel):
     missing_information: list[str] = Field(default_factory=list)
     retrieval_attempts: int = Field(ge=0)
     evidence_count: int = Field(ge=0)
+    guardrail_decision: Literal["blocked", "redirected", "redacted"] | None = None
+    guardrail_categories: list[str] = Field(default_factory=list)
 
 
 class GenerationFeedbackRequest(BaseModel):

@@ -45,3 +45,16 @@ def route_after_evaluation(
         return "compress"
 
     return "generate"
+
+
+def route_after_runtime_guardrails(state: RAGWorkflowState) -> str:
+    """Route blocked, off-topic and approved requests after runtime input checks."""
+    if state.get("is_valid") is not True:
+        return "invalid"
+    if state.get("input_guardrail_blocked") is True:
+        return "blocked"
+    if state.get("topicality_decision") == "uncertain":
+        return "blocked"
+    if state.get("topicality_decision") == "off_topic":
+        return "off_topic"
+    return "valid"

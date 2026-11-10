@@ -30,6 +30,7 @@ from app.services.generation.persistent_generation_service import (
     generate_conversation_title,
 )
 from app.repositories.conversation_repository import ConversationNotFoundError
+from app.guardrails.runtime_service import GuardrailBlockedError, GuardrailConsentRequiredError
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,7 @@ async def generate_answer(
             user_id=user.id,
             conversation_id=payload.conversation_id,
             request_id=payload.request_id,
+            pii_action=payload.pii_action,
         )
         if payload.conversation_id is None and response.conversation_id is not None:
             background_tasks.add_task(
@@ -121,6 +123,22 @@ async def generate_answer(
                 first_message=payload.query,
             )
         return response
+    except GuardrailConsentRequiredError as exc:
+        raise HTTPException(
+            status_code=428,
+            detail={
+                "code": "pii_consent_required",
+                "message": str(exc),
+                "redacted_preview": exc.redacted_preview,
+                "entities": exc.entities,
+                "allowed_actions": exc.allowed_actions,
+            },
+        ) from exc
+    except GuardrailBlockedError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "guardrail_blocked", "message": exc.message},
+        ) from exc
     except ConversationNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -193,6 +211,7 @@ async def generate_answer_stream(
                     user_id=user.id,
                     conversation_id=payload.conversation_id,
                     request_id=payload.request_id,
+                    pii_action=payload.pii_action,
                     on_event=queue.put_nowait,
                 )
                 if payload.conversation_id is None and response.conversation_id is not None:
@@ -203,6 +222,21 @@ async def generate_answer_stream(
                         user_id=user.id,
                         first_message=payload.query,
                     )
+            except GuardrailConsentRequiredError as exc:
+                await queue.put({
+                    "type": "error",
+                    "code": "pii_consent_required",
+                    "message": str(exc),
+                    "redacted_preview": exc.redacted_preview,
+                    "entities": exc.entities,
+                    "allowed_actions": exc.allowed_actions,
+                })
+            except GuardrailBlockedError as exc:
+                await queue.put({
+                    "type": "error",
+                    "code": "guardrail_blocked",
+                    "message": exc.message,
+                })
             except ConversationNotFoundError:
                 await queue.put(error_event("conversation_not_found", "Conversation not found."))
             except InvalidGenerationQueryError as exc:

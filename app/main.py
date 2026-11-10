@@ -16,6 +16,7 @@ from app.core.database import (
     close_database,
     create_conversation_tables,
     create_security_guardrail_columns,
+    create_guardrail_audit_table,
 )
 
 
@@ -25,6 +26,7 @@ async def lifespan(app: FastAPI):
     try:
         await asyncio.to_thread(create_conversation_tables)
         await asyncio.to_thread(create_security_guardrail_columns)
+        await asyncio.to_thread(create_guardrail_audit_table)
         app.state.checkpointer = await initialize_checkpointer()
         app.state.store = get_store()
         yield

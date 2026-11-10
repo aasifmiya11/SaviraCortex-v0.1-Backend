@@ -11,9 +11,11 @@ from langgraph.graph import END, START, StateGraph
 from app.memory.cross_thread_memory import retrieve_cross_thread_memories
 from app.workflows.rag.nodes.generation import create_generation_node
 from app.workflows.rag.nodes.input_validation import input_validation_node
+from app.workflows.rag.nodes.policy_response import policy_response_node
 from app.workflows.rag.nodes.retriever import create_retriever_node
+from app.workflows.rag.nodes.runtime_input_guardrails import runtime_input_guardrails_node
 from app.workflows.rag.nodes.static_validation import create_static_validation_node
-from app.workflows.rag.routing import route_after_validation
+from app.workflows.rag.routing import route_after_runtime_guardrails
 from app.workflows.rag.state import RAGWorkflowState
 
 
@@ -26,9 +28,11 @@ def create_rag_graph(
     store: Any | None = None,
     generation_event_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
 ):
-    """Build validation -> memory lookup -> retrieval -> generation -> citation validation."""
+    """Build input validation -> guardrails -> retrieval -> generation -> output validation."""
     graph = StateGraph(RAGWorkflowState)
     graph.add_node("input_validation", input_validation_node)
+    graph.add_node("runtime_input_guardrails", runtime_input_guardrails_node)
+    graph.add_node("policy_response", policy_response_node)
     graph.add_node("retriever", create_retriever_node(retriever))
     graph.add_node(
         "generation",
@@ -37,21 +41,23 @@ def create_rag_graph(
     graph.add_node("static_validation", create_static_validation_node(validator))
 
     graph.add_edge(START, "input_validation")
+    graph.add_edge("input_validation", "runtime_input_guardrails")
+    next_nodes = {
+        "valid": "memory_retriever" if store is not None else "retriever",
+        "off_topic": "policy_response",
+        "blocked": "policy_response",
+        "invalid": END,
+    }
+    graph.add_conditional_edges(
+        "runtime_input_guardrails",
+        route_after_runtime_guardrails,
+        next_nodes,
+    )
     if store is not None:
         graph.add_node("memory_retriever", retrieve_cross_thread_memories)
-        graph.add_conditional_edges(
-            "input_validation",
-            route_after_validation,
-            {"valid": "memory_retriever", "invalid": END},
-        )
         graph.add_edge("memory_retriever", "retriever")
-    else:
-        graph.add_conditional_edges(
-            "input_validation",
-            route_after_validation,
-            {"valid": "retriever", "invalid": END},
-        )
     graph.add_edge("retriever", "generation")
     graph.add_edge("generation", "static_validation")
+    graph.add_edge("policy_response", "static_validation")
     graph.add_edge("static_validation", END)
     return graph.compile(checkpointer=checkpointer, store=store)

@@ -211,3 +211,34 @@ async def test_conversation_title_generation_is_background_safe_and_never_overwr
     assert "title_generated" in str(fake_session.statement)
     assert fake_session.committed is True
     assert fake_session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_guardrail_block_is_persisted_as_assistant_message_and_graph_state():
+    conversation_id = uuid4()
+    request_id = uuid4()
+    graph = FakePersistentGraph({})
+    service = PersistentGenerationService(
+        object(),
+        checkpointer=object(),
+        graph_factory=lambda _session: graph,
+    )
+    repository = FakeConversationRepository(conversation_id)
+    service.conversations = repository
+
+    response = await service._persist_guardrail_turn(
+        graph=graph,
+        config={"configurable": {"thread_id": str(conversation_id)}},
+        conversation=repository.conversation,
+        request_id=request_id,
+        query="Unsafe request",
+        message="This request was blocked.",
+        findings=[{"category": "direct_jailbreak"}],
+    )
+
+    assert response.generation_id is None
+    assert response.guardrail_decision == "blocked"
+    assert response.guardrail_categories == ["direct_jailbreak"]
+    assert graph.updated_state["messages"][0].content == "This request was blocked."
+    assert repository.assistant_message["content"] == "This request was blocked."
+    assert repository.assistant_message["metadata"]["guardrail_decision"] == "blocked"

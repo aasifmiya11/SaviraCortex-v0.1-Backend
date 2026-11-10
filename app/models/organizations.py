@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, String, Uuid, func
+from sqlalchemy import DateTime, JSON, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..core.database import Base
@@ -26,6 +26,13 @@ class Organization(Base):
     onboarding_completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+
+    guardrail_policy: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default="{}",
     )
 
     created_at: Mapped[datetime] = mapped_column(

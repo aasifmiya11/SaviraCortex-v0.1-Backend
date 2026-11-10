@@ -119,6 +119,10 @@ def create_security_guardrail_columns() -> None:
             "ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS "
             "security_review JSON NOT NULL DEFAULT '{}'::json"
         ),
+        "organizations": (
+            "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS "
+            "guardrail_policy JSON NOT NULL DEFAULT '{}'::json"
+        ),
     }
     with engine.begin() as connection:
         for table_name, statement in statements.items():
@@ -165,3 +169,13 @@ def create_conversation_tables() -> None:
     for table in (Conversation.__table__, ConversationMessage.__table__):
         for index in table.indexes:
             index.create(bind=engine, checkfirst=True)
+
+
+def create_guardrail_audit_table() -> None:
+    """Create the privacy-conscious runtime guardrail audit table."""
+    from ..models import GuardrailAuditEvent, Organization, User
+
+    _ = (Organization, User)
+    GuardrailAuditEvent.__table__.create(bind=engine, checkfirst=True)
+    for index in GuardrailAuditEvent.__table__.indexes:
+        index.create(bind=engine, checkfirst=True)

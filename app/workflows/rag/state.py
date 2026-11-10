@@ -22,6 +22,14 @@ class RAGWorkflowState(TypedDict):
 
     is_valid: NotRequired[bool]
     validation_error: NotRequired[str | None]
+    effective_guardrail_policy: NotRequired[dict[str, Any]]
+    input_guardrail_findings: NotRequired[list[dict[str, Any]]]
+    input_guardrail_blocked: NotRequired[bool]
+    input_guardrail_message: NotRequired[str | None]
+    guardrail_decision: NotRequired[str | None]
+    guardrail_categories: NotRequired[list[str]]
+    topicality_decision: NotRequired[str]
+    topicality_similarity: NotRequired[float | None]
 
     # Exact selected chunk list returned by the first Adaptive-K selection.
     retrieved_documents: NotRequired[list[dict[str, Any]]]

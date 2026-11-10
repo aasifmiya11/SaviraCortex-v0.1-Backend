@@ -210,3 +210,25 @@ The following remain to be decided and verified during implementation:
 - Do not release a streaming segment before its required checks complete.
 - Do not log raw secrets or unnecessary sensitive content.
 - Document proposed capabilities as planned until code, tests and end-to-end behavior verify them.
+
+
+## Implementation tracking — 10 November 2026
+
+The first implementation pass is in progress in these areas:
+
+- Shared effective-policy schema and resolver with platform-enforced mandatory protections.
+- Presidio-based input PII consent/redaction before conversation persistence.
+- JEV runtime classification with per-category reason codes and confidence, using bounded untrusted conversation history.
+- LangGraph conditional routing before retrieval for blocked and out-of-scope inputs.
+- Sentence-buffered streaming output checks plus complete-response final validation.
+- Tenant-owned policy fields and dashboard controls for topics, custom input/output rules, category actions, PII consent, and topicality thresholds.
+- Privacy-conscious guardrail audit events and owner/admin audit view.
+
+The implementation deliberately keeps document-ingestion prompt-injection protection intact. Runtime input/output guardrails are separate layers and do not replace the existing ingestion/retrieval trust boundary.
+
+See backend/docs/33-security-guardrails-architecture.md for runtime details and current safety limitations. Frontend design and interaction contracts are in frontend/DESIGN.md and frontend/UX-CONTRACT.md.
+
+
+### Conversation-store decision (implemented)
+
+A guardrail block is a first-class assistant turn, not a transient HTTP/SSE error. LangGraph produces the input-block response, and the persistence service records blocked decisions in both the graph checkpoint and `conversation_messages`. Output blocks are normalized to the same persisted assistant-turn shape. The effective redacted user message is the only input stored or passed to LangGraph; its message metadata and graph state identify the `redacted` decision. The chat history endpoint hydrates these fields so the UI can render the decision directly beneath the matching user message after reload.

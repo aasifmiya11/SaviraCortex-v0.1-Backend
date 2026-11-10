@@ -111,6 +111,7 @@ class ConversationRepository:
         conversation: Conversation,
         request_id: UUID,
         content: str,
+        metadata: dict | None = None,
     ) -> ConversationMessage:
         existing = self.session.scalar(
             select(ConversationMessage).where(
@@ -122,6 +123,10 @@ class ConversationRepository:
         if existing is not None:
             if existing.content != content:
                 raise ValueError("The request ID was already used for a different message.")
+            if metadata:
+                existing.message_metadata = {**(existing.message_metadata or {}), **metadata}
+                self.session.commit()
+                self.session.refresh(existing)
             return existing
 
         sequence = self._allocate_sequence(conversation.id)
@@ -131,7 +136,7 @@ class ConversationRepository:
             role="user",
             content=content,
             request_id=request_id,
-            message_metadata={},
+            message_metadata=metadata or {},
         )
         self.session.add(message)
         try:

@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
     memberships,
     organization_roles,
     organizations,
+    guardrails,
 )
 
 api_router = APIRouter(prefix="/api/v1")
@@ -22,6 +23,7 @@ api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(departments.router)
 api_router.include_router(organizations.router)
+api_router.include_router(guardrails.router)
 api_router.include_router(organization_roles.router)
 api_router.include_router(memberships.router)
 api_router.include_router(department_memberships.router)
