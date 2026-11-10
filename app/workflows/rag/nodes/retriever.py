@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from typing import Any
 
+from app.guardrails.runtime_schemas import resolve_effective_policy
 from app.services.retrieval.retrieval_service import (
     RetrievalOrchestrationError,
     RetrievalOrchestrator,
@@ -32,11 +33,21 @@ def create_retriever_node(
             )
 
         selected_documents = retrieval_result["selected_candidates"]
+        policy = resolve_effective_policy(state.get("effective_guardrail_policy") or {})
+        if policy.retrieval_guardrails_enabled:
+            # Chunks flagged during ingestion are excluded before they can enter
+            # compression, evidence evaluation, prompts, or generation.
+            selected_documents = [
+                item for item in selected_documents
+                if not (
+                    isinstance(item, dict)
+                    and isinstance(item.get("metadata"), dict)
+                    and item["metadata"].get("prompt_injection_flagged") is True
+                )
+            ]
         diagnostics = {
             "attempt": 1,
-            "selected_count": retrieval_result.get(
-                "selected_count", len(selected_documents)
-            ),
+            "selected_count": len(selected_documents),
             "eligible_count": retrieval_result.get("eligible_count"),
             "fused_count": retrieval_result.get("fused_count"),
             "reranked_count": retrieval_result.get("reranked_count"),

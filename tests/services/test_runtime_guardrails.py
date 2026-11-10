@@ -344,3 +344,114 @@ def test_policy_response_node_returns_persistable_blocked_turn():
     assert result["guardrail_decision"] == "blocked"
     assert result["generation_output"].segments[0].text == "This request was blocked by policy."
     assert result["retrieved_documents"] == []
+
+
+def test_guardrail_master_switches_preserve_mandatory_categories():
+    policy = resolve_effective_policy({
+        "input_guardrails_enabled": False,
+        "output_guardrails_enabled": False,
+    })
+    enabled = RuntimeGuardrailService._enabled
+    assert enabled("direct_jailbreak", policy, output=False) is True
+    assert enabled("indirect_prompt_injection", policy, output=False) is True
+    assert enabled("toxicity", policy, output=False) is False
+    assert enabled("organization_policy", policy, output=False) is False
+    # The output master switch bypasses every output check, including PII/secrets.
+    assert enabled("pii_leakage", policy, output=True) is False
+    assert enabled("secret_leakage", policy, output=True) is False
+    assert enabled("system_prompt_leakage", policy, output=True) is False
+    assert enabled("grounding", policy, output=True) is False
+
+    enabled_policy = resolve_effective_policy({"output_guardrails_enabled": True})
+    assert enabled("pii_leakage", enabled_policy, output=True) is True
+    assert enabled("secret_leakage", enabled_policy, output=True) is True
+    assert enabled("system_prompt_leakage", enabled_policy, output=True) is True
+    assert enabled("toxicity", policy, output=True) is False
+
+
+def test_guardrail_master_switches_are_default_on_and_round_trip():
+    policy = resolve_effective_policy({})
+    assert policy.input_guardrails_enabled is True
+    assert policy.output_guardrails_enabled is True
+    disabled = resolve_effective_policy({
+        "input_guardrails_enabled": False,
+        "output_guardrails_enabled": False,
+    })
+    restored = resolve_effective_policy(disabled.model_dump(mode="json"))
+    assert restored.input_guardrails_enabled is False
+    assert restored.output_guardrails_enabled is False
+
+
+def test_organization_policy_instructions_respect_master_switches():
+    policy = resolve_effective_policy({
+        "input_guardrails_enabled": False,
+        "output_guardrails_enabled": False,
+        "custom_input_policy": "input-only tenant instruction",
+        "custom_output_policy": "output-only tenant instruction",
+    })
+    input_text = RuntimeGuardrailService._organization_policy_text(policy)
+    output_text = RuntimeGuardrailService._organization_policy_text(policy, include_output=True)
+    assert "input-only tenant instruction" not in input_text
+    assert "output-only tenant instruction" not in output_text
+
+
+def test_ingestion_and_retrieval_guardrails_default_on_and_round_trip():
+    policy = resolve_effective_policy({})
+    assert policy.ingestion_guardrails_enabled is True
+    assert policy.retrieval_guardrails_enabled is True
+
+    disabled = resolve_effective_policy({
+        "ingestion_guardrails_enabled": False,
+        "retrieval_guardrails_enabled": False,
+    })
+    restored = resolve_effective_policy(disabled.model_dump(mode="json"))
+    assert restored.ingestion_guardrails_enabled is False
+    assert restored.retrieval_guardrails_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_disabled_output_guardrails_bypass_all_detectors_during_stream(monkeypatch):
+    policy = resolve_effective_policy({"output_guardrails_enabled": False})
+
+    def unexpected_detector_call(*args, **kwargs):
+        raise AssertionError("Output detector must not run when output guardrails are disabled.")
+
+    import app.guardrails.runtime_service as runtime_module
+    monkeypatch.setattr(runtime_module, "detect_pii", unexpected_detector_call)
+    monkeypatch.setattr(runtime_module, "detect_secrets", unexpected_detector_call)
+
+    answer = "Sajid Mia's email is sajid@example.com."
+    checked = await RuntimeGuardrailService().inspect_stream_segment(
+        segment=answer,
+        query="Tell me about Sajid Mia.",
+        history=[],
+        policy=policy,
+        evidence=[],
+    )
+    assert checked == answer
+
+
+@pytest.mark.asyncio
+async def test_disabled_output_guardrails_skip_full_response_inspection(monkeypatch):
+    policy = resolve_effective_policy({"output_guardrails_enabled": False})
+
+    def unexpected_detector_call(*args, **kwargs):
+        raise AssertionError("Output detector must not run when output guardrails are disabled.")
+
+    import app.guardrails.runtime_service as runtime_module
+    monkeypatch.setattr(runtime_module, "detect_pii", unexpected_detector_call)
+    monkeypatch.setattr(runtime_module, "detect_secrets", unexpected_detector_call)
+
+    answer = "Sajid Mia's email is sajid@example.com."
+    checked = await RuntimeGuardrailService().inspect_output(
+        answer=answer,
+        query="Tell me about Sajid Mia.",
+        history=[],
+        policy=policy,
+        evidence=[],
+    )
+    assert checked == {
+        "findings": [],
+        "blocked_findings": [],
+        "transformed_answer": answer,
+    }

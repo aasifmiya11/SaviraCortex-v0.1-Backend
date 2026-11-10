@@ -60,6 +60,20 @@ class RuntimeGuardrailService:
         output: bool,
     ) -> bool:
         enabled = policy.output_enabled if output else policy.input_enabled
+        if output:
+            # The organization-level output switch controls the entire inspection
+            # stage, including deterministic PII and secret checks.
+            if not policy.output_guardrails_enabled:
+                return False
+            # When enabled, disclosure protections remain mandatory per category.
+            if category in {"pii_leakage", "secret_leakage", "system_prompt_leakage"}:
+                return True
+        else:
+            # Platform-mandated prompt-injection protections remain active.
+            if category in {"direct_jailbreak", "indirect_prompt_injection"}:
+                return True
+            if not policy.input_guardrails_enabled:
+                return False
         return enabled.get(category, True)
 
     @staticmethod
@@ -91,9 +105,10 @@ class RuntimeGuardrailService:
         parts = [
             "Allowed topics: " + "; ".join(policy.allowed_topics),
             "Restricted topics: " + "; ".join(policy.restricted_topics),
-            "Organization input policy: " + policy.custom_input_policy,
         ]
-        if include_output:
+        if policy.input_guardrails_enabled:
+            parts.append("Organization input policy: " + policy.custom_input_policy)
+        if include_output and policy.output_guardrails_enabled:
             parts.append("Organization output policy: " + policy.custom_output_policy)
         return "\n".join(parts)
 
@@ -185,7 +200,7 @@ class RuntimeGuardrailService:
             logger.warning("JEV is disabled; semantic input classifications are unavailable.")
 
         topicality = {"decision": "not_configured", "similarity": None}
-        if policy.topicality_enabled and policy.restricted_topics:
+        if policy.input_guardrails_enabled and policy.topicality_enabled and policy.restricted_topics:
             try:
                 restricted_similarity = await asyncio.to_thread(
                     self._embedding_similarity, query, policy.restricted_topics
@@ -207,6 +222,7 @@ class RuntimeGuardrailService:
 
         if (
             topicality["decision"] == "not_configured"
+            and policy.input_guardrails_enabled
             and policy.topicality_enabled
             and policy.allowed_topics
         ):
@@ -288,6 +304,15 @@ class RuntimeGuardrailService:
         evidence: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         import asyncio
+
+        # Disabled means bypass the entire output stage, not merely allow findings.
+        # Avoid running Presidio and secret detectors for every streamed segment.
+        if not policy.output_guardrails_enabled:
+            return {
+                "findings": [],
+                "blocked_findings": [],
+                "transformed_answer": answer,
+            }
 
         pii = await asyncio.to_thread(detect_pii, answer)
         secrets = detect_secrets(answer)

@@ -259,3 +259,64 @@ The platform default remains the existing strict check-before-display strategy. 
 - Platform limits: minimum 16 and maximum 16384 tokens.
 
 The implementation is staged: policy/schema and administrator controls are introduced first; streaming execution, safe secret preflight, suppression event protocol, and end-to-end behavior must be completed and tested before optimistic or bucket mode is advertised as production-ready.
+
+## 34.12 Vercel AI SDK UI adoption — implementation decision (10 November 2026)
+
+**Decision:** Adopt Vercel AI SDK UI for the React chat interaction layer while retaining SaviraCortex's existing Python/FastAPI generation architecture.
+
+### Scope
+
+- Frontend dependencies: `ai` and `@ai-sdk/react`.
+- `useChat` owns client-side UI message state, submission/streaming/ready/error lifecycle, cancellation, and stream consumption.
+- A Next.js `/api/chat` adapter translates the existing FastAPI SSE events into the AI SDK UI message-stream protocol.
+- The adapter forwards the Firebase bearer token and organization/conversation/request identifiers. FastAPI continues to verify Firebase identity and organization membership; the frontend-supplied organization ID is never treated as authorization.
+- Existing API generation, conversation history, citation, feedback, PDF source, PII consent, and persistence endpoints remain in place.
+
+### Deliberately retained custom behavior
+
+The SDK is the chat lifecycle and message-stream foundation, not the SaviraCortex product policy or visual system. Custom behavior remains for:
+- PII consent, redaction, and idempotent retry using the original request and user-message IDs.
+- Streaming status and error data parts.
+- Server-approved provisional text and replacement with the final validated response.
+- Guardrail decision/category rendering, citation navigation, feedback controls, markdown presentation, and PDF source viewing.
+- Future identified segment/bucket parts and suppression updates required by optimistic and bucket output strategies.
+
+Custom data parts are transient where they carry request-time status or consent events. Final generation metadata is attached to the assistant UI message. Ordinary append-only text is not sufficient for future optimistic retraction; that work must use stable segment/bucket identifiers and explicit update/suppression parts.
+
+### AI SDK Core boundary
+
+AI SDK Core is **not** introduced in this migration. Current text generation, structured output, and the RAG workflow already execute in Python/LangGraph. Moving those operations to TypeScript would add a second model-execution runtime without a current capability requirement. Core may be evaluated later for image, speech, embeddings, or tool operations if it provides a concrete benefit, without changing the decision to keep authorization, tenant policy, RAG, and guardrails in the Python backend.
+
+### Verification status
+
+The first frontend integration pass is implemented. TypeScript and targeted ESLint checks pass. Full chat-flow verification against a running authenticated FastAPI/database/LLM stack remains required before the migration is considered end-to-end complete. No claim is made that optimistic or bucket execution modes have been implemented by this UI integration.
+
+
+## 34.13 Independent organization guardrail master switches — 10 November 2026
+
+Organizations can independently disable their configurable input checks and configurable output checks using `input_guardrails_enabled` and `output_guardrails_enabled`. Both default to enabled. The settings are stored in the effective tenant policy and apply to newly started requests; active requests retain their policy snapshot.
+
+When input guardrails are disabled, tenant-configurable semantic classifications, topicality evaluation, and custom input policy instructions are skipped. Input PII detection/consent handling and platform-required direct/indirect prompt-injection checks remain active.
+
+When output guardrails are disabled, tenant-configurable semantic classifications, grounding/off-topic review, and custom output policy instructions are skipped. Platform-required PII leakage, secret/credential leakage, and hidden system-prompt protections remain active, including pre-display checks.
+
+These are tenant-level opt-outs from organization-configurable policy enforcement, not a global bypass of platform security controls. Per-category settings remain stored and take effect again when the corresponding master switch is re-enabled.
+
+
+## 34.14 Independent ingestion and retrieval guardrail switches — 10 November 2026
+
+Two additional tenant-level switches are available: `ingestion_guardrails_enabled` and `retrieval_guardrails_enabled`. Both default to enabled and are stored in the same organization guardrail policy.
+
+- Ingestion OFF: skip document prompt-injection inspection during PDF analysis/staging. File type/size validation, authorization, duplicate handling, indexing and other ingestion functions continue. The staged security review is marked `disabled`.
+- Retrieval OFF: bypass filtering of ingestion-flagged prompt-injection chunks after authorized retrieval. Such chunks may proceed into context construction and generation.
+- Retrieval ON: exclude chunks whose indexed metadata has `prompt_injection_flagged=true` before compression/context construction and generation.
+- Policy is resolved from the authenticated organization on upload and from the request policy snapshot in RAG retrieval. Changes affect new ingestion sessions/requests, not already staged reviews or active request snapshots.
+
+These are explicit tenant opt-outs from the corresponding document-pipeline guardrail stages. They do not disable authentication, organization membership/ACL enforcement, upload validation, or other core application controls. Disabling ingestion checks does not retroactively reprocess existing documents.
+
+
+
+
+### 34.13 Output guardrail master switch semantics
+
+When an organization disables output guardrails, the output inspection stage is bypassed end-to-end. This includes per-segment PII/secret detection during streaming and the final whole-response output inspection. Streamed content is emitted without output guardrail detector latency or suppression. When the switch is enabled, platform-mandated PII, secret and system-prompt disclosure checks remain enforced regardless of per-category settings. This switch does not disable independent input, ingestion, retrieval, authentication, authorization or response-schema validation.

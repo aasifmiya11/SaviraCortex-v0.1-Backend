@@ -73,6 +73,7 @@ class DocumentIngestionWorkflowService:
         indexing_orchestrator=None,
         deletion_service=None,
         security_guardrail=None,
+        ingestion_guardrails_enabled: bool = True,
     ) -> None:
         self.validator = validator or PDFValidator(max_file_size_mb=25)
         self.loader = loader or pdf_loader
@@ -87,6 +88,7 @@ class DocumentIngestionWorkflowService:
         self.indexing_orchestrator = indexing_orchestrator
         self.deletion_service = deletion_service
         self.security_guardrail = security_guardrail or DocumentPromptInjectionGuardrail()
+        self.ingestion_guardrails_enabled = ingestion_guardrails_enabled
 
     def _get_indexing_orchestrator(self):
         if self.indexing_orchestrator is None:
@@ -334,8 +336,10 @@ class DocumentIngestionWorkflowService:
             raise DocumentIngestionWorkflowError("PDF sampling returned no pages.")
         report("sample_content", "completed", f"Selected {len(sampled_pages)} representative pages.")
         report("security_inspection", "started", "Checking extracted document chunks for prompt injection.")
-        security_review = self.security_guardrail.inspect_pages(
-            extracted_pages, document_name=path.name
+        security_review = (
+            self.security_guardrail.inspect_pages(extracted_pages, document_name=path.name)
+            if self.ingestion_guardrails_enabled
+            else {"status": "disabled", "detected": False, "findings": [], "flagged_chunk_indexes": []}
         )
         report("security_inspection", "completed", f"Security inspection completed; flagged {len(security_review.get('findings', []))} chunks.")
         if security_review.get("detected"):
@@ -499,8 +503,12 @@ class DocumentIngestionWorkflowService:
                 raise DocumentIngestionWorkflowError("PDF sampling returned no pages.")
             report("sample_content", "completed", f"Selected {len(sampled_pages)} representative pages.")
             report("security_inspection", "started", "Checking extracted document chunks for prompt injection.")
-            security_review = self.security_guardrail.inspect_pages(
-                extracted_pages, document_name=Path(original_filename).name
+            security_review = (
+                self.security_guardrail.inspect_pages(
+                    extracted_pages, document_name=Path(original_filename).name
+                )
+                if self.ingestion_guardrails_enabled
+                else {"status": "disabled", "detected": False, "findings": [], "flagged_chunk_indexes": []}
             )
             report("security_inspection", "completed", f"Security inspection completed; flagged {len(security_review.get('findings', []))} chunks.")
             if security_review.get("detected"):

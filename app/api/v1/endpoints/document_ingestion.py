@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_db, get_verified_firebase_claims
 from app.models import (
+    Organization,
     Document,
     DocumentVersion,
     OrganizationDepartmentMembership,
@@ -31,6 +32,7 @@ from app.schemas.v1.document_ingestion import (
     DocumentIngestionFinalizeResponse,
     DocumentVersionIndexingResponse,
 )
+from app.guardrails.runtime_schemas import resolve_effective_policy
 from app.services.document_ingestion.workflow_service import (
     DocumentIngestionWorkflowError,
     DocumentIngestionWorkflowService,
@@ -91,7 +93,12 @@ def analyze_document_upload(
 ):
     user, membership = _current_member(db, organization_id, firebase_claims)
     _require_manager(membership)
+    organization = db.get(Organization, organization_id)
+    if organization is None:
+        raise HTTPException(status_code=404, detail="Organization not found.")
+    policy = resolve_effective_policy(organization.guardrail_policy or {})
     workflow = workflow or DocumentIngestionWorkflowService()
+    workflow.ingestion_guardrails_enabled = policy.ingestion_guardrails_enabled
     filename = (file.filename or "").replace("\\", "/").split("/")[-1].strip()
     if not filename or not filename.lower().endswith(".pdf"):
         file.file.close()
@@ -437,6 +444,12 @@ def analyze_document_batch_stream(
 
     user, membership = _current_member(db, organization_id, firebase_claims)
     _require_manager(membership)
+    organization = db.get(Organization, organization_id)
+    if organization is None:
+        raise HTTPException(status_code=404, detail="Organization not found.")
+    ingestion_guardrails_enabled = resolve_effective_policy(
+        organization.guardrail_policy or {}
+    ).ingestion_guardrails_enabled
     if not files:
         raise HTTPException(status_code=422, detail="Select at least one PDF.")
     if len(files) > MAX_QUEUED_DOCUMENTS:
@@ -546,6 +559,7 @@ def analyze_document_batch_stream(
     def prepare_item(item: dict) -> dict:
         """Run expensive PDF extraction, summarization and embedding concurrently."""
         workflow = workflow_override or DocumentIngestionWorkflowService()
+        workflow.ingestion_guardrails_enabled = ingestion_guardrails_enabled
         try:
             prepared = workflow.prepare_for_batch(
                 item["path"],

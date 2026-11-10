@@ -326,8 +326,10 @@ class PersistentGenerationService(GenerationService):
         answer = result.get("generation_output")
         validation = result.get("validation_result")
         if answer is None or validation is None:
-            raise GenerationExecutionError("Output guardrails require a complete generated answer.")
+            raise GenerationExecutionError("Output validation requires a complete generated answer.")
         markdown = _append_references(answer.segments[0].text, validation.citations)
+        if not policy.output_guardrails_enabled:
+            return markdown
         effective = policy.model_copy(deep=True)
         if result.get("topicality_decision") == "off_topic":
             effective.output_enabled["off_topic"] = False

@@ -80,3 +80,46 @@ async def test_retriever_fails_closed_when_candidate_generation_fails():
             "organization_id": "organization",
             "user_id": "user",
         })
+
+
+@pytest.mark.asyncio
+async def test_retrieval_guardrails_filter_ingestion_flagged_chunks_by_default():
+    flagged = {
+        "chunk_id": "doc-injected:0",
+        "page_content": "Injected instructions",
+        "metadata": {"prompt_injection_flagged": True},
+    }
+    safe = {
+        "chunk_id": "doc-safe:0",
+        "page_content": "Approved evidence",
+        "metadata": {"prompt_injection_flagged": False},
+    }
+    node = create_retriever_node(FakeRetrievalOrchestrator([flagged, safe]))
+
+    updates = await node({
+        "query": "Find policy",
+        "organization_id": "organization",
+        "user_id": "user",
+    })
+
+    assert updates["retrieved_documents"] == [safe]
+    assert updates["retrieval_trace"]["selected_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_disabling_retrieval_guardrails_bypasses_flagged_chunk_filter():
+    flagged = {
+        "chunk_id": "doc-injected:0",
+        "page_content": "Injected instructions",
+        "metadata": {"prompt_injection_flagged": True},
+    }
+    node = create_retriever_node(FakeRetrievalOrchestrator([flagged]))
+
+    updates = await node({
+        "query": "Find policy",
+        "organization_id": "organization",
+        "user_id": "user",
+        "effective_guardrail_policy": {"retrieval_guardrails_enabled": False},
+    })
+
+    assert updates["retrieved_documents"] == [flagged]

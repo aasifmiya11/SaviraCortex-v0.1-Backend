@@ -28,7 +28,7 @@ class GuardrailFinding(BaseModel):
 
 
 class GuardrailPolicyPatch(BaseModel):
-    """Tenant-editable guardrail policy. Platform-mandated checks are immutable."""
+    """Tenant-editable guardrail policy; master switches control runtime stages."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -40,6 +40,10 @@ class GuardrailPolicyPatch(BaseModel):
     )
     custom_input_policy: str = Field(default="", max_length=5000)
     custom_output_policy: str = Field(default="", max_length=5000)
+    input_guardrails_enabled: bool = True
+    output_guardrails_enabled: bool = True
+    ingestion_guardrails_enabled: bool = True
+    retrieval_guardrails_enabled: bool = True
     input_enabled: dict[str, bool] = Field(default_factory=dict)
     output_enabled: dict[str, bool] = Field(default_factory=dict)
     input_actions: dict[str, GuardrailAction] = Field(default_factory=dict)
@@ -80,6 +84,10 @@ class EffectiveGuardrailPolicy(BaseModel):
     off_topic_message: str
     custom_input_policy: str = ""
     custom_output_policy: str = ""
+    input_guardrails_enabled: bool = True
+    output_guardrails_enabled: bool = True
+    ingestion_guardrails_enabled: bool = True
+    retrieval_guardrails_enabled: bool = True
     input_enabled: dict[str, bool]
     output_enabled: dict[str, bool]
     input_actions: dict[str, GuardrailAction]
@@ -150,6 +158,10 @@ def resolve_effective_policy(raw: dict[str, Any] | None) -> EffectiveGuardrailPo
         "off_topic_message": patch.off_topic_message,
         "custom_input_policy": patch.custom_input_policy,
         "custom_output_policy": patch.custom_output_policy,
+        "input_guardrails_enabled": patch.input_guardrails_enabled,
+        "output_guardrails_enabled": patch.output_guardrails_enabled,
+        "ingestion_guardrails_enabled": patch.ingestion_guardrails_enabled,
+        "retrieval_guardrails_enabled": patch.retrieval_guardrails_enabled,
         "pii_require_consent": patch.pii_require_consent,
         "pii_allow_send_as_is": patch.pii_allow_send_as_is,
         "topicality_enabled": patch.topicality_enabled,
@@ -167,18 +179,20 @@ def resolve_effective_policy(raw: dict[str, Any] | None) -> EffectiveGuardrailPo
         ("output_actions", patch.output_actions),
     ):
         data[field] = {**data[field], **{key: value for key, value in overrides.items()}}
-    # Mandatory platform protections cannot be disabled or made permissive by a tenant.
+    # Input prompt-injection protections remain mandatory. Output disclosure
+    # protections are mandatory only while the organization enables output checks.
     data["input_enabled"]["direct_jailbreak"] = True
     data["input_enabled"]["indirect_prompt_injection"] = True
     data["input_actions"]["direct_jailbreak"] = GuardrailAction.BLOCK
     data["input_actions"]["indirect_prompt_injection"] = GuardrailAction.BLOCK
-    data["output_enabled"]["pii_leakage"] = True
-    data["output_enabled"]["secret_leakage"] = True
-    data["output_enabled"]["system_prompt_leakage"] = True
-    if data["output_actions"]["pii_leakage"] == GuardrailAction.ALLOW:
-        data["output_actions"]["pii_leakage"] = GuardrailAction.BLOCK
-    data["output_actions"]["secret_leakage"] = GuardrailAction.BLOCK
-    data["output_actions"]["system_prompt_leakage"] = GuardrailAction.BLOCK
+    if data["output_guardrails_enabled"]:
+        data["output_enabled"]["pii_leakage"] = True
+        data["output_enabled"]["secret_leakage"] = True
+        data["output_enabled"]["system_prompt_leakage"] = True
+        if data["output_actions"]["pii_leakage"] == GuardrailAction.ALLOW:
+            data["output_actions"]["pii_leakage"] = GuardrailAction.BLOCK
+        data["output_actions"]["secret_leakage"] = GuardrailAction.BLOCK
+        data["output_actions"]["system_prompt_leakage"] = GuardrailAction.BLOCK
     if data["output_bucket_min_tokens"] > data["output_bucket_max_tokens"]:
         raise ValueError("The output bucket minimum must not exceed its maximum.")
     return EffectiveGuardrailPolicy.model_validate(data)
