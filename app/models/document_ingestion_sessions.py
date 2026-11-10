@@ -53,6 +53,9 @@ class DocumentIngestionSession(Base):
     matching_candidates: Mapped[list[dict]] = mapped_column(
         JSON, nullable=False, default=list
     )
+    security_review: Mapped[dict] = mapped_column(
+        JSON, nullable=False, default=dict
+    )
     department_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     access_user_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     access_role_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)

@@ -35,6 +35,7 @@ class VersionRegistrationData:
     effective_until: date | None = None
     page_count: int | None = None
     uploaded_by_user_id: UUID | None = None
+    security_review: dict | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +144,7 @@ class DocumentRegistrationService:
             effective_until=data.effective_until,
             supersedes_version_id=supersedes_version_id,
             page_count=data.page_count,
+            security_review=data.security_review,
             version_id=version_id,
             organization_id=organization_id,
         )

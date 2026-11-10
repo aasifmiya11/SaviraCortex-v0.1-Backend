@@ -39,6 +39,7 @@ class DocumentVersionRepository:
         page_count: int | None = None,
         version_id: UUID | None = None,
         uploaded_by_user_id: UUID | None = None,
+        security_review: dict | None = None,
         *,
         organization_id: UUID,
     ) -> DocumentVersion:
@@ -85,6 +86,7 @@ class DocumentVersionRepository:
             effective_until=effective_until,
             supersedes_version_id=supersedes_version_id,
             page_count=page_count,
+            security_review=security_review or {},
         )
 
         self.db.add(version)

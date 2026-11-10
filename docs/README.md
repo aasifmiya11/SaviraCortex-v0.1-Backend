@@ -39,6 +39,8 @@ This documentation describes the backend and its integration with the Next.js fr
 30. [Current application checkpoint](30-current-application-checkpoint.md)
 31. [Project-wide current state](31-project-wide-current-state.md)
 32. [Conversation persistence and session architecture](32-conversation-persistence-architecture.md)
+33. [Security guardrails architecture](33-security-guardrails-architecture.md) — agreed design for ingestion inspection, runtime input/JEV checks, retrieval trust boundaries and output safety.
+34. [Guardrails architecture decisions](34-guardrails-architecture-decisions.md) — working decisions for multi-tenant input/output guardrails, JEV classification, topicality routing, policy enforcement and streaming safety.
 
 Architecture diagrams are collected in [diagrams/](diagrams/).
 

@@ -339,15 +339,19 @@ class DocumentIndexingOrchestrator:
                     # 4. Index all pages in Qdrant.
                     # --------------------------------------
 
-                    indexing_result = (
-                        self.indexing_service.index_document_version(
-                            page_documents=page_documents,
-                            document_id=document_id,
-                            document_version_id=version_id,
-                            organization_id=organization_id,
-                            version_number=version_number,
-                            source_filename=original_filename,
-                        )
+                    indexing_kwargs = {
+                        "page_documents": page_documents,
+                        "document_id": document_id,
+                        "document_version_id": version_id,
+                        "organization_id": organization_id,
+                        "version_number": version_number,
+                        "source_filename": original_filename,
+                    }
+                    security_review = getattr(version, "security_review", None)
+                    if isinstance(security_review, dict) and security_review:
+                        indexing_kwargs["security_review"] = security_review
+                    indexing_result = self.indexing_service.index_document_version(
+                        **indexing_kwargs
                     )
 
                 # The temporary PDF is now removed.

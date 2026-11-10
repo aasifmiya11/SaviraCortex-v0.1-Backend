@@ -35,6 +35,7 @@ class DocumentIngestionAnalysisResponse(BaseModel):
     matching_classification: str
     matching_candidates: list[DocumentIngestionCandidate] = Field(default_factory=list)
     validation_warnings: list[str] = Field(default_factory=list)
+    security_review: dict = Field(default_factory=dict)
     expires_at: datetime | None = None
 
 
@@ -42,6 +43,7 @@ class DocumentIngestionFinalizeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["new", "supersede", "independent", "delete_and_ingest", "reject"]
+    security_action: Literal["reject", "ingest_safely", "ingest_anyway"] | None = None
     title: str = Field(min_length=1, max_length=255)
     document_type: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=10000)
@@ -73,6 +75,8 @@ class DocumentIngestionFinalizeResponse(BaseModel):
     summary_sync_pending: bool = False
     lifecycle_sync_pending: bool = False
     indexing_error: str | None = None
+    security_decision: str | None = None
+    excluded_injection_chunk_count: int = 0
 
 
 class DocumentVersionIndexingResponse(BaseModel):

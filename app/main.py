@@ -12,7 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.checkpointer import close_checkpointer, get_store, initialize_checkpointer
-from app.core.database import close_database, create_conversation_tables
+from app.core.database import (
+    close_database,
+    create_conversation_tables,
+    create_security_guardrail_columns,
+)
 
 
 @asynccontextmanager
@@ -20,6 +24,7 @@ async def lifespan(app: FastAPI):
     """Initialize conversation checkpoints and cross-thread memory storage."""
     try:
         await asyncio.to_thread(create_conversation_tables)
+        await asyncio.to_thread(create_security_guardrail_columns)
         app.state.checkpointer = await initialize_checkpointer()
         app.state.store = get_store()
         yield

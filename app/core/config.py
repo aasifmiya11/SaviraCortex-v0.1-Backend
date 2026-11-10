@@ -29,6 +29,13 @@ class Settings:
         "JINA_RERANKER_MODEL", "jina-reranker-v2-base-multilingual"
     )
     JINA_API_TIMEOUT_SECONDS = float(os.getenv("JINA_API_TIMEOUT_SECONDS", "120"))
+
+    # JEV is routed through the private API gateway; disabled until explicitly enabled.
+    JEV_ENABLED = get_bool("JEV_ENABLED", True)
+    JEV_GATEWAY_BASE_URL = os.getenv("JEV_GATEWAY_BASE_URL", JINA_API_BASE_URL).rstrip("/")
+    JEV_GATEWAY_API_KEY = os.getenv("JEV_GATEWAY_API_KEY") or JINA_API_KEY
+    JEV_TIMEOUT_SECONDS = max(1.0, float(os.getenv("JEV_TIMEOUT_SECONDS", "90")))
+    JEV_PROMPT_INJECTION_SAFE_THRESHOLD = float(os.getenv("JEV_PROMPT_INJECTION_SAFE_THRESHOLD", "0.5"))
     JINA_EMBEDDING_BATCH_SIZE = int(os.getenv("JINA_EMBEDDING_BATCH_SIZE", "64"))
 
     EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "jina").strip().lower()

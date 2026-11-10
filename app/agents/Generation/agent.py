@@ -92,6 +92,11 @@ class GenerationAgent:
             section = metadata.get("section_heading") or metadata.get("section")
             if isinstance(section, str) and section.strip():
                 item["section"] = section.strip()
+            if metadata.get("prompt_injection_flagged") is True:
+                item["security_label"] = "PROMPT_INJECTION_FLAGGED"
+                decision = metadata.get("security_review_decision")
+                if isinstance(decision, str) and decision.strip():
+                    item["security_decision"] = decision.strip()
             evidence.append(item)
         return evidence
 

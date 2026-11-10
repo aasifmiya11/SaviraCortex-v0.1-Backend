@@ -138,10 +138,15 @@ class DocumentIndexingService:
         organization_id: str,
         version_number: int,
         source_filename: str,
+        security_review: dict | None = None,
     ) -> None:
 
+        review = security_review or {}
+        flagged_indexes = {int(value) for value in review.get("flagged_chunk_indexes", [])}
+        decision = review.get("decision")
         for chunk_index, chunk in enumerate(chunks):
             metadata = dict(chunk.metadata or {})
+            source_chunk_index = int(metadata.get("_source_chunk_index", chunk_index))
 
             metadata.update({
                 "organization_id": organization_id,
@@ -150,6 +155,9 @@ class DocumentIndexingService:
                 "version_number": version_number,
                 "source": source_filename,
                 "chunk_index": chunk_index,
+                "source_chunk_index": source_chunk_index,
+                "prompt_injection_flagged": source_chunk_index in flagged_indexes,
+                "security_review_decision": decision or "not_reviewed",
                 "status": "pending",
             })
 
@@ -187,6 +195,7 @@ class DocumentIndexingService:
         organization_id: UUID | str,
         version_number: int,
         source_filename: str,
+        security_review: dict | None = None,
     ) -> IndexingResult:
 
         document_id = self._normalize_id(document_id, "document_id")
@@ -207,12 +216,22 @@ class DocumentIndexingService:
 
         # 1. Split all extracted pages, not the summarizer's sampled pages.
         chunks = self.text_splitter.split_documents(page_documents)
-
         chunks = [
             chunk
             for chunk in chunks
             if chunk.page_content and chunk.page_content.strip()
         ]
+        for source_index, chunk in enumerate(chunks):
+            metadata = dict(chunk.metadata or {})
+            metadata["_source_chunk_index"] = source_index
+            chunk.metadata = metadata
+        review = security_review or {}
+        if review.get("decision") == "ingest_safely":
+            excluded = {int(value) for value in review.get("flagged_chunk_indexes", [])}
+            chunks = [
+                chunk for chunk in chunks
+                if int((chunk.metadata or {}).get("_source_chunk_index", -1)) not in excluded
+            ]
 
         if not chunks:
             raise ValueError(
@@ -227,6 +246,7 @@ class DocumentIndexingService:
             organization_id=organization_id,
             version_number=version_number,
             source_filename=source_filename,
+            security_review=security_review,
         )
 
         # 3. Generate Qdrant IDs before insertion.

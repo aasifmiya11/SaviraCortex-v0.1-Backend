@@ -273,3 +273,25 @@ def test_output_schema_rejects_unknown_fields():
                 }],
             }
         )
+
+
+def test_prompt_receives_injection_security_label_without_internal_metadata_leakage(sample_candidates):
+    agent = make_agent()
+    flagged = [
+        {
+            **sample_candidates[0],
+            "metadata": {
+                **sample_candidates[0]["metadata"],
+                "prompt_injection_flagged": True,
+                "security_review_decision": "ingest_anyway",
+                "security_review_confidence": 0.97,
+            },
+        }
+    ]
+
+    evidence = agent._prepare_evidence(flagged)
+
+    assert evidence[0]["security_label"] == "PROMPT_INJECTION_FLAGGED"
+    assert evidence[0]["security_decision"] == "ingest_anyway"
+    assert "security_review_confidence" not in evidence[0]
+    assert "internal-organization-id" not in str(evidence)

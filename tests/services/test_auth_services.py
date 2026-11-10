@@ -16,6 +16,9 @@ class FakeSession:
     def add_all(self, records):
         self.records = records
 
+    def flush(self):
+        self.flushed = True
+
     def commit(self):
         self.committed = True
 
@@ -107,7 +110,7 @@ def test_signup_rejects_missing_uid():
     service = signup_service.OrganizationSignupService(FakeSession())
     with pytest.raises(HTTPException) as exc:
         service.signup(
-            OrganizationSignupRequest(organization_name="Acme", admin_name="Alex", departments=["Engineering"], roles=["Manager"]),
+            OrganizationSignupRequest(organization_name="Acme", admin_name="Alex", departments=[{"name":"Engineering"}], roles=[{"name":"Manager"}]),
             {"email": "user@example.com", "email_verified": True},
         )
     assert exc.value.status_code == 401
@@ -126,7 +129,7 @@ def test_signup_rejects_existing_firebase_uid():
 
 def test_signup_rolls_back_after_database_error(monkeypatch):
     session = FakeSession()
-    def fail_create(self, records):
+    def fail_create(records):
         raise RuntimeError("database unavailable")
     monkeypatch.setattr(session, "add_all", fail_create)
     service = signup_service.OrganizationSignupService(session)

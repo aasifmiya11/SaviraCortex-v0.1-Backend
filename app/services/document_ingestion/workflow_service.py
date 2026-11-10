@@ -1,7 +1,7 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import logging
 import re
@@ -30,6 +30,7 @@ from app.rag.ingestion.hash_service import PDFHashService
 from app.rag.ingestion.text_normalizer import TextNormalizer
 from app.rag.ingestion.pdf_sampler import PDFSampler
 from app.storage.file_storage import FileStorage
+from app.guardrails.document_prompt_injection import DocumentPromptInjectionGuardrail
 
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,7 @@ class PreparedBatchDocument:
     validation_warnings: tuple[str, ...]
     summary_embedding: tuple[float, ...]
     identity_tokens: tuple[str, ...] = ()
+    security_review: dict = field(default_factory=dict)
 
 
 class DocumentIngestionWorkflowService:
@@ -70,6 +72,7 @@ class DocumentIngestionWorkflowService:
         matching_factory=None,
         indexing_orchestrator=None,
         deletion_service=None,
+        security_guardrail=None,
     ) -> None:
         self.validator = validator or PDFValidator(max_file_size_mb=25)
         self.loader = loader or pdf_loader
@@ -83,6 +86,7 @@ class DocumentIngestionWorkflowService:
         self.matching_factory = matching_factory or self._matching_factory
         self.indexing_orchestrator = indexing_orchestrator
         self.deletion_service = deletion_service
+        self.security_guardrail = security_guardrail or DocumentPromptInjectionGuardrail()
 
     def _get_indexing_orchestrator(self):
         if self.indexing_orchestrator is None:
@@ -207,6 +211,65 @@ class DocumentIngestionWorkflowService:
             return summary_output
         return summary_output.model_copy(update={"summary": f"{summary}\n\n{marker}"})
 
+    @staticmethod
+    def _summary_page_number(metadata: dict) -> int | None:
+        page_number = metadata.get("page_number")
+        if isinstance(page_number, int) and page_number >= 1:
+            return page_number
+        page_index = metadata.get("page")
+        if isinstance(page_index, int) and page_index >= 0:
+            return page_index + 1
+        return None
+
+    def _safe_summary_sample(
+        self,
+        pages: list,
+        security_review: dict,
+        document_name: str,
+    ) -> list:
+        """Prevent flagged or untraceable pages from entering the summary LLM."""
+        if not security_review.get("detected"):
+            return self.sampler.sample(pages)
+
+        findings = security_review.get("findings", [])
+        flagged_pages = {
+            int(item["page_number"])
+            for item in findings
+            if isinstance(item.get("page_number"), int)
+        }
+        has_unmapped_finding = any(
+            item.get("page_number") is None for item in findings
+        )
+        safe_pages = [
+            page for page in pages
+            if self._summary_page_number(dict(page.metadata or {})) not in flagged_pages
+        ]
+        if has_unmapped_finding or not safe_pages:
+            from langchain_core.documents import Document as LangChainDocument
+            return [
+                LangChainDocument(
+                    page_content=(
+                        f"Summary withheld for {document_name}: document security "
+                        "inspection flagged prompt-injection content and no safely "
+                        "mappable summary pages are available."
+                    ),
+                    metadata={"security_summary_withheld": True},
+                )
+            ]
+        sampled = self.sampler.sample(safe_pages)
+        if sampled:
+            return sampled
+        from langchain_core.documents import Document as LangChainDocument
+        return [
+            LangChainDocument(
+                page_content=(
+                    f"Summary withheld for {document_name} because the available "
+                    "pages were flagged during prompt-injection inspection."
+                ),
+                metadata={"security_summary_withheld": True},
+            )
+        ]
+
     def prepare_for_batch(
         self,
         file_path: str | Path,
@@ -270,6 +333,15 @@ class DocumentIngestionWorkflowService:
         if not sampled_pages:
             raise DocumentIngestionWorkflowError("PDF sampling returned no pages.")
         report("sample_content", "completed", f"Selected {len(sampled_pages)} representative pages.")
+        report("security_inspection", "started", "Checking extracted document chunks for prompt injection.")
+        security_review = self.security_guardrail.inspect_pages(
+            extracted_pages, document_name=path.name
+        )
+        report("security_inspection", "completed", f"Security inspection completed; flagged {len(security_review.get('findings', []))} chunks.")
+        if security_review.get("detected"):
+            sampled_pages = self._safe_summary_sample(
+                normalized_pages, security_review, path.name
+            )
 
         report("summarize", "started", "Generating document metadata and summary.")
         summarizer = self.summarizer or DocumentSummarizerAgent()
@@ -291,6 +363,7 @@ class DocumentIngestionWorkflowService:
             validation_warnings=tuple(validation.warnings),
             summary_embedding=summary_embedding,
             identity_tokens=identity_tokens,
+            security_review=security_review,
         )
 
     def analyze_and_stage(
@@ -425,6 +498,15 @@ class DocumentIngestionWorkflowService:
             if not sampled_pages:
                 raise DocumentIngestionWorkflowError("PDF sampling returned no pages.")
             report("sample_content", "completed", f"Selected {len(sampled_pages)} representative pages.")
+            report("security_inspection", "started", "Checking extracted document chunks for prompt injection.")
+            security_review = self.security_guardrail.inspect_pages(
+                extracted_pages, document_name=Path(original_filename).name
+            )
+            report("security_inspection", "completed", f"Security inspection completed; flagged {len(security_review.get('findings', []))} chunks.")
+            if security_review.get("detected"):
+                sampled_pages = self._safe_summary_sample(
+                    normalized_pages, security_review, Path(original_filename).name
+                )
 
             report("summarize", "started", "Generating document metadata and summary.")
             summarizer = self.summarizer or DocumentSummarizerAgent()
@@ -436,6 +518,7 @@ class DocumentIngestionWorkflowService:
             validation_warnings = tuple(validation.warnings)
             summary_embedding = None
         else:
+            security_review = dict(prepared_document.security_review or {})
             file_hash = prepared_document.file_hash
             content_hash = prepared_document.content_hash
             page_count = prepared_document.page_count
@@ -582,6 +665,7 @@ class DocumentIngestionWorkflowService:
                 summary=summary_output.summary,
                 matching_classification=matching_classification,
                 matching_candidates=candidates,
+                security_review=security_review,
                 department_ids=[str(value) for value in (department_ids or [])],
                 access_user_ids=[str(value) for value in (access_user_ids or [])],
                 access_role_ids=[str(value) for value in (access_role_ids or [])],
@@ -610,6 +694,7 @@ class DocumentIngestionWorkflowService:
                 "matching_classification": matching_classification,
                 "matching_candidates": candidates,
                 "validation_warnings": list(validation_warnings),
+                "security_review": security_review,
                 "expires_at": expires_at,
             }
         except Exception:
@@ -629,6 +714,7 @@ class DocumentIngestionWorkflowService:
         ingestion_session_id: UUID,
         uploaded_by_user_id: UUID,
         action: str,
+        security_action: str | None = None,
         title: str,
         document_type: str,
         description: str,
@@ -650,6 +736,23 @@ class DocumentIngestionWorkflowService:
             raise PermissionError("Only the user who uploaded this PDF can finalize it.")
         if staged.status != "awaiting_review":
             raise ValueError("This ingestion session has already been completed or rejected.")
+
+        security_review = dict(staged.security_review or {})
+        security_detected = bool(security_review.get("detected"))
+        if security_action not in {None, "reject", "ingest_safely", "ingest_anyway"}:
+            raise ValueError("Unsupported document security decision.")
+        if security_detected and security_action is None and action != "reject":
+            raise ValueError("Choose Reject, Ingest Safely, or Ingest Anyway for the flagged document.")
+        if security_action == "reject":
+            action = "reject"
+        if action == "reject":
+            security_review["decision"] = "reject"
+        elif security_detected:
+            security_review["decision"] = security_action
+        else:
+            security_review["decision"] = security_action or ("disabled" if security_review.get("status") == "disabled" else "clean")
+        security_review["decision_by_user_id"] = str(uploaded_by_user_id)
+        security_review["decision_at"] = datetime.now(timezone.utc).isoformat()
 
         expires_at = staged.expires_at
         if expires_at.tzinfo is None:
@@ -764,12 +867,13 @@ class DocumentIngestionWorkflowService:
                     pending_session.matching_candidates = remaining_candidates
                     if not remaining_candidates and pending_session.matching_classification == "potential_match":
                         pending_session.matching_classification = "no_match"
+            staged.security_review = security_review
             db.commit()
             try:
                 self.file_storage.delete_file(staged.staging_storage_key)
             except Exception:
                 pass
-            return {"status": "rejected"}
+            return {"status": "rejected", "security_decision": "reject"}
 
         # Recheck exact hashes under the same advisory locks used by analysis.
         # This closes the race where another staged upload was finalized first.
@@ -825,6 +929,7 @@ class DocumentIngestionWorkflowService:
                 summary=staged.summary,
                 version_label="revision" if action == "supersede" else "original",
                 page_count=staged.page_count,
+                security_review=security_review,
             )
             if action == "supersede":
                 document = db.scalar(
@@ -986,6 +1091,11 @@ class DocumentIngestionWorkflowService:
                     if indexing_result is not None else False
                 ),
                 "indexing_error": indexing_error,
+                "security_decision": security_review.get("decision"),
+                "excluded_injection_chunk_count": (
+                    len(security_review.get("flagged_chunk_indexes", []))
+                    if security_review.get("decision") == "ingest_safely" else 0
+                ),
             }
         except Exception:
             if registration_committed:

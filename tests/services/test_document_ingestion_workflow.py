@@ -259,7 +259,7 @@ def test_reject_discards_staged_file_without_creating_document(
         description="Description",
     )
 
-    assert result == {"status": "rejected"}
+    assert result == {"status": "rejected", "security_decision": "reject"}
     assert staged.status == "rejected"
     assert storage.copies == []
     assert storage.deletes == ["staging/upload.pdf"]
@@ -418,6 +418,7 @@ def test_analyze_and_stage_runs_pipeline_and_stages_non_duplicate_pdf(
         "hash_pdf",
         "parse_pdf",
         "sample_content",
+        "security_inspection",
         "summarize",
         "duplicate_check",
         "store_original",
@@ -889,3 +890,66 @@ def test_summary_identity_metadata_is_included_for_indexed_search():
     assert DocumentIngestionWorkflowService._enrich_summary_with_identity(
         enriched, ("name:alex example", "email:alex@example.com")
     ).summary == enriched.summary
+
+
+def test_flagged_document_requires_explicit_security_choice_and_persists_it(
+    db_session, organization_context
+):
+    storage = FakeStorage()
+    indexing = FakeIndexingOrchestrator(db_session)
+    workflow = DocumentIngestionWorkflowService(
+        file_storage=storage,
+        indexing_orchestrator=indexing,
+    )
+    staged = staged_session(organization_context)
+    staged.security_review = {
+        "status": "review_required",
+        "detected": True,
+        "judge": "jev",
+        "flagged_chunk_indexes": [1],
+        "findings": [
+            {
+                "chunk_index": 1,
+                "page_number": 2,
+                "category": "PROMPT_INJECTION",
+                "severity": "HIGH",
+                "confidence": 0.96,
+                "reason": "Attempts to override assistant instructions.",
+            }
+        ],
+    }
+    db_session.add(staged)
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="Choose Reject, Ingest Safely, or Ingest Anyway"):
+        workflow.finalize(
+            db_session,
+            organization_id=organization_context["organization"].id,
+            ingestion_session_id=staged.id,
+            uploaded_by_user_id=organization_context["owner"].id,
+            action="new",
+            title="Reviewed title",
+            document_type="Policy",
+            description="Reviewed description",
+        )
+
+    assert staged.status == "awaiting_review"
+
+    result = workflow.finalize(
+        db_session,
+        organization_id=organization_context["organization"].id,
+        ingestion_session_id=staged.id,
+        uploaded_by_user_id=organization_context["owner"].id,
+        action="new",
+        security_action="ingest_safely",
+        title="Reviewed title",
+        document_type="Policy",
+        description="Reviewed description",
+    )
+
+    version = db_session.get(DocumentVersion, result["document_version_id"])
+    assert result["status"] == "indexed"
+    assert result["security_decision"] == "ingest_safely"
+    assert result["excluded_injection_chunk_count"] == 1
+    assert version.security_review["decision"] == "ingest_safely"
+    assert version.security_review["flagged_chunk_indexes"] == [1]

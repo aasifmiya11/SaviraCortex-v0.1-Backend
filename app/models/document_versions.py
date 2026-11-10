@@ -7,6 +7,7 @@ from sqlalchemy import (
     and_,
     String,
     Text,
+    JSON,
     Integer,
     Date,
     DateTime,
@@ -193,6 +194,9 @@ class DocumentVersion(Base):
         Text,
         nullable=True,
     )
+
+    # Preserve ingestion findings and the uploader decision for retries/retrieval.
+    security_review: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
 
     # =================================================
     # Lifecycle Status

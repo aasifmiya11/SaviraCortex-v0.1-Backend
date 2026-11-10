@@ -1,3 +1,8 @@
+import os
+
+# Keep unit/integration tests deterministic; JEV itself is exercised with fake clients.
+os.environ["JEV_ENABLED"] = "false"
+
 import pytest
 from contextlib import asynccontextmanager
 from fastapi.testclient import TestClient

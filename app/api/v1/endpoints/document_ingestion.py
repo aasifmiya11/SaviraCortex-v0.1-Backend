@@ -185,6 +185,7 @@ def finalize_document_ingestion(
             ingestion_session_id=ingestion_session_id,
             uploaded_by_user_id=user.id,
             action=payload.action,
+            security_action=payload.security_action,
             title=payload.title,
             document_type=payload.document_type,
             description=payload.description,

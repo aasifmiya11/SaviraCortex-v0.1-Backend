@@ -103,6 +103,29 @@ def close_database() -> None:
     print("Database connection pool disposed.")
 
 
+def create_security_guardrail_columns() -> None:
+    """Add JSON security metadata columns to existing PostgreSQL tables."""
+    from sqlalchemy import inspect, text
+
+    if engine.dialect.name != "postgresql":
+        return
+    existing_tables = set(inspect(engine).get_table_names())
+    statements = {
+        "document_ingestion_sessions": (
+            "ALTER TABLE document_ingestion_sessions ADD COLUMN IF NOT EXISTS "
+            "security_review JSON NOT NULL DEFAULT '{}'::json"
+        ),
+        "document_versions": (
+            "ALTER TABLE document_versions ADD COLUMN IF NOT EXISTS "
+            "security_review JSON NOT NULL DEFAULT '{}'::json"
+        ),
+    }
+    with engine.begin() as connection:
+        for table_name, statement in statements.items():
+            if table_name in existing_tables:
+                connection.execute(text(statement))
+
+
 def create_generation_feedback_table() -> None:
     """Create only the RAG evaluation dataset table when it is missing."""
     from ..models import GenerationFeedback, Organization, User

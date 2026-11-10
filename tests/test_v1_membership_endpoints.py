@@ -137,7 +137,12 @@ def test_member_cannot_create_department(client, db_session, organization_contex
 def test_assign_list_and_unassign_department_member(client, db_session, organization_context):
     org = organization_context["organization"]
     member, _ = _add_member(db_session, org.id)
-    department = OrganizationDepartment(id=uuid4(), organization_id=org.id, name="Engineering")
+    department = OrganizationDepartment(
+        id=uuid4(),
+        organization_id=org.id,
+        name="Engineering",
+        created_by=organization_context["owner"].id,
+    )
     db_session.add(department)
     db_session.commit()
     base = f"/api/v1/organizations/{org.id}/departments/{department.id}/members"
