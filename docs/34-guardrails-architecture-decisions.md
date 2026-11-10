@@ -232,3 +232,30 @@ See backend/docs/33-security-guardrails-architecture.md for runtime details and 
 ### Conversation-store decision (implemented)
 
 A guardrail block is a first-class assistant turn, not a transient HTTP/SSE error. LangGraph produces the input-block response, and the persistence service records blocked decisions in both the graph checkpoint and `conversation_messages`. Output blocks are normalized to the same persisted assistant-turn shape. The effective redacted user message is the only input stored or passed to LangGraph; its message metadata and graph state identify the `redacted` decision. The chat history endpoint hydrates these fields so the UI can render the decision directly beneath the matching user message after reload.
+
+## 34.11 Organization-configurable output streaming strategies — decision (10 November 2026)
+
+The platform default remains the existing strict check-before-display strategy. Organization owners/admins may select one of three output release strategies for new requests:
+
+1. **Strict segment mode (platform default):** accumulate a bounded segment, inspect it, and only then release it. This is the existing safe behavior.
+2. **Optimistic mode:** stream generated content immediately while a separate bounded background evaluator reviews it. A violation produces a server suppression/retraction event tied to stable message and segment identifiers. The UI removes or replaces affected content and generation is stopped or handled according to enforcement policy. This is best-effort UI retraction, not prevention of exposure; already seen/copied content cannot be recalled.
+3. **Bucket mode:** accumulate generated tokens in a bounded bucket, inspect the complete bucket, release it only when approved, then clear it and repeat. The effective policy includes minimum and maximum token thresholds. A maximum prevents unbounded buffering; final partial buckets must also be checked before release.
+
+### Mandatory security invariants
+
+- Secret/credential detection and other platform-mandated sensitive-data protections remain pre-display in every mode. Optimistic mode cannot bypass this gate.
+- Full-response validation remains enabled in all modes.
+- The same versioned tenant policy snapshot is used for the entire request.
+- Bucket sizes are bounded by platform limits; minimum must not exceed maximum.
+- Optimistic suppression events are scoped to a request/message and stable segment IDs. They must not remove content from another request.
+- A final validation failure after prior streaming triggers response-level suppression where possible, but must not be represented as retroactive prevention.
+- Organization mode changes affect new requests only.
+
+### Initial settings
+
+- `output_streaming_mode`: `segment` (default), `optimistic`, or `bucket`.
+- `output_bucket_min_tokens`: 128 by default.
+- `output_bucket_max_tokens`: 512 by default.
+- Platform limits: minimum 16 and maximum 16384 tokens.
+
+The implementation is staged: policy/schema and administrator controls are introduced first; streaming execution, safe secret preflight, suppression event protocol, and end-to-end behavior must be completed and tested before optimistic or bucket mode is advertised as production-ready.

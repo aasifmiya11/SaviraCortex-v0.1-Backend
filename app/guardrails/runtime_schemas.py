@@ -50,6 +50,9 @@ class GuardrailPolicyPatch(BaseModel):
     topicality_high_threshold: float = Field(default=0.60, ge=0.0, le=1.0)
     topicality_low_threshold: float = Field(default=0.20, ge=0.0, le=1.0)
     history_window_exchanges: int = Field(default=5, ge=0, le=20)
+    output_streaming_mode: str = Field(default="segment", pattern="^(segment|optimistic|bucket)$")
+    output_bucket_min_tokens: int = Field(default=128, ge=16, le=8192)
+    output_bucket_max_tokens: int = Field(default=512, ge=32, le=16384)
 
     @field_validator("allowed_topics", "restricted_topics")
     @classmethod
@@ -87,6 +90,9 @@ class EffectiveGuardrailPolicy(BaseModel):
     topicality_high_threshold: float = 0.60
     topicality_low_threshold: float = 0.20
     history_window_exchanges: int = 5
+    output_streaming_mode: str = "segment"
+    output_bucket_min_tokens: int = 128
+    output_bucket_max_tokens: int = 512
 
 
 def default_guardrail_policy() -> EffectiveGuardrailPolicy:
@@ -150,6 +156,9 @@ def resolve_effective_policy(raw: dict[str, Any] | None) -> EffectiveGuardrailPo
         "topicality_high_threshold": patch.topicality_high_threshold,
         "topicality_low_threshold": patch.topicality_low_threshold,
         "history_window_exchanges": patch.history_window_exchanges,
+        "output_streaming_mode": patch.output_streaming_mode,
+        "output_bucket_min_tokens": patch.output_bucket_min_tokens,
+        "output_bucket_max_tokens": patch.output_bucket_max_tokens,
     })
     for field, overrides in (
         ("input_enabled", patch.input_enabled),
@@ -170,4 +179,6 @@ def resolve_effective_policy(raw: dict[str, Any] | None) -> EffectiveGuardrailPo
         data["output_actions"]["pii_leakage"] = GuardrailAction.BLOCK
     data["output_actions"]["secret_leakage"] = GuardrailAction.BLOCK
     data["output_actions"]["system_prompt_leakage"] = GuardrailAction.BLOCK
+    if data["output_bucket_min_tokens"] > data["output_bucket_max_tokens"]:
+        raise ValueError("The output bucket minimum must not exceed its maximum.")
     return EffectiveGuardrailPolicy.model_validate(data)
