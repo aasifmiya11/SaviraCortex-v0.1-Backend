@@ -13,6 +13,7 @@ from .document_ingestion_sessions import DocumentIngestionSession
 from .generation_feedback import GenerationFeedback
 from .conversations import Conversation
 from .conversation_messages import ConversationMessage
+from .conversation_paths import ConversationPath
 from .guardrail_audit_events import GuardrailAuditEvent
 
 __all__ = [
@@ -31,5 +32,6 @@ __all__ = [
     "GenerationFeedback",
     "Conversation",
     "ConversationMessage",
+    "ConversationPath",
     "GuardrailAuditEvent",
 ]

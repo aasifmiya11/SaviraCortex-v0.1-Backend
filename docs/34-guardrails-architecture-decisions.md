@@ -320,3 +320,41 @@ These are explicit tenant opt-outs from the corresponding document-pipeline guar
 ### 34.13 Output guardrail master switch semantics
 
 When an organization disables output guardrails, the output inspection stage is bypassed end-to-end. This includes per-segment PII/secret detection during streaming and the final whole-response output inspection. Streamed content is emitted without output guardrail detector latency or suppression. When the switch is enabled, platform-mandated PII, secret and system-prompt disclosure checks remain enforced regardless of per-category settings. This switch does not disable independent input, ingestion, retrieval, authentication, authorization or response-schema validation.
+
+## 34.15 LangGraph time travel, edited-input replay, answer regeneration, and conversation forks — 11 November 2026
+
+**Product scope:** Available to every authorized conversation participant, not only administrators. The feature is implemented as user-facing conversation history controls backed by tenant-scoped LangGraph checkpoint operations.
+
+### Three distinct actions
+
+1. **Edit and rerun a user input:** Select an earlier user turn, replace its input, and resume from the checkpoint immediately before that turn's input-validation stage. The new execution becomes a new path; the original path and its messages remain available.
+2. **Regenerate an assistant answer:** Keep the user input unchanged and rerun the answer from the latest checkpoint before generation (or the earliest safe checkpoint that includes the same authorized retrieval/context snapshot). The regenerated answer is a sibling path, not an in-place destructive replacement.
+3. **Fork conversation:** Create an explicit independent path from a selected checkpoint. The fork receives its own conversation/path identity and can continue without changing the source conversation.
+
+### Persistence and execution requirements
+
+- Reuse the existing PostgreSQL-backed LangGraph AsyncPostgresSaver; do not introduce an in-memory checkpointer or a second persistence system.
+- Use LangGraph get_state_history, aget_state, aupdate_state, and checkpoint-aware graph invocation. Preserve the exact checkpoint config (including thread_id, checkpoint_id, and namespace where applicable) for replay.
+- A branch must retain a source conversation/path reference and selected parent checkpoint. Never overwrite the source path's messages or checkpoint history when editing, regenerating, or forking.
+- Maintain an application-level path/branch record and message-to-checkpoint association so the UI can show which user/assistant turns belong to which path. A checkpoint alone is not a complete user-facing conversation model.
+- Revalidate organization membership, conversation ownership, and document ACLs on every time-travel operation. A checkpoint must not grant access to documents that the user can no longer access.
+- Bind checkpoint thread IDs to server-owned conversation/path IDs; never accept arbitrary thread IDs from the browser.
+- Keep checkpoint state tenant-isolated. Do not expose raw internal state, secrets, PII, hidden prompts, or untrusted retrieved instructions in the UI. Provide a redacted, typed inspection projection.
+- Replay can repeat model calls and external side effects. External tool/action nodes must be idempotent or require explicit confirmation before re-execution; persist execution provenance and side-effect status.
+- Preserve the request's original effective guardrail policy snapshot for audit. Replayed execution must not bypass current authorization or platform security invariants. Define explicitly whether tenant policy changes require a fresh policy snapshot before rerun.
+- Retain original and regenerated answer metadata, citations, feedback, and guardrail decisions separately. Do not silently transfer feedback from one answer path to another.
+
+### Vercel AI SDK UI
+
+Use AI SDK UI (useChat) for the chat message lifecycle and render custom SaviraCortex path controls/components. The SDK is not the checkpoint engine. Add typed message metadata/data parts for path ID, parent path, checkpoint ID (opaque client reference), branch action state, and regeneration status. Keep checkpoint identifiers validated server-side and avoid exposing sensitive checkpoint configuration.
+
+### Delivery order
+
+1. Map the current conversation/message persistence schema to graph checkpoint IDs and verify every graph invocation uses the expected checkpoint thread.
+2. Add path/branch persistence and authenticated APIs for checkpoint history, edit-and-rerun, regenerate-answer, and explicit fork.
+3. Add service-layer checkpoint replay/fork logic with ownership checks, policy/ACL revalidation, concurrency locking, idempotency, and side-effect safeguards.
+4. Add AI SDK UI controls: edit user message, regenerate assistant answer, fork from a turn/checkpoint, and a branch/path switcher/history view.
+5. Add tests for source-path immutability, sibling path creation, tenant isolation, authorization revocation, concurrent turns, cancellation, checkpoint selection, citations/feedback separation, and side-effect safety.
+6. Run authenticated end-to-end tests against PostgreSQL and the actual LangGraph workflow before marking the feature production-ready.
+
+**Status:** Architecture recorded; implementation is not yet complete. The existing backend already initializes a PostgreSQL LangGraph checkpointer and uses conversation IDs as graph thread IDs. The current relational conversation/message history and UI do not yet establish the complete path/branch model required for safe user-facing time travel.

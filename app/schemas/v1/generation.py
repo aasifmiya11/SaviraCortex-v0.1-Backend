@@ -33,7 +33,12 @@ class GenerationRequest(BaseModel):
 
     query: str = Field(min_length=1, max_length=8000)
     conversation_id: UUID | None = None
+    checkpoint_id: str | None = Field(default=None, max_length=255)
+    path_group_id: UUID | None = None
+    path_id: UUID | None = None
     request_id: UUID | None = None
+    user_message_id: UUID | None = None
+    assistant_message_id: UUID | None = None
     pii_action: Literal["redact", "send_as_is", "reject"] | None = None
 
     @field_validator("query")
@@ -52,6 +57,10 @@ class GenerationResponse(BaseModel):
 
     generation_id: UUID | None = None
     conversation_id: UUID | None = None
+    checkpoint_id: str | None = None
+    checkpoint_thread_id: str | None = None
+    path_group_id: UUID | None = None
+    path_id: UUID | None = None
     request_id: UUID | None = None
     query: str
     answer: str

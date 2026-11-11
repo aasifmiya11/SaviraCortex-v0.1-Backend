@@ -111,7 +111,12 @@ async def generate_answer(
             organization_id=organization_id,
             user_id=user.id,
             conversation_id=payload.conversation_id,
+            checkpoint_id=payload.checkpoint_id,
+            path_group_id=payload.path_group_id,
+            path_id=payload.path_id,
             request_id=payload.request_id,
+            user_message_id=payload.user_message_id,
+            assistant_message_id=payload.assistant_message_id,
             pii_action=payload.pii_action,
         )
         if payload.conversation_id is None and response.conversation_id is not None:
@@ -210,7 +215,12 @@ async def generate_answer_stream(
                     organization_id=organization_id,
                     user_id=user.id,
                     conversation_id=payload.conversation_id,
+                    checkpoint_id=payload.checkpoint_id,
+                    path_group_id=payload.path_group_id,
+                    path_id=payload.path_id,
                     request_id=payload.request_id,
+                    user_message_id=payload.user_message_id,
+                    assistant_message_id=payload.assistant_message_id,
                     pii_action=payload.pii_action,
                     on_event=queue.put_nowait,
                 )

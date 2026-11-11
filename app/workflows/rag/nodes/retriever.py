@@ -69,7 +69,7 @@ def create_retriever_node(
             "fused_count": retrieval_result.get("fused_count", 0),
             "reranked_count": retrieval_result.get("reranked_count", 0),
             "eligible_count": retrieval_result.get("eligible_count", 0),
-            "selected_count": retrieval_result.get("selected_count", len(selected_documents)),
+            "selected_count": len(selected_documents),
             "expansion": retrieval_result.get("expansion") or {},
             "retrieval_reason": retrieval_result.get("retrieval_reason"),
         }

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -112,12 +112,15 @@ class ConversationRepository:
         request_id: UUID,
         content: str,
         metadata: dict | None = None,
+        message_id: UUID | None = None,
+        path_id: UUID | None = None,
     ) -> ConversationMessage:
         existing = self.session.scalar(
             select(ConversationMessage).where(
                 ConversationMessage.conversation_id == conversation.id,
                 ConversationMessage.request_id == request_id,
                 ConversationMessage.role == "user",
+                ConversationMessage.path_id == path_id,
             )
         )
         if existing is not None:
@@ -131,11 +134,13 @@ class ConversationRepository:
 
         sequence = self._allocate_sequence(conversation.id)
         message = ConversationMessage(
+            id=message_id or uuid4(),
             conversation_id=conversation.id,
             sequence=sequence,
             role="user",
             content=content,
             request_id=request_id,
+            path_id=path_id,
             message_metadata=metadata or {},
         )
         self.session.add(message)
@@ -175,12 +180,15 @@ class ConversationRepository:
         request_id: UUID,
         content: str,
         metadata: dict,
+        message_id: UUID | None = None,
+        path_id: UUID | None = None,
     ) -> ConversationMessage:
         existing = self.session.scalar(
             select(ConversationMessage).where(
                 ConversationMessage.conversation_id == conversation.id,
                 ConversationMessage.request_id == request_id,
                 ConversationMessage.role == "assistant",
+                ConversationMessage.path_id == path_id,
             )
         )
         if existing is not None:
@@ -188,11 +196,13 @@ class ConversationRepository:
 
         sequence = self._allocate_sequence(conversation.id)
         message = ConversationMessage(
+            id=message_id or uuid4(),
             conversation_id=conversation.id,
             sequence=sequence,
             role="assistant",
             content=content,
             request_id=request_id,
+            path_id=path_id,
             message_metadata=metadata,
         )
         self.session.add(message)
@@ -261,10 +271,11 @@ class ConversationRepository:
         conversation_id: UUID,
         limit: int,
         offset: int,
+        path_id: UUID | None = None,
     ) -> tuple[list[ConversationMessage], int]:
         statement = (
             select(ConversationMessage)
-            .where(ConversationMessage.conversation_id == conversation_id)
+            .where(ConversationMessage.conversation_id == conversation_id, ConversationMessage.path_id == path_id)
             .order_by(ConversationMessage.sequence.desc())
             .limit(limit)
             .offset(offset)
@@ -274,7 +285,7 @@ class ConversationRepository:
         total = self.session.scalar(
             select(func.count())
             .select_from(ConversationMessage)
-            .where(ConversationMessage.conversation_id == conversation_id)
+            .where(ConversationMessage.conversation_id == conversation_id, ConversationMessage.path_id == path_id)
         ) or 0
         return items, int(total)
 

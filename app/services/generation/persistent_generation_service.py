@@ -8,11 +8,11 @@ from uuid import UUID, uuid4
 from langchain_core.messages import AIMessage, HumanMessage
 
 from app.agents.Generation.schemas import GenerationStatus
-from sqlalchemy import func, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.checkpointer import conversation_thread_lock, get_checkpointer, get_store
-from app.models import Conversation, Organization, GuardrailAuditEvent
+from app.models import Conversation, ConversationPath, Organization, GuardrailAuditEvent
 from app.repositories.conversation_repository import ConversationRepository
 from app.schemas.v1.generation import GenerationResponse
 from app.guardrails.pii_detector import detect_pii, redact_pii
@@ -228,8 +228,11 @@ class PersistentGenerationService(GenerationService):
         return self._graph_factory(self.session)
 
     @staticmethod
-    def _config(conversation_id: UUID) -> dict[str, Any]:
-        return {"configurable": {"thread_id": str(conversation_id)}}
+    def _config(conversation_id: UUID, checkpoint_id: str | None = None, path_id: UUID | None = None) -> dict[str, Any]:
+        configurable = {"thread_id": str(path_id or conversation_id)}
+        if checkpoint_id:
+            configurable["checkpoint_id"] = checkpoint_id
+        return {"configurable": configurable}
 
     async def _remember_user_message(
         self,
@@ -259,6 +262,9 @@ class PersistentGenerationService(GenerationService):
         conversation: Conversation,
         request_id: UUID,
         response: GenerationResponse,
+        path_group_id: UUID | None = None,
+        assistant_message_id: UUID | None = None,
+        path_id: UUID | None = None,
     ) -> None:
         if self.checkpointer is not None and hasattr(graph, "aupdate_state"):
             state_update: dict[str, Any] = {
@@ -272,12 +278,31 @@ class PersistentGenerationService(GenerationService):
             if response.guardrail_decision:
                 state_update["guardrail_decision"] = response.guardrail_decision
                 state_update["guardrail_categories"] = response.guardrail_categories
-            await graph.aupdate_state(config, state_update)
+            # ainvoke may have resumed from an older checkpoint. Resolve the actual
+            # head written by that invocation before appending the assistant message;
+            # reusing the input config would fork again from the stale parent.
+            latest_state = None
+            if hasattr(graph, "aget_state"):
+                latest_state = await graph.aget_state({"configurable": {"thread_id": str(path_id or conversation.id)}})
+            assistant_config = getattr(latest_state, "config", None) or config
+            checkpoint_config = await graph.aupdate_state(assistant_config, state_update)
+            configurable = (checkpoint_config or {}).get("configurable", {})
+            response.checkpoint_id = configurable.get("checkpoint_id")
+        response.path_group_id = path_group_id
+        response.path_id = path_id
+        response.checkpoint_thread_id = str(path_id or conversation.id)
+        if path_id is not None:
+            path = self.session.get(ConversationPath, path_id)
+            if path is not None:
+                path.head_checkpoint_id = response.checkpoint_id
+                self.session.commit()
         self.conversations.append_assistant_message(
             conversation=conversation,
             request_id=request_id,
             content=response.answer,
             metadata=response.model_dump(mode="json"),
+            message_id=assistant_message_id,
+            path_id=path_id,
         )
 
     async def _persist_guardrail_turn(
@@ -290,6 +315,9 @@ class PersistentGenerationService(GenerationService):
         query: str,
         message: str,
         findings: list[dict[str, Any]],
+        path_group_id: UUID | None = None,
+        assistant_message_id: UUID | None = None,
+        path_id: UUID | None = None,
         decision: str = "blocked",
     ) -> GenerationResponse:
         """Persist a guardrail decision as the assistant turn in both stores."""
@@ -316,6 +344,9 @@ class PersistentGenerationService(GenerationService):
             conversation=conversation,
             request_id=request_id,
             response=response,
+            path_group_id=path_group_id,
+            assistant_message_id=assistant_message_id,
+            path_id=path_id,
         )
         return response
 
@@ -420,7 +451,12 @@ class PersistentGenerationService(GenerationService):
         organization_id: UUID,
         user_id: UUID,
         conversation_id: UUID | None = None,
+        checkpoint_id: str | None = None,
+        path_group_id: UUID | None = None,
+        path_id: UUID | None = None,
         request_id: UUID | None = None,
+        user_message_id: UUID | None = None,
+        assistant_message_id: UUID | None = None,
         pii_action: str | None = None,
     ) -> GenerationResponse:
         request_id = request_id or uuid4()
@@ -458,12 +494,22 @@ class PersistentGenerationService(GenerationService):
             conversation_id=conversation_id,
             request_id=request_id,
         )
+        if path_id is not None:
+            path = self.session.scalar(select(ConversationPath).where(
+                ConversationPath.id == path_id, ConversationPath.conversation_id == conversation.id,
+            ))
+            if path is None:
+                raise ValueError("The selected conversation timeline does not belong to this conversation.")
+            if checkpoint_id and path.head_checkpoint_id != checkpoint_id:
+                raise ValueError("The selected timeline checkpoint is stale. Reload the conversation and retry.")
         async with conversation_thread_lock(conversation.id):
             self.conversations.append_user_message(
                 conversation=conversation,
                 request_id=request_id,
                 content=query,
-                metadata={"guardrail_decision": "redacted"} if query_was_redacted else None,
+                metadata={**({"guardrail_decision": "redacted"} if query_was_redacted else {}), **({"path_group_id": str(path_group_id)} if path_group_id else {})} or None,
+                message_id=user_message_id,
+                path_id=path_id,
             )
             existing = self.conversations.get_assistant_response(
                 conversation.id, request_id
@@ -479,7 +525,7 @@ class PersistentGenerationService(GenerationService):
                 )
                 return response
 
-            config = self._config(conversation.id)
+            config = self._config(conversation.id, checkpoint_id, path_id)
             graph = await self._create_graph()
             graph_input = {
                 "query": query,
@@ -507,7 +553,8 @@ class PersistentGenerationService(GenerationService):
                 response = await self._persist_guardrail_turn(
                     graph=graph, config=config, conversation=conversation,
                     request_id=request_id, query=query, message=exc.message,
-                    findings=exc.findings,
+                    findings=exc.findings, path_group_id=path_group_id, assistant_message_id=assistant_message_id,
+                    path_id=path_id,
                 )
                 return response
             except Exception as exc:
@@ -540,7 +587,8 @@ class PersistentGenerationService(GenerationService):
                              if result.get("generation_output") else
                              result.get("input_guardrail_message") or
                              "The request was blocked by organization guardrails."),
-                    findings=input_findings,
+                    findings=input_findings, path_group_id=path_group_id, assistant_message_id=assistant_message_id,
+                    path_id=path_id,
                 )
                 await emit({"type": "completed", "result": response.model_dump(mode="json")})
                 return response
@@ -553,7 +601,8 @@ class PersistentGenerationService(GenerationService):
                 response = await self._persist_guardrail_turn(
                     graph=graph, config=config, conversation=conversation,
                     request_id=request_id, query=query, message=exc.message,
-                    findings=exc.findings,
+                    findings=exc.findings, path_group_id=path_group_id, assistant_message_id=assistant_message_id,
+                    path_id=path_id,
                 )
                 await emit({"type": "completed", "result": response.model_dump(mode="json")})
                 return response
@@ -572,6 +621,9 @@ class PersistentGenerationService(GenerationService):
                 conversation=conversation,
                 request_id=request_id,
                 response=response,
+                path_group_id=path_group_id,
+                assistant_message_id=assistant_message_id,
+                path_id=path_id,
             )
             await self._remember_user_message(
                 query=query,
@@ -589,7 +641,12 @@ class PersistentGenerationService(GenerationService):
         organization_id: UUID,
         user_id: UUID,
         conversation_id: UUID | None = None,
+        checkpoint_id: str | None = None,
+        path_group_id: UUID | None = None,
+        path_id: UUID | None = None,
         request_id: UUID | None = None,
+        user_message_id: UUID | None = None,
+        assistant_message_id: UUID | None = None,
         pii_action: str | None = None,
         on_event: Callable[[dict[str, Any]], Any],
     ) -> GenerationResponse:
@@ -628,6 +685,14 @@ class PersistentGenerationService(GenerationService):
             conversation_id=conversation_id,
             request_id=request_id,
         )
+        if path_id is not None:
+            path = self.session.scalar(select(ConversationPath).where(
+                ConversationPath.id == path_id, ConversationPath.conversation_id == conversation.id,
+            ))
+            if path is None:
+                raise ValueError("The selected conversation timeline does not belong to this conversation.")
+            if checkpoint_id and path.head_checkpoint_id != checkpoint_id:
+                raise ValueError("The selected timeline checkpoint is stale. Reload the conversation and retry.")
 
         async def emit(event: dict[str, Any]) -> None:
             result = on_event(event)
@@ -639,7 +704,9 @@ class PersistentGenerationService(GenerationService):
                 conversation=conversation,
                 request_id=request_id,
                 content=query,
-                metadata={"guardrail_decision": "redacted"} if query_was_redacted else None,
+                metadata={**({"guardrail_decision": "redacted"} if query_was_redacted else {}), **({"path_group_id": str(path_group_id)} if path_group_id else {})} or None,
+                message_id=user_message_id,
+                path_id=path_id,
             )
             existing = self.conversations.get_assistant_response(
                 conversation.id, request_id
@@ -656,7 +723,7 @@ class PersistentGenerationService(GenerationService):
                 )
                 return response
 
-            config = self._config(conversation.id)
+            config = self._config(conversation.id, checkpoint_id, path_id)
             graph = await self._create_graph(on_event=emit)
             graph_input = {
                 "query": query,
@@ -684,7 +751,8 @@ class PersistentGenerationService(GenerationService):
                 response = await self._persist_guardrail_turn(
                     graph=graph, config=config, conversation=conversation,
                     request_id=request_id, query=query, message=exc.message,
-                    findings=exc.findings,
+                    findings=exc.findings, path_group_id=path_group_id, assistant_message_id=assistant_message_id,
+                    path_id=path_id,
                 )
                 await emit({"type": "completed", "result": response.model_dump(mode="json")})
                 return response
@@ -720,7 +788,8 @@ class PersistentGenerationService(GenerationService):
                              if result.get("generation_output") else
                              result.get("input_guardrail_message") or
                              "The request was blocked by organization guardrails."),
-                    findings=input_findings,
+                    findings=input_findings, path_group_id=path_group_id, assistant_message_id=assistant_message_id,
+                    path_id=path_id,
                 )
                 return response
             try:
@@ -732,7 +801,8 @@ class PersistentGenerationService(GenerationService):
                 response = await self._persist_guardrail_turn(
                     graph=graph, config=config, conversation=conversation,
                     request_id=request_id, query=query, message=exc.message,
-                    findings=exc.findings,
+                    findings=exc.findings, path_group_id=path_group_id, assistant_message_id=assistant_message_id,
+                    path_id=path_id,
                 )
                 await emit({"type": "completed", "result": response.model_dump(mode="json")})
                 return response
@@ -751,6 +821,9 @@ class PersistentGenerationService(GenerationService):
                 conversation=conversation,
                 request_id=request_id,
                 response=response,
+                path_group_id=path_group_id,
+                assistant_message_id=assistant_message_id,
+                path_id=path_id,
             )
             await emit({"type": "completed", "result": response.model_dump(mode="json")})
             await self._remember_user_message(

@@ -24,6 +24,7 @@ class Conversation(Base):
 
     __tablename__ = "conversations"
     __table_args__ = (
+        Index("idx_conversations_parent", "parent_conversation_id"),
         Index(
             "idx_conversations_owner_updated",
             "organization_id",
@@ -51,6 +52,12 @@ class Conversation(Base):
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     creation_request_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    parent_conversation_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
+    )
+    parent_message_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    parent_checkpoint_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    branch_action: Mapped[str | None] = mapped_column(String(32), nullable=True)
     title_is_user_edited: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

@@ -41,6 +41,12 @@ class ConversationMessage(Base):
             "conversation_id",
             "sequence",
         ),
+        Index(
+            "idx_conversation_messages_path",
+            "conversation_id",
+            "path_id",
+            "sequence",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -53,6 +59,9 @@ class ConversationMessage(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     request_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    path_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("conversation_paths.id", ondelete="CASCADE"), nullable=True
+    )
     message_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

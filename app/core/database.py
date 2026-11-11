@@ -142,7 +142,7 @@ def create_conversation_tables() -> None:
     """Create or safely extend only the application-owned conversation tables."""
     from sqlalchemy import inspect, text
 
-    from ..models import Conversation, ConversationMessage
+    from ..models import Conversation, ConversationMessage, ConversationPath
 
     # Existing installations may already have the conversation tables. Add the
     # first-request idempotency column without dropping or rewriting user data.
@@ -161,12 +161,40 @@ def create_conversation_tables() -> None:
                     "ON conversations (organization_id, user_id, creation_request_id)"
                 )
             )
+            connection.execute(text(
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS parent_conversation_id UUID "
+                "REFERENCES conversations(id) ON DELETE SET NULL"
+            ))
+            connection.execute(text(
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS parent_message_id UUID"
+            ))
+            connection.execute(text(
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS parent_checkpoint_id VARCHAR(255)"
+            ))
+            connection.execute(text(
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS branch_action VARCHAR(32)"
+            ))
+            connection.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_conversations_parent "
+                "ON conversations (parent_conversation_id)"
+            ))
 
     # Importing the models package registers all FK targets in Base.metadata.
-    _ = (Conversation, ConversationMessage)
+    _ = (Conversation, ConversationMessage, ConversationPath)
     Conversation.__table__.create(bind=engine, checkfirst=True)
+    ConversationPath.__table__.create(bind=engine, checkfirst=True)
     ConversationMessage.__table__.create(bind=engine, checkfirst=True)
-    for table in (Conversation.__table__, ConversationMessage.__table__):
+    if "conversation_messages" in existing_tables:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "ALTER TABLE conversation_messages ADD COLUMN IF NOT EXISTS path_id UUID "
+                "REFERENCES conversation_paths(id) ON DELETE CASCADE"
+            ))
+            connection.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_conversation_messages_path "
+                "ON conversation_messages (conversation_id, path_id, sequence)"
+            ))
+    for table in (Conversation.__table__, ConversationPath.__table__, ConversationMessage.__table__):
         for index in table.indexes:
             index.create(bind=engine, checkfirst=True)
 
