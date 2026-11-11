@@ -33,7 +33,17 @@ from app.services.generation.generation_service import (
     _get_shared_rag_components,
 )
 
+from app.services.generation.image_attachments import prepare_image_attachments
+
 logger = logging.getLogger(__name__)
+
+
+def _vision_compatibility_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return any(marker in message for marker in (
+        "image_url", "image input", "vision", "multimodal", "unsupported image",
+        "does not support image", "image content",
+    ))
 
 
 class PersistentGenerationService(GenerationService):
@@ -174,6 +184,7 @@ class PersistentGenerationService(GenerationService):
         user_id: UUID,
         conversation_id: UUID | None,
         request_id: UUID,
+        metadata: dict | None = None,
     ) -> Conversation:
         if conversation_id is None:
             conversation = self.conversations.find_by_initial_request(
@@ -187,6 +198,7 @@ class PersistentGenerationService(GenerationService):
                     user_id=user_id,
                     request_id=request_id,
                     content=query,
+                    metadata=metadata,
                 )
         else:
             conversation = self.conversations.get_owned(
@@ -458,6 +470,7 @@ class PersistentGenerationService(GenerationService):
         user_message_id: UUID | None = None,
         assistant_message_id: UUID | None = None,
         pii_action: str | None = None,
+        images: list[Any] | None = None,
     ) -> GenerationResponse:
         request_id = request_id or uuid4()
         existing_response = self._existing_idempotent_response(
@@ -466,6 +479,8 @@ class PersistentGenerationService(GenerationService):
         )
         if existing_response is not None:
             return existing_response
+        if not query.strip() and images:
+            query = "Please analyze the attached image(s) and respond helpfully."
         policy = self._effective_guardrail_policy(organization_id)
         original_query = query
         try:
@@ -486,13 +501,25 @@ class PersistentGenerationService(GenerationService):
                 findings=[{"category": "pii", "confidence": 1.0}], policy=policy,
             )
             raise
+        image_metadata = prepare_image_attachments(
+            images or [],
+            organization_id=organization_id,
+            user_id=user_id,
+            request_id=request_id,
+        )
         query_was_redacted = query != original_query
+        message_metadata = {
+            **({"guardrail_decision": "redacted"} if query_was_redacted else {}),
+            **({"attachments": image_metadata} if image_metadata else {}),
+            **({"path_group_id": str(path_group_id)} if path_group_id else {}),
+        } or None
         conversation = self._prepare_conversation(
             query=query,
             organization_id=organization_id,
             user_id=user_id,
             conversation_id=conversation_id,
             request_id=request_id,
+            metadata=message_metadata,
         )
         if path_id is not None:
             path = self.session.scalar(select(ConversationPath).where(
@@ -507,7 +534,7 @@ class PersistentGenerationService(GenerationService):
                 conversation=conversation,
                 request_id=request_id,
                 content=query,
-                metadata={**({"guardrail_decision": "redacted"} if query_was_redacted else {}), **({"path_group_id": str(path_group_id)} if path_group_id else {})} or None,
+                metadata={**({"guardrail_decision": "redacted"} if query_was_redacted else {}), **({"attachments": image_metadata} if image_metadata else {}), **({"path_group_id": str(path_group_id)} if path_group_id else {})} or None,
                 message_id=user_message_id,
                 path_id=path_id,
             )
@@ -532,7 +559,11 @@ class PersistentGenerationService(GenerationService):
                 "organization_id": organization_id,
                 "user_id": user_id,
                 "request_id": str(request_id),
-                "messages": [HumanMessage(id=str(request_id), content=query)],
+                "messages": [HumanMessage(
+                    id=str(request_id),
+                    content=query,
+                    additional_kwargs={"image_attachments": image_metadata} if image_metadata else {},
+                )],
                 "effective_guardrail_policy": policy.model_dump(mode="json"),
                 **(
                     {"guardrail_decision": "redacted", "guardrail_categories": ["pii"]}
@@ -562,7 +593,11 @@ class PersistentGenerationService(GenerationService):
                     "Persistent RAG execution failed (conversation_id=%s).",
                     conversation.id,
                 )
-                raise GenerationExecutionError("The generation workflow failed.") from exc
+                raise GenerationExecutionError(
+                    "The configured model does not support image input. Please switch to a vision-capable model or send a text-only message."
+                    if image_metadata and _vision_compatibility_error(exc)
+                    else "The generation workflow failed."
+                ) from exc
 
             if result.get("is_valid") is not True:
                 return self._validated_response(
@@ -648,6 +683,7 @@ class PersistentGenerationService(GenerationService):
         user_message_id: UUID | None = None,
         assistant_message_id: UUID | None = None,
         pii_action: str | None = None,
+        images: list[Any] | None = None,
         on_event: Callable[[dict[str, Any]], Any],
     ) -> GenerationResponse:
         request_id = request_id or uuid4()
@@ -657,6 +693,8 @@ class PersistentGenerationService(GenerationService):
         )
         if existing_response is not None:
             return existing_response
+        if not query.strip() and images:
+            query = "Please analyze the attached image(s) and respond helpfully."
         policy = self._effective_guardrail_policy(organization_id)
         original_query = query
         try:
@@ -677,13 +715,25 @@ class PersistentGenerationService(GenerationService):
                 findings=[{"category": "pii", "confidence": 1.0}], policy=policy,
             )
             raise
+        image_metadata = prepare_image_attachments(
+            images or [],
+            organization_id=organization_id,
+            user_id=user_id,
+            request_id=request_id,
+        )
         query_was_redacted = query != original_query
+        message_metadata = {
+            **({"guardrail_decision": "redacted"} if query_was_redacted else {}),
+            **({"attachments": image_metadata} if image_metadata else {}),
+            **({"path_group_id": str(path_group_id)} if path_group_id else {}),
+        } or None
         conversation = self._prepare_conversation(
             query=query,
             organization_id=organization_id,
             user_id=user_id,
             conversation_id=conversation_id,
             request_id=request_id,
+            metadata=message_metadata,
         )
         if path_id is not None:
             path = self.session.scalar(select(ConversationPath).where(
@@ -704,7 +754,7 @@ class PersistentGenerationService(GenerationService):
                 conversation=conversation,
                 request_id=request_id,
                 content=query,
-                metadata={**({"guardrail_decision": "redacted"} if query_was_redacted else {}), **({"path_group_id": str(path_group_id)} if path_group_id else {})} or None,
+                metadata={**({"guardrail_decision": "redacted"} if query_was_redacted else {}), **({"attachments": image_metadata} if image_metadata else {}), **({"path_group_id": str(path_group_id)} if path_group_id else {})} or None,
                 message_id=user_message_id,
                 path_id=path_id,
             )
@@ -730,7 +780,11 @@ class PersistentGenerationService(GenerationService):
                 "organization_id": organization_id,
                 "user_id": user_id,
                 "request_id": str(request_id),
-                "messages": [HumanMessage(id=str(request_id), content=query)],
+                "messages": [HumanMessage(
+                    id=str(request_id),
+                    content=query,
+                    additional_kwargs={"image_attachments": image_metadata} if image_metadata else {},
+                )],
                 "effective_guardrail_policy": policy.model_dump(mode="json"),
                 **(
                     {"guardrail_decision": "redacted", "guardrail_categories": ["pii"]}
@@ -762,7 +816,11 @@ class PersistentGenerationService(GenerationService):
                     conversation.id,
                 )
                 raise GenerationExecutionError(
-                    "The streaming generation workflow failed."
+                    (
+                        "The configured model does not support image input. Please switch to a vision-capable model or send a text-only message."
+                        if image_metadata and _vision_compatibility_error(exc)
+                        else "The streaming generation workflow failed."
+                    )
                 ) from exc
 
             if result.get("is_valid") is not True:

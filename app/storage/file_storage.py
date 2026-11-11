@@ -117,6 +117,20 @@ class FileStorage:
             "content_type": uploaded.get("ContentType"),
         }
 
+    def upload_bytes(self, content: bytes, storage_key: str, content_type: str, metadata: dict[str, str] | None = None) -> dict:
+        """Upload in-memory content to the private bucket and verify its size."""
+        if not content or not storage_key or not storage_key.strip() or not content_type:
+            raise ValueError("Content, storage key, and content type are required.")
+        key = storage_key.lstrip("/")
+        arguments = {"Bucket": self.bucket, "Key": key, "Body": content, "ContentType": content_type}
+        if metadata:
+            arguments["Metadata"] = metadata
+        self.client.put_object(**arguments)
+        uploaded = self.client.head_object(Bucket=self.bucket, Key=key)
+        if uploaded.get("ContentLength") != len(content):
+            raise IOError("B2 upload verification failed: object size does not match.")
+        return {"storage_key": key, "bucket": self.bucket, "size": uploaded["ContentLength"], "content_type": uploaded.get("ContentType")}
+
     def download_file(
         self,
         storage_key: str,

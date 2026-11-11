@@ -5,6 +5,8 @@ from collections.abc import Callable
 from typing import Any
 
 from app.agents.Generation import GenerationAgent, GenerationStatus
+from langchain_core.messages import HumanMessage
+from app.services.generation.image_attachments import hydrate_image_history
 from app.guardrails.runtime_schemas import resolve_effective_policy
 from app.guardrails.runtime_service import RuntimeGuardrailService
 from app.workflows.rag.state import (
@@ -25,17 +27,32 @@ def create_generation_node(
 
     async def generation_node(state: RAGWorkflowState) -> dict[str, Any]:
         documents = state.get("context_documents") or state.get("retrieved_documents") or []
-        history = prior_conversation_messages(state)
+        history = list(prior_conversation_messages(state) or [])
+        request_id = str(state.get("request_id") or "")
+        current_image_message = next((
+            message for message in state.get("messages", [])
+            if isinstance(message, HumanMessage)
+            and str(getattr(message, "id", "")) == request_id
+            and (getattr(message, "additional_kwargs", None) or {}).get("image_attachments")
+        ), None)
+        if current_image_message is not None:
+            history.append(current_image_message)
+        history = hydrate_image_history(history)
         memories = state.get("long_term_memories") or []
+        has_image_input = any(
+            isinstance(getattr(message, "content", None), list)
+            and any(isinstance(block, dict) and block.get("type") == "image_url" for block in message.content)
+            for message in history
+        )
         status = (
             GenerationStatus.ANSWERED
-            if documents
+            if documents or has_image_input
             else GenerationStatus.INSUFFICIENT_EVIDENCE
         )
         generation_args: dict[str, Any] = {
             "current_query": state["query"],
             "retrieved_documents": documents,
-            "conversation_history": history,
+            "conversation_history": history if history else None,
             "status": status,
         }
         if memories:

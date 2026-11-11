@@ -5,14 +5,16 @@ import re
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 
+from app.core.config import settings
 from app.llm.generator_client import generator_llm_client
+from app.llm.model_router import ModelRoute, ModelRouter
 from app.validation import InvalidCitationReferenceError, static_validation_layer
 
 from .config import GenerationConfig
-from .prompts import get_generation_prompt
+from .prompts import get_generation_prompt, get_generation_system_instructions
 from .schemas import (
     AnswerSegment,
     GenerationOutput,
@@ -56,8 +58,12 @@ class GenerationAgent:
             max_output_tokens=self.config.max_output_tokens,
         )
         self.prompt = get_generation_prompt()
+        self.vision_prompt = get_generation_prompt(multimodal=True)
         self.chain = self.prompt | self.llm | StrOutputParser()
         self.streaming_chain = self.prompt | self.llm | StrOutputParser()
+        self.model_router = ModelRouter()
+        self._vision_llm: Any | None = None
+        self._vision_chain: Any | None = None
 
     @staticmethod
     def _prepare_evidence(
@@ -168,6 +174,114 @@ class GenerationAgent:
         except InvalidCitationReferenceError as exc:
             raise CitationValidationError(exc.invalid_citations) from exc
 
+    @staticmethod
+    def _has_image_input(history: Sequence[BaseMessage] | None) -> bool:
+        return ModelRouter.has_image_input(history)
+
+    def _select_chain(
+        self,
+        conversation_history: Sequence[BaseMessage] | None,
+    ) -> tuple[Any, bool]:
+        route = self.model_router.select_route(conversation_history)
+        if route is ModelRoute.TEXT:
+            return self.chain, False
+        if self._vision_chain is None:
+            self._vision_llm = generator_llm_client.get_vision_llm(
+                temperature=self.config.temperature,
+                max_output_tokens=settings.OPENAI_VISION_MAX_OUTPUT_TOKENS,
+            )
+            self._vision_chain = self.vision_prompt | self._vision_llm | StrOutputParser()
+        return self._vision_chain, True
+
+    @staticmethod
+    def _build_vision_payload(
+        current_query: str,
+        evidence: Sequence[dict[str, Any]],
+        conversation_history: Sequence[BaseMessage] | None,
+        long_term_memories: Sequence[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        # Keep the vision request compact for Palmyra Vision's 4K-token context.
+        compact_evidence = [
+            {**item, "content": str(item.get("content", ""))[:600]}
+            for item in list(evidence)[:2]
+        ]
+        history = list(conversation_history or [])
+        current_image_message: BaseMessage | None = None
+        if history and ModelRouter.has_image_input([history[-1]]) and isinstance(history[-1], HumanMessage):
+            current_image_message = history.pop()
+
+        compact_history: list[BaseMessage] = []
+        for message in history[-3:]:
+            content = getattr(message, "content", None)
+            if isinstance(content, str):
+                compact_content: Any = content[-600:]
+            elif isinstance(content, list):
+                compact_content = []
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") == "image_url":
+                        compact_content.append(block)
+                    elif block.get("type") == "text":
+                        compact_content.append({
+                            **block,
+                            "text": str(block.get("text", ""))[-500:],
+                        })
+            else:
+                compact_content = content
+            try:
+                compact_history.append(message.model_copy(update={"content": compact_content}))
+            except AttributeError:
+                compact_history.append(message.copy(update={"content": compact_content}))
+
+        previous_user_images: list[dict[str, Any]] = []
+        previous_user_text = "(none)"
+        if compact_history and isinstance(compact_history[-1], HumanMessage):
+            # Fold a trailing user turn into the current one to preserve strict
+            # user/assistant alternation required by the Bedrock vision endpoint.
+            previous_user = compact_history.pop()
+            previous_content = previous_user.content
+            if isinstance(previous_content, str):
+                previous_user_text = previous_content[-500:]
+            elif isinstance(previous_content, list):
+                previous_text_blocks = [
+                    str(block.get("text", ""))[-500:]
+                    for block in previous_content
+                    if isinstance(block, dict) and block.get("type") == "text"
+                ]
+                previous_user_text = "\n".join(previous_text_blocks)
+                previous_user_images = [
+                    block for block in previous_content
+                    if isinstance(block, dict) and block.get("type") == "image_url"
+                ]
+            else:
+                previous_user_text = ""
+
+        prompt_text = (
+            "TRUSTED SAVIRACORTEX ASSISTANT INSTRUCTIONS\n"
+            + get_generation_system_instructions()
+            + "\n\nPREVIOUS USER TURN (UNTRUSTED CONTEXT)\n"
+            + previous_user_text
+            + "\n\nCURRENT USER QUERY (UNTRUSTED INPUT)\n"
+            + json.dumps(current_query[-1200:], ensure_ascii=False)
+            + "\n\nRELEVANT LONG-TERM USER CONTEXT (UNTRUSTED CONTEXT)\n"
+            + json.dumps(list(long_term_memories or [])[:2], ensure_ascii=False)
+            + "\n\nRETRIEVED COMPANY-DOCUMENT EVIDENCE (UNTRUSTED SOURCE CONTENT)\n"
+            + json.dumps(compact_evidence, ensure_ascii=False)
+        )
+        current_content: list[dict[str, Any]] = [{"type": "text", "text": prompt_text}]
+        current_content.extend(previous_user_images)
+        if current_image_message is not None and isinstance(current_image_message.content, list):
+            current_content.extend(
+                block for block in current_image_message.content
+                if isinstance(block, dict) and block.get("type") == "image_url"
+            )
+
+        return {
+            "conversation_history": compact_history,
+            "current_user_message": [HumanMessage(content=current_content)],
+        }
+
     def generate(
         self,
         current_query: str,
@@ -177,11 +291,17 @@ class GenerationAgent:
         long_term_memories: Sequence[dict[str, Any]] | None = None,
     ) -> GenerationOutput:
         evidence = self._prepare_evidence(retrieved_documents)
-        if not evidence:
+        if not evidence and not self._has_image_input(conversation_history):
             return self._insufficient_evidence_output()
-        markdown = self.chain.invoke(
-            self._build_payload(current_query, evidence, conversation_history, long_term_memories),
-            config={"metadata": {"agent": "generation"}},
+        chain, use_vision = self._select_chain(conversation_history)
+        payload = (
+            self._build_vision_payload(current_query, evidence, conversation_history, long_term_memories)
+            if use_vision
+            else self._build_payload(current_query, evidence, conversation_history, long_term_memories)
+        )
+        markdown = chain.invoke(
+            payload,
+            config={"metadata": {"agent": "generation", "model_route": "vision" if use_vision else "text"}},
         )
         return self._build_output(str(markdown), evidence, status)
 
@@ -194,11 +314,17 @@ class GenerationAgent:
         long_term_memories: Sequence[dict[str, Any]] | None = None,
     ) -> GenerationOutput:
         evidence = self._prepare_evidence(retrieved_documents)
-        if not evidence:
+        if not evidence and not self._has_image_input(conversation_history):
             return self._insufficient_evidence_output()
-        markdown = await self.chain.ainvoke(
-            self._build_payload(current_query, evidence, conversation_history, long_term_memories),
-            config={"metadata": {"agent": "generation"}},
+        chain, use_vision = self._select_chain(conversation_history)
+        payload = (
+            self._build_vision_payload(current_query, evidence, conversation_history, long_term_memories)
+            if use_vision
+            else self._build_payload(current_query, evidence, conversation_history, long_term_memories)
+        )
+        markdown = await chain.ainvoke(
+            payload,
+            config={"metadata": {"agent": "generation", "model_route": "vision" if use_vision else "text"}},
         )
         return self._build_output(str(markdown), evidence, status)
 
@@ -212,7 +338,7 @@ class GenerationAgent:
     ) -> AsyncIterator[GenerationStreamEvent]:
         """Stream plain Markdown deltas; emit completion only after citation checks."""
         evidence = self._prepare_evidence(retrieved_documents)
-        if not evidence:
+        if not evidence and not self._has_image_input(conversation_history):
             yield GenerationStreamEvent(
                 event_type=GenerationStreamEventType.COMPLETED,
                 output=self._insufficient_evidence_output(),
@@ -220,9 +346,17 @@ class GenerationAgent:
             return
 
         chunks: list[str] = []
-        async for chunk in self.streaming_chain.astream(
-            self._build_payload(current_query, evidence, conversation_history, long_term_memories),
-            config={"metadata": {"agent": "generation"}},
+        chain, use_vision = self._select_chain(conversation_history)
+        if not use_vision:
+            chain = self.streaming_chain
+        payload = (
+            self._build_vision_payload(current_query, evidence, conversation_history, long_term_memories)
+            if use_vision
+            else self._build_payload(current_query, evidence, conversation_history, long_term_memories)
+        )
+        async for chunk in chain.astream(
+            payload,
+            config={"metadata": {"agent": "generation", "model_route": "vision" if use_vision else "text"}},
         ):
             if not isinstance(chunk, str):
                 raise GenerationAgentError("The Markdown stream returned an unexpected value.")

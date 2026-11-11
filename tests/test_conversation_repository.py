@@ -16,6 +16,7 @@ def test_conversation_repository_allocates_stable_message_sequences(
         user_id=organization_context["owner"].id,
         request_id=request_id,
         content="  Explain our leave policy.  ",
+        metadata={"attachments": [{"id": "image-1"}]},
     )
 
     repository.append_user_message(
@@ -40,6 +41,7 @@ def test_conversation_repository_allocates_stable_message_sequences(
     assert [message.sequence for message in messages] == [1, 2, 3]
     assert [message.role for message in messages] == ["user", "user", "assistant"]
     assert messages[0].content == "  Explain our leave policy.  "
+    assert messages[0].message_metadata == {"attachments": [{"id": "image-1"}]}
 
 
 def test_initial_request_id_makes_conversation_creation_idempotent(

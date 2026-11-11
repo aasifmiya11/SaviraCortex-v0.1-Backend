@@ -13,6 +13,9 @@ The helper `get_bool(name, default=False)` treats `true`, `1`, `yes` and `on` (c
 | `OPENAI_BASE_URL` | Chat model API base URL | Provider-dependent |
 | `OPENAI_API_KEY` | Chat model credential | Secret |
 | `OPENAI_MODEL` | Chat model identifier | Provider-dependent |
+| `OPENAI_VISION_ENABLED` | Enable automatic image-model routing | Defaults to `false`; set to `true` only after verifying the vision model and endpoint |
+| `OPENAI_VISION_MODEL` | Model used for turns containing images | Defaults to `writer.palmyra-vision-7b` |
+| `OPENAI_VISION_MAX_OUTPUT_TOKENS` | Output cap for vision-model turns | Defaults to `1024` to fit the vision model's context window |
 | `FIREBASE_PROJECT_ID` | Firebase Admin project ID | Must match the intended Firebase project |
 | `FIREBASE_DATABASE_URL` | Optional Firebase database URL | Only needed where applicable |
 | `FIREBASE_SERVICE_ACCOUNT_PATH` | Backend service-account JSON path | Defaults to `app/secrets/firebase-service-account.json`; secret file, never commit |
@@ -75,6 +78,7 @@ Use placeholders only; do not copy real credentials into documentation:
 OPENAI_BASE_URL=
 OPENAI_API_KEY=
 OPENAI_MODEL=
+OPENAI_VISION_ENABLED=false
 
 FIREBASE_PROJECT_ID=
 FIREBASE_DATABASE_URL=

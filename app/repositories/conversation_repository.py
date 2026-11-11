@@ -65,6 +65,7 @@ class ConversationRepository:
         user_id: UUID,
         request_id: UUID,
         content: str,
+        metadata: dict | None = None,
     ) -> Conversation:
         conversation = Conversation(
             organization_id=organization_id,
@@ -83,7 +84,7 @@ class ConversationRepository:
                     role="user",
                     content=content,
                     request_id=request_id,
-                    message_metadata={},
+                    message_metadata=metadata or {},
                 )
             )
             self.session.commit()
@@ -102,6 +103,7 @@ class ConversationRepository:
                 conversation=existing,
                 request_id=request_id,
                 content=content,
+                metadata=metadata,
             )
             return existing
 

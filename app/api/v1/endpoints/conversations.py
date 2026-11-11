@@ -21,6 +21,8 @@ from app.services.conversation_time_travel_service import (
     ConversationTimeTravelError, ConversationTimeTravelService,
 )
 
+from app.storage.file_storage import FileStorage
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
@@ -165,6 +167,19 @@ def list_conversation_messages(
             metadata.setdefault("path_group_id", str(item.id))
         elif item.role == "assistant":
             metadata.setdefault("path_group_id", prior_user_by_sequence.get(item.sequence))
+        attachments = metadata.get("attachments") or []
+        if attachments:
+            try:
+                storage = FileStorage()
+                owner_prefix = (
+                    f"{storage.prefix}organizations/{organization_id}/users/{user.id}/conversation-images/"
+                )
+                for attachment in attachments:
+                    key = attachment.get("storage_key")
+                    if isinstance(key, str) and key.startswith(owner_prefix):
+                        attachment["url"] = storage.generate_download_url(key, expiration_seconds=300)
+            except Exception:
+                logger.exception("Unable to create temporary image URLs for conversation %s.", conversation_id)
         generation_id = metadata.get("generation_id")
         if generation_id:
             metadata["feedback_status"] = feedback_by_generation.get(generation_id)

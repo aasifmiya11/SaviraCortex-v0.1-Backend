@@ -118,6 +118,7 @@ async def generate_answer(
             user_message_id=payload.user_message_id,
             assistant_message_id=payload.assistant_message_id,
             pii_action=payload.pii_action,
+            images=payload.images,
         )
         if payload.conversation_id is None and response.conversation_id is not None:
             background_tasks.add_task(
@@ -125,7 +126,7 @@ async def generate_answer(
                 conversation_id=response.conversation_id,
                 organization_id=organization_id,
                 user_id=user.id,
-                first_message=payload.query,
+                first_message=response.query,
             )
         return response
     except GuardrailConsentRequiredError as exc:
@@ -222,6 +223,7 @@ async def generate_answer_stream(
                     user_message_id=payload.user_message_id,
                     assistant_message_id=payload.assistant_message_id,
                     pii_action=payload.pii_action,
+                    images=payload.images,
                     on_event=queue.put_nowait,
                 )
                 if payload.conversation_id is None and response.conversation_id is not None:
@@ -230,7 +232,7 @@ async def generate_answer_stream(
                         conversation_id=response.conversation_id,
                         organization_id=organization_id,
                         user_id=user.id,
-                        first_message=payload.query,
+                        first_message=response.query,
                     )
             except GuardrailConsentRequiredError as exc:
                 await queue.put({
@@ -253,6 +255,10 @@ async def generate_answer_stream(
                 await queue.put(error_event("invalid_query", str(exc)))
             except ValueError as exc:
                 await queue.put(error_event("invalid_request", str(exc)))
+            except GenerationExecutionError as exc:
+                message = str(exc)
+                code = "vision_model_unsupported" if "does not support image input" in message.lower() else "generation_failed"
+                await queue.put(error_event(code, message))
             except GenerationValidationError:
                 await queue.put(error_event("citation_validation_failed", "The answer failed citation validation. Please retry."))
             except Exception:

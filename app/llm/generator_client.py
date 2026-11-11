@@ -8,6 +8,23 @@ from app.core.config import settings
 class GeneratorLLMClient:
     """Creates the chat model used exclusively by the generation agent."""
 
+    def get_vision_llm(
+        self,
+        *,
+        temperature: float = 0.1,
+        max_output_tokens: int | None = None,
+    ) -> ChatOpenAI:
+        if not settings.OPENAI_VISION_ENABLED:
+            raise RuntimeError("Vision model routing is disabled by OPENAI_VISION_ENABLED.")
+        return ChatOpenAI(
+            model_name=settings.OPENAI_VISION_MODEL,
+            base_url=settings.OPENAI_BASE_URL,
+            api_key=settings.OPENAI_API_KEY,
+            temperature=temperature,
+            max_tokens=max_output_tokens or settings.OPENAI_VISION_MAX_OUTPUT_TOKENS,
+            streaming=True,
+        )
+
     def get_llm(
         self,
         *,

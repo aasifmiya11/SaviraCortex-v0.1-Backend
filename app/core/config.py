@@ -51,6 +51,10 @@ class Settings:
     OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OPENAI_MODEL = os.getenv("OPENAI_MODEL")
+    # Vision support must be enabled only after the configured model is verified.
+    OPENAI_VISION_ENABLED = get_bool("OPENAI_VISION_ENABLED", False)
+    OPENAI_VISION_MODEL = os.getenv("OPENAI_VISION_MODEL", "writer.palmyra-vision-7b")
+    OPENAI_VISION_MAX_OUTPUT_TOKENS = max(128, int(os.getenv("OPENAI_VISION_MAX_OUTPUT_TOKENS", "1024")))
 
 
     MIN_NATIVE_CHARS = int(os.getenv("MIN_NATIVE_CHARS", "50"))
